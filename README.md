@@ -1,8 +1,6 @@
-# Pillbox
-A simple pillbox sample, made for an ESP8266. Specially made for a project based on a servo controller and a html server with a AP made by the ESP8266. 
-Future improvements are going to be added soon...
+this is a repository made for different proyects
+made by my team, incluiding proyects are: Pillbox and Medibot
 
 
 
-
-made by 1A ECA/CDB.
+made by 2027 ECA/CDB.
