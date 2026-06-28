@@ -28,6 +28,12 @@ ZONE_Y = FRAME_H // 3
 
 PWM_X, PWM_Y = 18, 13
 
+# Pines del joystick / movimiento del robot (salidas digitales)
+JOY_UP_PIN    = 17   # Adelante (W)
+JOY_DOWN_PIN  = 27   # Atrás (S)
+JOY_LEFT_PIN  = 22   # Izquierda (A)
+JOY_RIGHT_PIN = 23   # Derecha (D)
+
 DATA_PATH = "data"
 VIDEO_PATH = "videos"
 # ================================================
@@ -65,6 +71,62 @@ def move_servos(x_pos, y_pos):
         pwm_y.ChangeDutyCycle(9.5)
     else:
         pwm_y.ChangeDutyCycle(7.5)
+
+# ================= JOYSTICK / MOVIMIENTO DEL ROBOT =========
+# Salidas digitales que controlan el movimiento del robot (adelante, atrás,
+# izquierda, derecha). Se controlan desde la interfaz web (joystick + WASD).
+JOY_PINS = {
+    "up": JOY_UP_PIN,
+    "down": JOY_DOWN_PIN,
+    "left": JOY_LEFT_PIN,
+    "right": JOY_RIGHT_PIN,
+}
+for _joy_pin in JOY_PINS.values():
+    GPIO.setup(_joy_pin, GPIO.OUT, initial=GPIO.LOW)
+
+joystick_dirs = set()
+last_joystick_time = 0
+joystick_lock = threading.Lock()
+
+def set_joystick(dirs):
+    """Activa/desactiva los pines GPIO de movimiento según las direcciones dadas.
+
+    'dirs' es un iterable con cualquier combinación de: up, down, left, right.
+    Por seguridad se descartan direcciones opuestas simultáneas.
+    """
+    global joystick_dirs, last_joystick_time
+    valid = {d for d in dirs if d in JOY_PINS}
+
+    # Evitar activar pines opuestos al mismo tiempo
+    if "up" in valid and "down" in valid:
+        valid.discard("up")
+        valid.discard("down")
+    if "left" in valid and "right" in valid:
+        valid.discard("left")
+        valid.discard("right")
+
+    with joystick_lock:
+        joystick_dirs = valid
+        last_joystick_time = time.time()
+        for name, pin in JOY_PINS.items():
+            GPIO.output(pin, GPIO.HIGH if name in valid else GPIO.LOW)
+
+def stop_joystick():
+    """Detiene todo el movimiento (todos los pines de movimiento en LOW)."""
+    set_joystick(set())
+
+def joystick_watchdog():
+    """Detiene los motores si se deja de recibir comandos (pérdida de conexión).
+
+    Mientras haya movimiento activo, el navegador envía un 'keepalive'. Si no
+    llega ningún comando en 0.7s, asumimos que se perdió la conexión y paramos.
+    """
+    while True:
+        time.sleep(0.2)
+        if joystick_dirs and (time.time() - last_joystick_time) > 0.7:
+            stop_joystick()
+
+threading.Thread(target=joystick_watchdog, daemon=True).start()
 
 # ================= OPTIMIZADOR DE CÁMARA =========
 class CameraOptimizer:
@@ -1143,7 +1205,64 @@ HTML_TEMPLATE = """
             box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
             color: #000000;
         }
-        
+
+        .joystick-panel {
+            background: #222222;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #333333;
+        }
+
+        .joystick-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        #joystick-canvas {
+            background: #111111;
+            border-radius: 50%;
+            border: 1px solid #333333;
+            touch-action: none;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .joystick-help {
+            color: #888888;
+            font-size: 0.95em;
+            max-width: 320px;
+        }
+
+        .joystick-dirs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .joy-dir {
+            background: #333333;
+            color: #888888;
+            padding: 8px 12px;
+            border-radius: 5px;
+            text-align: center;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            font-size: 0.9em;
+        }
+
+        .joy-dir.active {
+            background: #00ff00;
+            color: #000000;
+            border-color: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+        }
+
         .footer {
             text-align: center;
             margin-top: 30px;
@@ -1280,7 +1399,26 @@ HTML_TEMPLATE = """
                 <div class="position-cell" id="pos-br">↘</div>
             </div>
         </div>
-        
+
+        <div class="joystick-panel">
+            <div class="status-title">Control de Movimiento (Joystick)</div>
+            <div class="joystick-wrapper">
+                <canvas id="joystick-canvas" width="200" height="200"></canvas>
+                <div class="joystick-help">
+                    <p>Arrastra el joystick con el ratón o el dedo, o usa las teclas <b>W</b> (adelante), <b>A</b> (izquierda), <b>S</b> (atrás) y <b>D</b> (derecha).</p>
+                    <div class="joystick-dirs">
+                        <span id="joy-dir-up" class="joy-dir">▲ Adelante</span>
+                        <span id="joy-dir-down" class="joy-dir">▼ Atrás</span>
+                        <span id="joy-dir-left" class="joy-dir">◀ Izquierda</span>
+                        <span id="joy-dir-right" class="joy-dir">▶ Derecha</span>
+                    </div>
+                    <button class="control-button" onclick="stopJoystick()" style="margin-top: 12px; width: 100%;">
+                        Detener Movimiento
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="control-panel">
             <button class="control-button" onclick="toggleSystem()" id="systemBtn">
                 Iniciar Sistema
@@ -1615,6 +1753,198 @@ HTML_TEMPLATE = """
         window.addEventListener('beforeunload', function() {
             stopUpdates();
         });
+
+        // ================= JOYSTICK DE MOVIMIENTO =================
+        (function() {
+            const canvas = document.getElementById('joystick-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            const cx = W / 2, cy = H / 2;
+            const radioBase = 70;   // radio del área de movimiento
+            const radioStick = 22;  // radio de la palanca
+            const offsetMax = 55;   // desplazamiento máximo del stick
+            const umbral = 8;       // zona muerta antes de activar una dirección
+
+            const keyToDir = { w: 'up', s: 'down', a: 'left', d: 'right' };
+
+            let pos = { x: cx, y: cy };
+            let dragging = false;
+            const keys = new Set();   // teclas WASD presionadas
+            let lastSent = null;      // último estado enviado (para evitar repetir)
+            let keepalive = null;     // intervalo de keepalive mientras hay movimiento
+
+            function currentDirs() {
+                // Combina el arrastre del stick con las teclas WASD
+                const dirs = new Set();
+                if (dragging) {
+                    const dx = pos.x - cx, dy = pos.y - cy;
+                    if (dx > umbral) dirs.add('right');
+                    else if (dx < -umbral) dirs.add('left');
+                    if (dy < -umbral) dirs.add('up');
+                    else if (dy > umbral) dirs.add('down');
+                }
+                keys.forEach(k => { if (keyToDir[k]) dirs.add(keyToDir[k]); });
+                return Array.from(dirs);
+            }
+
+            function updateIndicators(dirs) {
+                ['up', 'down', 'left', 'right'].forEach(d => {
+                    const el = document.getElementById('joy-dir-' + d);
+                    if (el) el.classList.toggle('active', dirs.indexOf(d) !== -1);
+                });
+            }
+
+            function draw() {
+                const dirs = currentDirs();
+                ctx.clearRect(0, 0, W, H);
+
+                // Base
+                ctx.beginPath();
+                ctx.arc(cx, cy, radioBase, 0, Math.PI * 2);
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#00ffff';
+                ctx.stroke();
+
+                // Etiquetas WASD
+                ctx.fillStyle = '#666666';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('W', cx, cy - radioBase + 14);
+                ctx.fillText('S', cx, cy + radioBase - 14);
+                ctx.fillText('A', cx - radioBase + 14, cy);
+                ctx.fillText('D', cx + radioBase - 14, cy);
+
+                // Palanca
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radioStick, 0, Math.PI * 2);
+                ctx.fillStyle = dirs.length > 0 ? '#00ff00' : '#ff3333';
+                ctx.fill();
+
+                updateIndicators(dirs);
+            }
+
+            function send() {
+                const dirs = currentDirs();
+                const sig = dirs.slice().sort().join(',');
+                draw();
+                if (sig === lastSent) return;   // sin cambios, no reenviar
+                lastSent = sig;
+
+                fetch('/joystick', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dirs: dirs })
+                }).catch(e => console.error('Error joystick:', e));
+
+                // Keepalive: reenvía el estado mientras haya movimiento, para que
+                // el watchdog del servidor no detenga los motores.
+                if (dirs.length > 0 && !keepalive) {
+                    keepalive = setInterval(() => {
+                        fetch('/joystick', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ dirs: currentDirs() })
+                        }).catch(() => {});
+                    }, 200);
+                } else if (dirs.length === 0 && keepalive) {
+                    clearInterval(keepalive);
+                    keepalive = null;
+                }
+            }
+
+            // ---- Arrastre con ratón / dedo (pointer events) ----
+            function setStickFromPointer(clientX, clientY) {
+                const rect = canvas.getBoundingClientRect();
+                const x = clientX - rect.left;
+                const y = clientY - rect.top;
+                const dx = Math.max(-offsetMax, Math.min(offsetMax, x - cx));
+                const dy = Math.max(-offsetMax, Math.min(offsetMax, y - cy));
+                pos.x = cx + dx;
+                pos.y = cy + dy;
+                send();
+            }
+
+            canvas.addEventListener('pointerdown', function(e) {
+                dragging = true;
+                if (canvas.setPointerCapture) {
+                    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+                }
+                setStickFromPointer(e.clientX, e.clientY);
+                e.preventDefault();
+            });
+
+            canvas.addEventListener('pointermove', function(e) {
+                if (dragging) {
+                    setStickFromPointer(e.clientX, e.clientY);
+                    e.preventDefault();
+                }
+            });
+
+            function endDrag() {
+                if (!dragging) return;
+                dragging = false;
+                pos.x = cx;
+                pos.y = cy;
+                send();   // recentra; mantiene direcciones de teclado si las hay
+            }
+            canvas.addEventListener('pointerup', endDrag);
+            canvas.addEventListener('pointercancel', endDrag);
+
+            // ---- Teclado WASD ----
+            function moveStickFromKeys() {
+                let dx = 0, dy = 0;
+                if (keys.has('a')) dx -= offsetMax;
+                if (keys.has('d')) dx += offsetMax;
+                if (keys.has('w')) dy -= offsetMax;
+                if (keys.has('s')) dy += offsetMax;
+                pos.x = cx + Math.max(-offsetMax, Math.min(offsetMax, dx));
+                pos.y = cy + Math.max(-offsetMax, Math.min(offsetMax, dy));
+            }
+
+            document.addEventListener('keydown', function(e) {
+                const t = e.target.tagName;
+                if (t === 'INPUT' || t === 'TEXTAREA') return;
+                const k = e.key.toLowerCase();
+                if (keyToDir[k] && !keys.has(k)) {
+                    keys.add(k);
+                    if (!dragging) moveStickFromKeys();
+                    send();
+                }
+            });
+
+            document.addEventListener('keyup', function(e) {
+                const k = e.key.toLowerCase();
+                if (keys.has(k)) {
+                    keys.delete(k);
+                    if (!dragging) moveStickFromKeys();
+                    send();
+                }
+            });
+
+            // ---- Botón / función global para detener ----
+            window.stopJoystick = function() {
+                keys.clear();
+                dragging = false;
+                pos.x = cx;
+                pos.y = cy;
+                lastSent = null;   // fuerza el envío del estado de parada
+                send();
+            };
+
+            // ---- Seguridad: detener al ocultar / cerrar la página ----
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) window.stopJoystick();
+            });
+            window.addEventListener('beforeunload', function() {
+                try { navigator.sendBeacon('/joystick/stop'); } catch (e) {}
+            });
+
+            draw();   // dibujo inicial
+        })();
     </script>
 </body>
 </html>
@@ -1954,6 +2284,27 @@ def center_camera_endpoint():
     """Centra la cámara"""
     center_pwm()
     return jsonify({"message": "Cámara centrada"})
+
+@app.route("/joystick", methods=["POST"])
+def joystick_endpoint():
+    """Recibe las direcciones activas del joystick web y mueve el robot.
+
+    Espera un JSON: {"dirs": ["up", "right", ...]}.
+    Cada petición refleja el estado completo del joystick (es idempotente),
+    por lo que también funciona como 'keepalive' del watchdog de seguridad.
+    """
+    data = request.get_json(silent=True) or {}
+    dirs = data.get("dirs", [])
+    if not isinstance(dirs, list):
+        dirs = []
+    set_joystick(dirs)
+    return jsonify({"active": sorted(joystick_dirs)})
+
+@app.route("/joystick/stop", methods=["POST"])
+def joystick_stop_endpoint():
+    """Detiene el movimiento del robot (todos los pines en LOW)."""
+    stop_joystick()
+    return jsonify({"active": []})
 
 @app.route("/optimize_camera", methods=["POST"])
 def optimize_camera_endpoint():
