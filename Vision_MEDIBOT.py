@@ -10,8 +10,45 @@ import webbrowser
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox, scrolledtext
 from PIL import Image, ImageTk
-import RPi.GPIO as GPIO
 from flask import Flask, Response, render_template_string, jsonify, send_from_directory, request
+
+# ================= GPIO OPCIONAL =================
+# Funciona en Raspberry Pi (Bullseye Raspbian) y también sin hardware.
+# - Si RPi.GPIO no está disponible, se desactiva automáticamente.
+# - Pon GPIO_ENABLED = False para forzar la desactivación (ej. probar en PC
+#   o en una Raspberry sin servos/motores conectados).
+GPIO_ENABLED = True
+
+class _DummyPWM:
+    """Sustituto de GPIO.PWM cuando el GPIO está desactivado (no hace nada)"""
+    def __init__(self, *a, **k): pass
+    def start(self, *a, **k): pass
+    def ChangeDutyCycle(self, *a, **k): pass
+    def stop(self, *a, **k): pass
+
+class _DummyGPIO:
+    """Sustituto de RPi.GPIO cuando no hay hardware: todas las llamadas son inocuas"""
+    BCM = "BCM"; BOARD = "BOARD"; OUT = "OUT"; IN = "IN"; HIGH = 1; LOW = 0
+    def setmode(self, *a, **k): pass
+    def setwarnings(self, *a, **k): pass
+    def setup(self, *a, **k): pass
+    def output(self, *a, **k): pass
+    def input(self, *a, **k): return 0
+    def cleanup(self, *a, **k): pass
+    def PWM(self, *a, **k): return _DummyPWM()
+
+if GPIO_ENABLED:
+    try:
+        import RPi.GPIO as GPIO
+    except Exception as _e:
+        print(f"AVISO: RPi.GPIO no disponible ({_e}). GPIO desactivado; "
+              f"el sistema correrá sin servos/motores.")
+        GPIO = _DummyGPIO()
+        GPIO_ENABLED = False
+else:
+    print("AVISO: GPIO desactivado por configuración (GPIO_ENABLED = False).")
+    GPIO = _DummyGPIO()
+# ================================================
 from datetime import datetime
 import subprocess
 
@@ -27,6 +64,9 @@ ZONE_X = FRAME_W // 3
 ZONE_Y = FRAME_H // 3
 
 PWM_X, PWM_Y = 18, 13
+
+# Pines de movimiento del robot (joystick W/A/S/D)
+MOVE_PINS = {"w": 17, "s": 27, "a": 22, "d": 23}
 
 DATA_PATH = "data"
 VIDEO_PATH = "videos"
@@ -44,6 +84,26 @@ pwm_x = GPIO.PWM(PWM_X, 50)
 pwm_y = GPIO.PWM(PWM_Y, 50)
 pwm_x.start(7.5)
 pwm_y.start(7.5)
+
+# ---- Pines de movimiento (joystick W/A/S/D) ----
+for _mpin in MOVE_PINS.values():
+    GPIO.setup(_mpin, GPIO.OUT, initial=GPIO.LOW)
+
+movement_state = {"w": False, "a": False, "s": False, "d": False}
+
+def apply_movement():
+    """Refleja movement_state en los pines GPIO de movimiento"""
+    for _d, _pin in MOVE_PINS.items():
+        try:
+            GPIO.output(_pin, GPIO.HIGH if movement_state[_d] else GPIO.LOW)
+        except Exception:
+            pass
+
+def set_movement(directions):
+    """Activa las direcciones indicadas (iterable de 'w','a','s','d') y apaga el resto"""
+    for _d in movement_state:
+        movement_state[_d] = _d in directions
+    apply_movement()
 
 def center_pwm():
     """Centrar la camara"""
@@ -1275,6 +1335,36 @@ HTML_TEMPLATE = """
         html[data-theme="light"] .theme-toggle:hover { background: #e3e9ef; border-color: #0aa6a0; }
         html[data-theme="light"] .wm-bot { color: #15202b; }
         html[data-theme="light"] .brand-tag { color: #5a6772; }
+
+        /* ===== Joystick / Movimiento ===== */
+        .joystick-wrap { display: flex; justify-content: center; margin: 20px 0; }
+        .joystick-base {
+            position: relative; width: 180px; height: 180px; border-radius: 50%;
+            background: #333333; border: 3px solid #00ffff; touch-action: none; cursor: pointer;
+        }
+        .joystick-stick {
+            position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px;
+            border-radius: 50%; background: #00ffff; box-shadow: 0 0 12px rgba(0, 255, 255, 0.6);
+            transition: transform 0.05s linear; pointer-events: none;
+        }
+        .dpad { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 20px 0; }
+        .dpad-row { display: flex; gap: 10px; }
+        .move-btn {
+            width: 60px; height: 60px; font-size: 1.4em; border-radius: 10px;
+            background: #222222; color: #00ffff; border: 1px solid #333333; cursor: pointer;
+            transition: all 0.15s ease; user-select: none; -webkit-user-select: none;
+        }
+        .move-btn:hover { border-color: #00ffff; }
+        .move-btn.active, .move-btn:active { background: #00ffff; color: #000000; }
+        .move-stop { color: #ff5555; }
+        .move-status { text-align: center; color: #888888; margin-top: 10px; font-weight: bold; }
+
+        html[data-theme="light"] .joystick-base { background: #e3e9ef; border-color: #0aa6a0; }
+        html[data-theme="light"] .joystick-stick { background: #0aa6a0; box-shadow: 0 0 12px rgba(10, 166, 160, 0.5); }
+        html[data-theme="light"] .move-btn { background: #f4f7fa; color: #0aa6a0; border-color: #d4dae0; }
+        html[data-theme="light"] .move-btn:hover { border-color: #0aa6a0; }
+        html[data-theme="light"] .move-btn.active, html[data-theme="light"] .move-btn:active { background: #0aa6a0; color: #ffffff; }
+        html[data-theme="light"] .move-status { color: #5a6772; }
     </style>
 </head>
 <body>
@@ -1411,6 +1501,7 @@ HTML_TEMPLATE = """
         <div class="tab-container">
             <div class="tab-buttons">
                 <button class="tab-button active" onclick="showTab('info')">Información</button>
+                <button class="tab-button" onclick="showTab('movement')">Movimiento</button>
                 <button class="tab-button" onclick="showTab('videos')">Videos Grabados</button>
                 <button class="tab-button" onclick="showTab('settings')">Configuración</button>
             </div>
@@ -1431,7 +1522,29 @@ HTML_TEMPLATE = """
                     <p><strong>Estado actual:</strong> <span id="current-status">Inactivo</span></p>
                 </div>
             </div>
-            
+
+            <div class="tab-content" id="movement-tab">
+                <div class="panel-box">
+                    <h3>Control de Movimiento</h3>
+                    <p>Mueve el robot con el joystick, los botones o las teclas <strong>W A S D</strong>.</p>
+                    <div class="joystick-wrap">
+                        <div class="joystick-base" id="joyBase">
+                            <div class="joystick-stick" id="joyStick"></div>
+                        </div>
+                    </div>
+                    <div class="dpad">
+                        <button class="move-btn" data-dir="w" title="Adelante (W)">&#9650;</button>
+                        <div class="dpad-row">
+                            <button class="move-btn" data-dir="a" title="Izquierda (A)">&#9664;</button>
+                            <button class="move-btn move-stop" data-dir="" title="Detener">&#9632;</button>
+                            <button class="move-btn" data-dir="d" title="Derecha (D)">&#9654;</button>
+                        </div>
+                        <button class="move-btn" data-dir="s" title="Atrás (S)">&#9660;</button>
+                    </div>
+                    <div class="move-status">Dirección activa: <span id="move-dirs">—</span></div>
+                </div>
+            </div>
+
             <div class="tab-content" id="videos-tab">
                 <h3>Videos Grabados (Ordenados por fecha)</h3>
                 <div class="videos-grid" id="videos-grid">
@@ -1709,6 +1822,91 @@ HTML_TEMPLATE = """
             }
         }
         
+        // ===== Control de movimiento (joystick) =====
+        (function() {
+            const activeDirs = new Set();
+            let lastSent = null;
+            const dirsLabel = document.getElementById('move-dirs');
+
+            function sendMove() {
+                const dirs = Array.from(activeDirs);
+                const key = dirs.slice().sort().join('');
+                if (key === lastSent) return;
+                lastSent = key;
+                if (dirsLabel) dirsLabel.textContent = dirs.length ? dirs.join(', ').toUpperCase() : '—';
+                fetch('/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ directions: dirs })
+                }).catch(() => {});
+            }
+
+            function setDir(d, on) {
+                if (!d) { activeDirs.clear(); sendMove(); return; }
+                if (on) activeDirs.add(d); else activeDirs.delete(d);
+                sendMove();
+            }
+
+            // Teclado W A S D
+            document.addEventListener('keydown', function(e) {
+                const k = (e.key || '').toLowerCase();
+                if (k === 'w' || k === 'a' || k === 's' || k === 'd') setDir(k, true);
+            });
+            document.addEventListener('keyup', function(e) {
+                const k = (e.key || '').toLowerCase();
+                if (k === 'w' || k === 'a' || k === 's' || k === 'd') setDir(k, false);
+            });
+
+            // Botones (pulsar y mantener)
+            document.querySelectorAll('.move-btn').forEach(function(btn) {
+                const d = btn.getAttribute('data-dir');
+                const press = function(e) {
+                    e.preventDefault();
+                    if (!d) { setDir('', false); }
+                    else { setDir(d, true); btn.classList.add('active'); }
+                };
+                const release = function(e) {
+                    if (e) e.preventDefault();
+                    if (d) { setDir(d, false); btn.classList.remove('active'); }
+                };
+                btn.addEventListener('mousedown', press);
+                btn.addEventListener('mouseup', release);
+                btn.addEventListener('mouseleave', release);
+                btn.addEventListener('touchstart', press, { passive: false });
+                btn.addEventListener('touchend', release);
+            });
+
+            // Joystick arrastrable (ratón y táctil)
+            const base = document.getElementById('joyBase');
+            const stick = document.getElementById('joyStick');
+            if (base && stick) {
+                let dragging = false;
+                function handle(clientX, clientY) {
+                    const r = base.getBoundingClientRect();
+                    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                    let dx = clientX - cx, dy = clientY - cy;
+                    const max = r.width / 2 - 30;
+                    const dist = Math.hypot(dx, dy) || 1;
+                    if (dist > max) { dx = dx / dist * max; dy = dy / dist * max; }
+                    stick.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+                    const th = 14;
+                    activeDirs.clear();
+                    if (dx > th) activeDirs.add('d'); else if (dx < -th) activeDirs.add('a');
+                    if (dy < -th) activeDirs.add('w'); else if (dy > th) activeDirs.add('s');
+                    sendMove();
+                }
+                const start = function(e) { dragging = true; const t = e.touches ? e.touches[0] : e; handle(t.clientX, t.clientY); e.preventDefault(); };
+                const move = function(e) { if (!dragging) return; const t = e.touches ? e.touches[0] : e; handle(t.clientX, t.clientY); e.preventDefault(); };
+                const end = function() { if (!dragging) return; dragging = false; stick.style.transform = 'translate(0,0)'; activeDirs.clear(); sendMove(); };
+                base.addEventListener('mousedown', start);
+                document.addEventListener('mousemove', move);
+                document.addEventListener('mouseup', end);
+                base.addEventListener('touchstart', start, { passive: false });
+                base.addEventListener('touchmove', move, { passive: false });
+                base.addEventListener('touchend', end);
+            }
+        })();
+
         // ===== Control de tema (claro / oscuro) =====
         function setTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
@@ -2161,6 +2359,20 @@ def switch_camera_endpoint():
             "active_camera": active_camera_index + 1
         })
     return jsonify({"error": "Solo una cámara disponible"}), 400
+
+@app.route("/move", methods=["POST"])
+def move_endpoint():
+    """Recibe comandos de movimiento del joystick web y los aplica a los GPIO"""
+    data = request.get_json(silent=True) or {}
+    directions = [d for d in data.get("directions", []) if d in MOVE_PINS]
+    set_movement(directions)
+    return jsonify({"directions": sorted(directions), "state": movement_state})
+
+@app.route("/stop_movement", methods=["POST"])
+def stop_movement_endpoint():
+    """Detiene todo el movimiento"""
+    set_movement([])
+    return jsonify({"message": "Movimiento detenido", "state": movement_state})
 
 # ================= GESTIÓN DE PERSONAS ===========
 def add_person():
@@ -2997,6 +3209,129 @@ nav_btn = ttk.Button(control_frame,
            text="IR A GESTIÓN",
            command=show_management_tab)
 nav_btn.pack(pady=5, fill=tk.X)
+
+# ============= PESTAÑA DE MOVIMIENTO (JOYSTICK) =============
+movement_tab = tk.Frame(notebook, bg=bg_color)
+notebook.add(movement_tab, text="Movimiento")
+
+tk.Label(movement_tab,
+         text="CONTROL DE MOVIMIENTO",
+         font=("Arial", 12, "bold"),
+         bg=bg_color,
+         fg=accent_color).pack(pady=(15, 5))
+
+tk.Label(movement_tab,
+         text="Usa las teclas W / A / S / D o arrastra el joystick con el ratón.",
+         font=("Arial", 9),
+         bg=bg_color,
+         fg="#888888").pack()
+
+JOY_SIZE = 240
+joy_canvas = tk.Canvas(movement_tab, width=JOY_SIZE, height=JOY_SIZE,
+                       bg=secondary_color, highlightthickness=0)
+joy_canvas.pack(pady=20)
+
+move_status_label = tk.Label(movement_tab,
+                             text="Dirección activa: —",
+                             font=("Arial", 11, "bold"),
+                             bg=bg_color,
+                             fg=accent_color)
+move_status_label.pack(pady=5)
+
+# --- Geometría y estado del joystick ---
+_joy_cx = _joy_cy = JOY_SIZE // 2
+_joy_base_r = 70
+_joy_stick_r = 18
+_joy_offset_max = 50
+_joy_keys = set()
+_joy_mouse = set()
+_joy_drag = [False]
+
+joy_canvas.create_oval(_joy_cx - _joy_base_r, _joy_cy - _joy_base_r,
+                       _joy_cx + _joy_base_r, _joy_cy + _joy_base_r,
+                       outline="#888888", width=2, fill="#cfd6dd")
+_joy_stick = joy_canvas.create_oval(_joy_cx - _joy_stick_r, _joy_cy - _joy_stick_r,
+                                    _joy_cx + _joy_stick_r, _joy_cy + _joy_stick_r,
+                                    fill="#ff3b3b", outline="")
+_joy_font = ("Arial", 12, "bold")
+joy_canvas.create_text(_joy_cx, _joy_cy - _joy_base_r - 14, text="W", font=_joy_font, fill="#888888")
+joy_canvas.create_text(_joy_cx, _joy_cy + _joy_base_r + 14, text="S", font=_joy_font, fill="#888888")
+joy_canvas.create_text(_joy_cx - _joy_base_r - 16, _joy_cy, text="A", font=_joy_font, fill="#888888")
+joy_canvas.create_text(_joy_cx + _joy_base_r + 16, _joy_cy, text="D", font=_joy_font, fill="#888888")
+
+def _joy_place_stick(nx, ny):
+    joy_canvas.coords(_joy_stick, nx - _joy_stick_r, ny - _joy_stick_r,
+                      nx + _joy_stick_r, ny + _joy_stick_r)
+
+def _joy_update_outputs():
+    dirs = _joy_keys | _joy_mouse
+    set_movement(dirs)
+    txt = ", ".join(d.upper() for d in sorted(dirs)) if dirs else "—"
+    try:
+        move_status_label.config(text=f"Dirección activa: {txt}")
+    except Exception:
+        pass
+
+def _joy_move_from_keys():
+    dx = dy = 0
+    if 'a' in _joy_keys: dx -= _joy_offset_max
+    if 'd' in _joy_keys: dx += _joy_offset_max
+    if 'w' in _joy_keys: dy -= _joy_offset_max
+    if 's' in _joy_keys: dy += _joy_offset_max
+    nx = _joy_cx + max(-_joy_offset_max, min(_joy_offset_max, dx))
+    ny = _joy_cy + max(-_joy_offset_max, min(_joy_offset_max, dy))
+    if not _joy_drag[0]:
+        _joy_place_stick(nx, ny)
+    _joy_update_outputs()
+
+def _joy_set_from_mouse(x, y):
+    dx = max(-_joy_offset_max, min(_joy_offset_max, x - _joy_cx))
+    dy = max(-_joy_offset_max, min(_joy_offset_max, y - _joy_cy))
+    _joy_place_stick(_joy_cx + dx, _joy_cy + dy)
+    _joy_mouse.clear()
+    th = 8
+    if dx > th: _joy_mouse.add('d')
+    elif dx < -th: _joy_mouse.add('a')
+    if dy < -th: _joy_mouse.add('w')
+    elif dy > th: _joy_mouse.add('s')
+    _joy_update_outputs()
+
+def _joy_key_press(event):
+    k = event.keysym.lower()
+    if k in MOVE_PINS and k not in _joy_keys:
+        _joy_keys.add(k)
+        _joy_move_from_keys()
+
+def _joy_key_release(event):
+    k = event.keysym.lower()
+    if k in MOVE_PINS and k in _joy_keys:
+        _joy_keys.discard(k)
+        _joy_move_from_keys()
+
+def _joy_on_base(x, y):
+    return (x - _joy_cx) ** 2 + (y - _joy_cy) ** 2 <= _joy_base_r ** 2
+
+def _joy_mouse_down(event):
+    if _joy_on_base(event.x, event.y):
+        _joy_drag[0] = True
+        _joy_set_from_mouse(event.x, event.y)
+
+def _joy_mouse_drag(event):
+    if _joy_drag[0]:
+        _joy_set_from_mouse(event.x, event.y)
+
+def _joy_mouse_up(event):
+    if _joy_drag[0]:
+        _joy_drag[0] = False
+        _joy_place_stick(_joy_cx, _joy_cy)
+        _joy_mouse.clear()
+        _joy_move_from_keys()
+
+joy_canvas.bind('<Button-1>', _joy_mouse_down)
+joy_canvas.bind('<B1-Motion>', _joy_mouse_drag)
+joy_canvas.bind('<ButtonRelease-1>', _joy_mouse_up)
+root.bind('<KeyPress>', _joy_key_press, add='+')
+root.bind('<KeyRelease>', _joy_key_release, add='+')
 
 # Footer
 footer_frame = tk.Frame(main_frame, bg=bg_color, pady=10)
