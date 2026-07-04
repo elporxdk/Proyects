@@ -12,63 +12,37 @@ from tkinter import ttk, simpledialog, messagebox, scrolledtext
 from PIL import Image, ImageTk
 from flask import Flask, Response, render_template_string, jsonify, send_from_directory, request
 
-# ================= GPIO OPCIONAL + SALIDA SERIAL (COM) =================
-# Funciona en Raspberry Pi (Bullseye Raspbian) y también sin hardware.
-# - Si RPi.GPIO no está disponible, se desactiva automáticamente.
-# - Pon GPIO_ENABLED = False para forzar la desactivación (ej. probar en PC
-#   o en una Raspberry sin servos/motores conectados).
-# - Cuando el GPIO está SIMULADO, cada orden se envía por el puerto COM/serial
-#   para que un Arduino/ESP conectado por USB la ejecute. Formato (una por línea):
-#       GPIO,<pin>,<0|1>     -> pin digital LOW/HIGH   (ej. "GPIO,17,1")
-#       PWM,<pin>,<duty>     -> ciclo de trabajo servo (ej. "PWM,18,7.5")
-#   Si no hay puerto o falta pyserial, las órdenes se muestran por consola.
-GPIO_ENABLED = True
+# ================= SALIDA POR COM (via HUB serial) =================
+# Movimiento y servos se controlan mandando ordenes al Arduino por el puerto COM
+# a traves del hub serial (serial_hub.py). NO se usa RPi.GPIO: un sustituto
+# (_DummyGPIO) traduce cada accion a una orden de texto que el hub reenvia.
+# Formato (una por línea):
+#       GPIO,<pin>,<0|1>     -> movimiento   (17=adel,27=atras,22=izq,23=der)
+#       PWM,<pin>,<duty>     -> servo cámara  (18=pan, 13=tilt; ej. "PWM,18,7.5")
+# Si el hub no está disponible, las órdenes se muestran por consola.
 
-SERIAL_ENABLED = True   # Enviar las órdenes del GPIO simulado por el puerto serial
-SERIAL_PORT = None      # None = autodetectar; o fija uno: "COM3" (Windows) / "/dev/ttyUSB0"
-SERIAL_BAUD = 115200    # Debe coincidir con el Serial.begin() del Arduino/ESP
-
-_serial_conn = None
-_serial_lock = threading.Lock()
+# Todas las ordenes (movimiento y servos) se envian al Arduino por COM a traves
+# del HUB serial (serial_hub.py), para compartir el puerto con Pillbox sin conflicto.
+SERIAL_BAUD = 9600      # informativo; el baud real lo fija el hub serial
 _serial_last = {}       # último valor enviado por pin (evita repetir mensajes)
 
+import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
+
 def serial_connect():
-    """Abre el puerto COM/serial (autodetecta si SERIAL_PORT es None)."""
-    global _serial_conn
-    if not SERIAL_ENABLED:
-        return None
-    try:
-        import serial
-        from serial.tools import list_ports
-    except Exception as e:
-        print(f"AVISO: pyserial no instalado ({e}).")
-        print("       Las órdenes GPIO se mostrarán por consola. Instala con: pip install pyserial")
-        return None
-    port = SERIAL_PORT
-    if port is None:
-        found = [p.device for p in list_ports.comports()]
-        port = found[0] if found else None
-    if port is None:
-        print("AVISO: no se detectó ningún puerto COM/serial; "
-              "las órdenes GPIO se mostrarán por consola.")
-        return None
-    try:
-        _serial_conn = serial.Serial(port, SERIAL_BAUD, timeout=0.1)
-        print(f"Puerto serial abierto: {port} @ {SERIAL_BAUD} baudios")
-    except Exception as e:
-        print(f"AVISO: no se pudo abrir el puerto serial {port}: {e}")
-        _serial_conn = None
-    return _serial_conn
+    """Se asegura de que el hub serial (serial_hub.py) este corriendo. El hub es
+    el unico dueno del puerto COM; Vision le envia sus ordenes por TCP."""
+    if medibot_serial.ensure_hub():
+        print(f"Hub serial disponible en {medibot_serial.HUB_HOST}:{medibot_serial.HUB_PORT}")
+        return True
+    print("AVISO: no se pudo iniciar el hub serial (serial_hub.py). "
+          "Las órdenes se mostrarán por consola.")
+    return False
 
 def serial_send(msg):
-    """Envía una orden por el puerto serial; sin puerto, la muestra por consola."""
-    with _serial_lock:
-        if _serial_conn is not None:
-            try:
-                _serial_conn.write((msg + "\n").encode())
-                return
-            except Exception as e:
-                print(f"AVISO: error escribiendo en el serial: {e}")
+    """Envía una orden al Arduino a través del hub serial (fire-and-forget)."""
+    if medibot_serial.hub_running():
+        medibot_serial.send_command(msg, wait=0.05, until=None)
+    else:
         print(f"[SERIAL] {msg}")
 
 def _serial_pin(kind, pin, value):
@@ -103,19 +77,11 @@ class _DummyGPIO:
     def PWM(self, pin=None, freq=None, *a, **k):
         return _DummyPWM(pin, freq)
 
-if GPIO_ENABLED:
-    try:
-        import RPi.GPIO as GPIO
-    except Exception as _e:
-        print(f"AVISO: RPi.GPIO no disponible ({_e}). GPIO simulado: "
-              f"las órdenes se enviarán por el puerto COM/serial.")
-        GPIO = _DummyGPIO()
-        GPIO_ENABLED = False
-        serial_connect()
-else:
-    print("AVISO: GPIO desactivado por configuración (GPIO_ENABLED = False).")
-    GPIO = _DummyGPIO()
-    serial_connect()
+# Todos los comandos (movimiento y servos de camara) se envian por COM al Arduino
+# a traves del hub serial. Por eso NO se usa RPi.GPIO: se usa el sustituto que
+# reenvia cada orden por el puerto COM (GPIO,<pin>,<val> y PWM,<pin>,<duty>).
+GPIO = _DummyGPIO()
+serial_connect()
 # ================================================
 from datetime import datetime
 import subprocess
@@ -942,7 +908,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Visión Artificial - Dos Cámaras</title>
+    <title>Medibot</title>
     <style>
         * {
             margin: 0;
@@ -1482,9 +1448,9 @@ HTML_TEMPLATE = """
                     <span class="brand-tag">VISIÓN ARTIFICIAL</span>
                 </div>
             </div>
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">🌙 Modo Oscuro</button>
+            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Oscuro</button>
         </div>
-        <h1>SISTEMA DE VISIÓN ARTIFICIAL - DOS CÁMARAS</h1>
+        <h1>MEDIBOT</h1>
         <p class="subtitle">Detección facial, seguimiento de objetos y grabación simultánea con dos cámaras</p>
         
         <div class="cameras-container">
@@ -1614,7 +1580,7 @@ HTML_TEMPLATE = """
             <div class="tab-content active" id="info-tab">
                 <div class="panel-box">
                     <h3>Información del Sistema</h3>
-                    <p>Sistema de visión artificial con dos cámaras funcionando simultáneamente.</p>
+                    <p>Medibot.</p>
                     <p><strong>Características:</strong></p>
                     <ul style="margin-left: 20px; margin-top: 10px;">
                         <li>Dos cámaras funcionando en paralelo</li>
@@ -1661,7 +1627,7 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="footer">
-            <p>Sistema de visión artificial con dos cámaras | Detección facial y seguimiento de objetos</p>
+            <p>Medibot</p>
             <p>IP: <span id="current-ip">127.0.0.1</span> | Puerto: 5000 | API: /api/all</p>
         </div>
     </div>
@@ -2034,7 +2000,7 @@ HTML_TEMPLATE = """
             document.documentElement.setAttribute('data-theme', theme);
             const btn = document.getElementById('themeToggle');
             if (btn) {
-                btn.textContent = theme === 'light' ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+                btn.textContent = theme === 'light' ? 'Modo Claro' : 'Modo Oscuro';
             }
             try { localStorage.setItem('medibot-theme', theme); } catch (e) {}
         }
@@ -2731,9 +2697,9 @@ def open_pastillero():
     url = "http://192.168.3.208"
     try:
         webbrowser.open(url)
-        messagebox.showinfo("Pastillero", f"Abriendo configuración del pastillero en:\n{url}")
+        messagebox.showinfo("Pillbox", f"Abriendo configuración de Pillbox en:\n{url}")
     except Exception as e:
-        messagebox.showerror("Error", f"No se pudo abrir el pastillero:\n{str(e)}")
+        messagebox.showerror("Error", f"No se pudo abrir Pillbox:\n{str(e)}")
 
 # ========= LANZAR Pastillero.py + PANTALLA DIVIDIDA =========
 # Ejecuta el script local Pastillero.py (levanta su servidor Flask en el
@@ -2763,20 +2729,20 @@ def _lanzar_pastillero_proceso():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     script = os.path.join(base_dir, "Pastillero.py")
     if not os.path.exists(script):
-        messagebox.showerror("Pastillero",
+        messagebox.showerror("Pillbox",
             f"No se encontró Pastillero.py en:\n{base_dir}")
         return False
     try:
         _pastillero_proc = subprocess.Popen([sys.executable, script], cwd=base_dir)
     except Exception as e:
-        messagebox.showerror("Pastillero", f"No se pudo iniciar Pastillero.py:\n{e}")
+        messagebox.showerror("Pillbox", f"No se pudo iniciar Pastillero.py:\n{e}")
         return False
     # Esperar a que Flask levante (hasta ~8 s)
     for _ in range(40):
         if _puerto_abierto("127.0.0.1", PASTILLERO_PORT):
             return True
         time.sleep(0.2)
-    messagebox.showwarning("Pastillero",
+    messagebox.showwarning("Pillbox",
         "Pastillero.py se inició, pero el servidor web (puerto 5001) aún no "
         "responde. Reintenta el botón en unos segundos.")
     return False
@@ -2813,13 +2779,12 @@ def abrir_pastillero_dividido():
     root.geometry(f"{half}x{sh}+0+0")
     # Pastillero en la mitad derecha
     _abrir_navegador_pastillero(half, 0, sw - half, sh)
-    messagebox.showinfo("Pastillero",
-        "Pastillero iniciado en pantalla dividida.\n\n"
-        "Izquierda: Visión MEDIBOT\n"
-        f"Derecha: Pastillero (http://127.0.0.1:{PASTILLERO_PORT})\n\n"
-        "Nota COM: en la Raspberry Pi, Visión maneja el movimiento por los "
-        "pines GPIO y el pastillero usa el puerto serie (USB), así que NO "
-        "compiten por el mismo puerto.")
+    messagebox.showinfo("Pillbox",
+        "Pillbox iniciado en pantalla dividida.\n\n"
+        "Izquierda: Medibot\n"
+        f"Derecha: Pillbox (http://127.0.0.1:{PASTILLERO_PORT})\n\n"
+        "Nota COM: Medibot y Pillbox comparten el mismo Arduino a través del "
+        "hub serial (serial_hub.py), así que ambos usan el puerto COM sin conflicto.")
 
 # ================= CONTROL PRINCIPAL ===================
 def toggle_system():
@@ -2861,7 +2826,7 @@ def toggle_system():
             flask_thread.start()
             
             messagebox.showinfo("Sistema Activo",
-                f"Sistema iniciado correctamente con DOS CÁMARAS.\n\n"
+                f"Medibot iniciado correctamente.\n\n"
                 f"Accede desde tu navegador:\n"
                 f"http://{get_ip()}:5000\n\n"
                 f"Cámara 1: {'ACTIVA' if camera1 is not None else 'INACTIVA'}\n"
@@ -3013,7 +2978,7 @@ def update_gui():
         fps_label.config(text="FPS Cámara 1: 0 | FPS Cámara 2: 0")
     
     # Actualizar información de cámaras
-    camera_status = f"Cámara 1: {'✓' if camera1 is not None else '✗'} | Cámara 2: {'✓' if camera2 is not None else '✗'}"
+    camera_status = f"Cámara 1: {'OK' if camera1 is not None else '--'} | Cámara 2: {'OK' if camera2 is not None else '--'}"
     camera_status_label.config(text=camera_status)
 
     # Mostrar solo la(s) cámara(s) activa(s): si la cámara 2 no se detecta, ocultar su ventana
@@ -3088,7 +3053,7 @@ def show_monitoring_tab():
 
 # ================= CONFIGURACIÓN GUI CORREGIDA =============
 root = tk.Tk()
-root.title("Sistema de Visión Artificial - Dos Cámaras Simultáneas")
+root.title("Medibot")
 root.geometry("1200x800")
 root.resizable(True, True)
 root.configure(bg="#000000")
@@ -3207,7 +3172,7 @@ def apply_theme(to_theme):
     _apply_ttk_styles(to_theme)
     draw_logo()
     if theme_btn is not None:
-        theme_btn.config(text="☀️ Modo Claro" if to_theme == "light" else "🌙 Modo Oscuro")
+        theme_btn.config(text="Modo Claro" if to_theme == "light" else "Modo Oscuro")
     try:
         update_person_list()
     except Exception:
@@ -3280,23 +3245,16 @@ tk.Label(wordmark_frame, text="MEDI", font=("Arial", 20, "bold"),
 tk.Label(wordmark_frame, text="BOT", font=("Arial", 20, "bold"),
          bg=secondary_color, fg=fg_color).pack(side=tk.LEFT)
 
-theme_btn = ttk.Button(brand_row, text="🌙 Modo Oscuro", command=toggle_app_theme)
+theme_btn = ttk.Button(brand_row, text="Modo Oscuro", command=toggle_app_theme)
 theme_btn.pack(side=tk.RIGHT, padx=10)
 
 draw_logo()
 
 tk.Label(header_frame,
-         text="SISTEMA DE VISIÓN ARTIFICIAL - DOS CÁMARAS SIMULTÁNEAS",
+         text="Medibot",
          font=("Arial", 14, "bold"),
          bg=secondary_color,
          fg=accent_color,
-         wraplength=1000).pack()
-
-tk.Label(header_frame,
-         text="Detección facial, seguimiento de objetos y grabación simultánea con dos cámaras",
-         font=("Arial", 9),
-         bg=secondary_color,
-         fg="#888888",
          wraplength=1000).pack()
 
 # Notebook (pestañas) - Se expande
@@ -3388,7 +3346,7 @@ ttk.Button(management_buttons,
 
 # Botón para configurar pastillero
 ttk.Button(management_buttons,
-           text="Configurar Pastillero",
+           text="Configurar Pillbox",
            command=open_pastillero).grid(row=1, column=0, padx=5, pady=5, columnspan=3)
 
 # Información de APIs
@@ -3401,7 +3359,7 @@ api_text += f"• http://{ip_address}:5000 (Interfaz web)\n"
 api_text += f"• http://{ip_address}:5000/api/all (todos los datos)\n"
 api_text += f"• http://{ip_address}:5000/api/esp32 (datos compactos ESP32)\n"
 api_text += f"• http://{ip_address}:5000/api/videos (lista videos ordenados)\n"
-api_text += f"Pastillero: http://192.168.3.208"
+api_text += f"Pillbox: http://192.168.3.208"
 
 tk.Label(api_frame,
          text=api_text,
@@ -3446,7 +3404,7 @@ fps_label.pack()
 
 # Etiqueta de estado de cámaras
 camera_status_label = tk.Label(info_frame,
-                               text="Cámara 1: ✗ | Cámara 2: ✗",
+                               text="Cámara 1: -- | Cámara 2: --",
                                font=("Arial", 9),
                                bg=bg_color,
                                fg="#888888")
@@ -3522,7 +3480,7 @@ toggle_btn.pack(pady=5, fill=tk.X)
 
 # Botón destacado: lanza Pastillero.py y divide la pantalla (Visión | Pastillero)
 pastillero_split_btn = tk.Button(control_frame,
-           text="💊  ABRIR PASTILLERO (pantalla dividida)",
+           text="Abrir Pillbox (pantalla dividida)",
            command=abrir_pastillero_dividido,
            bg="#2e7d32", fg="white",
            activebackground="#1b5e20", activeforeground="white",
@@ -3762,7 +3720,7 @@ footer_frame = tk.Frame(main_frame, bg=bg_color, pady=10)
 footer_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
 tk.Label(footer_frame,
-         text="Sistema de Visión Artificial v7.0 | Dos cámaras simultáneas + Pastillero",
+         text="Medibot",
          font=("Arial", 8),
          bg=bg_color,
          fg="#444444",

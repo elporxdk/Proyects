@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Pastillero MEDIBOT - Interfaz web + envio por puerto Serial al Arduino.
+Pillbox - Interfaz web + envio de ordenes al Arduino a traves del hub serial.
 
 - Sirve la interfaz de 8 compartimientos (mismo diseno que el HTML de referencia).
-- Al pulsar "Dispensar" envia por el puerto COM/serial la orden  DISPENSE,<n>
-  al Arduino, que gira la ruleta al compartimiento y mueve el servo.
+- Al pulsar "Dispensar" envia la orden  DISPENSE,<n>  al Arduino a traves del
+  hub serial (serial_hub.py), que gira la ruleta al compartimiento y mueve el servo.
 
-Puerto serial:
-  - En Bullseye Raspbian el Arduino suele ser /dev/ttyUSB0 o /dev/ttyACM0.
-  - En Windows es COMx (COM3, COM4, ...).
-  - Con SERIAL_PORT = None se autodetecta; o fija el puerto a mano.
+Puerto serial (COM):
+  - Lo administra el HUB (serial_hub.py), unico dueno del puerto. Pillbox y
+    Vision le envian sus ordenes por TCP, asi comparten el mismo Arduino.
+  - El hub se autolanza si no esta corriendo.
 Requisitos:  pip install flask pyserial
 Ejecutar:    python3 Pastillero.py   ->   http://<ip>:5001
 """
@@ -19,96 +19,37 @@ import time
 import threading
 from flask import Flask, request, jsonify
 
+import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
+
 # ================= CONFIGURACION SERIAL =================
-SERIAL_ENABLED = True
-SERIAL_PORT = None       # None = autodetectar (Bullseye: /dev/ttyUSB0 o /dev/ttyACM0; Windows: COMx)
-SERIAL_BAUD = 9600       # DEBE coincidir con Serial.begin() del sketch de Arduino
+# El acceso al puerto COM pasa por el HUB serial (serial_hub.py), para que
+# Vision y Pillbox puedan compartir el mismo Arduino sin conflicto de puerto.
+SERIAL_BAUD = 9600       # informativo; el baud real lo fija el hub
 N_COMPARTIMIENTOS = 8
-
-_serial_conn = None
-_serial_lock = threading.Lock()
-
-
-def _autodetect_serial_port():
-    """Elige el puerto del Arduino. Prioriza por nombre y descripcion.
-    En Bullseye: /dev/ttyACM* (Uno/Mega) o /dev/ttyUSB* (CH340/FTDI). En Windows: COMx."""
-    try:
-        from serial.tools import list_ports
-    except Exception:
-        return None
-    ports = list(list_ports.comports())
-    if not ports:
-        return None
-
-    def score(p):
-        dev = (p.device or "").lower()
-        desc = ((p.description or "") + " " + (getattr(p, "manufacturer", "") or "")).lower()
-        s = 0
-        if any(k in desc for k in ("arduino", "ch340", "ch910", "cp210", "ftdi", "usb-serial", "wch")):
-            s += 100
-        if "ttyacm" in dev:
-            s += 40      # Arduino Uno/Mega nativo (Bullseye)
-        elif "ttyusb" in dev:
-            s += 35      # CH340 / FTDI (Bullseye)
-        elif dev.startswith("com"):
-            s += 30      # Windows
-        # descartar puertos internos de la Raspberry (UART de la placa)
-        if "ttyama" in dev or "ttys0" in dev or "serial0" in dev:
-            s -= 50
-        return s
-
-    ports.sort(key=score, reverse=True)
-    best = ports[0]
-    return best.device if score(best) > 0 else best.device
 
 
 def serial_connect():
-    """Abre el puerto serial (autodetecta si SERIAL_PORT es None)."""
-    global _serial_conn
-    if not SERIAL_ENABLED:
-        return None
-    try:
-        import serial
-    except Exception as e:
-        print(f"AVISO: pyserial no instalado ({e}). Instala con: pip install pyserial")
-        return None
+    """Se asegura de que el hub serial (serial_hub.py) este corriendo. El hub es
+    el unico dueno del puerto COM; Pillbox le envia los comandos por TCP."""
+    ok = medibot_serial.ensure_hub()
+    if ok:
+        print(f"Hub serial disponible en {medibot_serial.HUB_HOST}:{medibot_serial.HUB_PORT}")
+    else:
+        print("AVISO: no se pudo iniciar el hub serial (serial_hub.py). "
+              "Las ordenes se simularan.")
+    return ok
 
-    port = SERIAL_PORT or _autodetect_serial_port()
-    if port is None:
-        print("AVISO: no se detecto ningun Arduino. En Bullseye suele ser "
-              "/dev/ttyUSB0 o /dev/ttyACM0; en Windows COMx. Fija SERIAL_PORT a mano.")
-        return None
-    try:
-        _serial_conn = serial.Serial(port, SERIAL_BAUD, timeout=1)
-        time.sleep(2)  # el Arduino se reinicia al abrir el puerto; esperar a que arranque
-        print(f"Arduino conectado en {port} @ {SERIAL_BAUD} baudios")
-    except Exception as e:
-        print(f"AVISO: no se pudo abrir {port}: {e}")
-        _serial_conn = None
-    return _serial_conn
+
+def hub_disponible():
+    """True si el hub serial esta escuchando (equivale a 'Arduino accesible')."""
+    return medibot_serial.hub_running()
 
 
 def serial_command(msg, wait=4.0, until=("DISPENSADO", "ERR")):
-    """Envia una orden y devuelve las respuestas del Arduino (lista de lineas).
-    Termina de leer al recibir una linea que empiece por alguno de 'until'."""
-    with _serial_lock:
-        if _serial_conn is None:
-            print(f"[SIMULADO] {msg}")
-            return ["(sin arduino) " + msg]
-        try:
-            _serial_conn.reset_input_buffer()
-            _serial_conn.write((msg + "\n").encode())
-            respuestas = []
-            t0 = time.time()
-            while time.time() - t0 < wait:
-                linea = _serial_conn.readline().decode(errors="ignore").strip()
-                if linea:
-                    respuestas.append(linea)
-                    if any(linea.startswith(u) for u in until):
-                        break
-            return respuestas
-        except Exception as e:
-            return [f"ERROR serial: {e}"]
+    """Envia una orden al Arduino a traves del hub serial y devuelve las
+    respuestas (lista de lineas). Termina al recibir una linea que empiece por
+    alguno de 'until'."""
+    return medibot_serial.send_command(msg, wait=wait, until=list(until))
 
 
 # ================= SERVIDOR WEB =================
@@ -137,7 +78,7 @@ def dispense():
     # (giro intencional del firmware) y abrir/cerrar el servo (~3 s de delays),
     # lo que en el peor caso supera los 4 s por defecto y daria un falso timeout.
     resp = serial_command(f"DISPENSE,{comp}", wait=12.0)
-    conectado = _serial_conn is not None
+    conectado = hub_disponible()
     ack = " | ".join(resp) if resp else "sin respuesta"
     print(f"DISPENSAR comp={comp} medic='{medic}' paciente='{nombre}' -> Arduino: {ack}")
 
@@ -164,18 +105,14 @@ def goto():
     if not (1 <= comp <= N_COMPARTIMIENTOS):
         return jsonify({"ok": False, "message": "Compartimiento invalido"}), 400
     resp = serial_command(f"GOTO,{comp}", until=("POS", "ERR"))
-    return jsonify({"ok": _serial_conn is not None, "arduino": resp, "compartimiento": comp})
+    return jsonify({"ok": hub_disponible(), "arduino": resp, "compartimiento": comp})
 
 
 @app.route("/serial/status")
 def serial_status():
-    port = None
-    try:
-        if _serial_conn is not None:
-            port = _serial_conn.port
-    except Exception:
-        pass
-    return jsonify({"conectado": _serial_conn is not None, "puerto": port, "baud": SERIAL_BAUD})
+    disp = hub_disponible()
+    puerto = f"hub {medibot_serial.HUB_HOST}:{medibot_serial.HUB_PORT}" if disp else None
+    return jsonify({"conectado": disp, "puerto": puerto, "baud": SERIAL_BAUD})
 
 
 @app.route("/serial/reconnect", methods=["POST"])
@@ -190,7 +127,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pastillero MEDIBOT - Compartimientos</title>
+  <title>Pillbox</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
     body { background: #f4f7fc; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
@@ -255,7 +192,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
 <div class="app" id="app">
   <div class="header">
-    <h1>&#129658; Pastillero MEDIBOT <span id="globalBadge">8</span></h1>
+    <h1>Pillbox <span id="globalBadge">8</span></h1>
     <div class="flex-wrap">
       <span class="serial-pill" id="serialPill">Arduino: comprobando...</span>
       <button class="btn-back" id="btnBackMain" onclick="goToMain()">&#8592; Volver al menu</button>
@@ -486,5 +423,5 @@ HTML_PAGE = """<!DOCTYPE html>
 
 if __name__ == "__main__":
     serial_connect()
-    print("Pastillero MEDIBOT en http://0.0.0.0:5001")
+    print("Pillbox en http://0.0.0.0:5001")
     app.run(host="0.0.0.0", port=5001, threaded=True, use_reloader=False)
