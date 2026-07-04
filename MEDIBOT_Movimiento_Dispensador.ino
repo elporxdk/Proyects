@@ -38,7 +38,9 @@
  *    A0..A3 -> Motor paso a paso (ruleta)
  *    A4,A5  -> I2C (SDA/SCL) del Motor Shield
  *
- *  ------------------- ORDENES DISPENSADOR (Serial) -----------
+ *  Todas las ordenes llegan por Serial (via el hub serial_hub.py del lado PC).
+ *
+ *  ------------------- ORDENES DISPENSADOR (Pillbox) ----------
  *   GOTO,<n>       Gira la ruleta hasta el compartimiento n (1..8)
  *   DISPENSE,<n>   Gira al compartimiento n y ademas dispensa
  *   DISPENSE       Dispensa en el compartimiento actual
@@ -46,10 +48,17 @@
  *   SERVO,<ang>    Mueve el servo dispensador a <ang> grados (0..90)
  *   GETPOS         Responde con la posicion actual (POS,<n>)
  *
+ *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
+ *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
+ *   GPIO,<pin>,<v> Protocolo de Vision: pin 17=adel,27=atras,22=izq,23=der; v=0/1
+ *   GPIO,CLEANUP,0 Detiene el chasis y limpia el estado de movimiento
+ *   PWM,<pin>,<d>  Servos de camara: pin 18=pan, 13=tilt; d = duty % (2.5..12.5)
+ *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
  *   POS,<n>        compartimiento actual tras un giro o al consultar
  *   DISPENSADO,<n> dispensado terminado
+ *   OK,MOVE,<dir>  confirmacion de orden de movimiento
  *   ERR,<texto>    orden no reconocida
  * ============================================================
  */
@@ -107,6 +116,14 @@ const int  SERVO_REPOSO   = 37;   // posicion de reposo (grados)
 const int  SERVO_DISPENSA = 90;   // posicion para soltar la pastilla
 Servo servoDispensador;
 
+// ---------------- Servos de camara (pan/tilt) ----------------
+//  Controlados por Vision via COM con  PWM,<pin>,<duty>  (pin 18 = pan, 13 = tilt).
+//  Usan pines libres 3 y 5 (libreria Servo estandar).
+const int PAN_PIN  = 3;
+const int TILT_PIN = 5;
+Servo servoPan;
+Servo servoTilt;
+
 // ------------- Motor paso a paso (ruleta) -------------
 //  Reasignado a A0..A3 para no chocar con PS2 (10-13) ni RPi (6-9)
 const int PIN_IN1 = A0;
@@ -124,6 +141,13 @@ int compActual = 1;   // compartimiento que esta ahora en la posicion de dispens
 
 // Buffer para lectura no bloqueante de comandos por Serial
 String bufferSerial = "";
+
+// Estado de movimiento recibido por COM (comandos MOVE / GPIO desde Vision).
+//  Se aplica en el loop cuando el mando PS2 no tiene el control.
+bool vAdelante  = false;
+bool vAtras     = false;
+bool vIzquierda = false;
+bool vDerecha   = false;
 
 // ═════════════════════════════════════════════════════════════
 //  FUNCIONES DE MOVIMIENTO (chasis)
@@ -178,19 +202,13 @@ void stopMoving() {
 }
 
 // ═════════════════════════════════════════════════════════════
-//  CONTROL POR RASPBERRY PI (movimiento)
+//  DECISION DE MOVIMIENTO (compartida: COM virtual y RPi fisico)
 // ═════════════════════════════════════════════════════════════
-void handleRPi() {
-  bool adelante  = digitalRead(PIN_ADELANTE);
-  bool atras     = digitalRead(PIN_ATRAS);
-  bool izquierda = digitalRead(PIN_IZQUIERDA);
-  bool derecha   = digitalRead(PIN_DERECHA);
-
+void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) {
   int activos = (int)adelante + (int)atras + (int)izquierda + (int)derecha;
 
   if (activos >= 3 || (adelante && atras) || (izquierda && derecha)) {
     stopMoving();                     // Combinaciones inválidas → stop
-
   } else if (adelante && izquierda) { turnLeft();   }
   else if   (adelante && derecha)   { turnRight();  }
   else if   (atras    && izquierda) { turnLeft();   }
@@ -199,7 +217,16 @@ void handleRPi() {
   else if   (atras)                 { backward();   }
   else if   (izquierda)             { moveLeft();   }
   else if   (derecha)               { moveRight();  }
-  else                              { stopMoving(); } // Ningún pin activo
+  else                              { stopMoving(); } // Nada activo
+}
+
+// ═════════════════════════════════════════════════════════════
+//  CONTROL POR RASPBERRY PI (movimiento por pines fisicos, opcional)
+//  Solo se usa si se cablean los pines 6-9; con control por COM no hace falta.
+// ═════════════════════════════════════════════════════════════
+void handleRPi() {
+  aplicarMovimiento(digitalRead(PIN_ADELANTE), digitalRead(PIN_ATRAS),
+                    digitalRead(PIN_IZQUIERDA), digitalRead(PIN_DERECHA));
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -367,6 +394,52 @@ void procesarComando(String linea) {
   } else if (cmd == "GETPOS") {
     Serial.print("POS,");
     Serial.println(compActual);
+
+  } else if (cmd == "MOVE") {
+    // MOVE,<dir>   dir = FWD | BACK | LEFT | RIGHT | STOP
+    arg.toUpperCase();
+    vAdelante = vAtras = vIzquierda = vDerecha = false;
+    if      (arg == "FWD"  || arg == "FORWARD")  vAdelante  = true;
+    else if (arg == "BACK" || arg == "BACKWARD") vAtras     = true;
+    else if (arg == "LEFT")                      vIzquierda = true;
+    else if (arg == "RIGHT")                     vDerecha   = true;
+    // "STOP" u otro valor -> las cuatro quedan en false (detener)
+    aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
+    Serial.print("OK,MOVE,");
+    Serial.println(arg);
+
+  } else if (cmd == "GPIO") {
+    // GPIO,<pin>,<val>  (protocolo de Vision). pin 17=adel, 27=atras, 22=izq, 23=der
+    int coma2 = arg.indexOf(',');
+    String pinStr = (coma2 >= 0) ? arg.substring(0, coma2) : arg;
+    String valStr = (coma2 >= 0) ? arg.substring(coma2 + 1) : "0";
+    pinStr.trim(); valStr.trim();
+    if (pinStr.equalsIgnoreCase("CLEANUP")) {
+      vAdelante = vAtras = vIzquierda = vDerecha = false;
+      stopMoving();
+    } else {
+      int  pin = pinStr.toInt();
+      bool val = (valStr.toInt() != 0);
+      if      (pin == 17) vAdelante  = val;
+      else if (pin == 27) vAtras     = val;
+      else if (pin == 22) vIzquierda = val;
+      else if (pin == 23) vDerecha   = val;
+      aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
+    }
+
+  } else if (cmd == "PWM") {
+    // PWM,<pin>,<duty>  (protocolo de Vision para servos de camara).
+    //  pin 18 = pan, 13 = tilt.  duty 2.5..12.5 % -> angulo 0..180 grados
+    int coma2 = arg.indexOf(',');
+    if (coma2 >= 0) {
+      int   pin  = arg.substring(0, coma2).toInt();
+      float duty = arg.substring(coma2 + 1).toFloat();
+      int   ang  = (int)((duty - 2.5) / 10.0 * 180.0);
+      ang = constrain(ang, 0, 180);
+      if      (pin == 18) servoPan.write(ang);
+      else if (pin == 13) servoTilt.write(ang);
+    }
+
   } else {
     Serial.print("ERR,");
     Serial.println(linea);
@@ -397,11 +470,12 @@ void setup() {
   // ---- Motor Shield / Movimiento ----
   AFMS.begin(50);
 
-  // Pines RPi como entrada
-  pinMode(PIN_ADELANTE,  INPUT);
-  pinMode(PIN_ATRAS,     INPUT);
-  pinMode(PIN_IZQUIERDA, INPUT);
-  pinMode(PIN_DERECHA,   INPUT);
+  // Pines RPi como entrada. Con control por COM no se usan; se ponen en
+  // INPUT_PULLUP para que no floten (lectura estable en HIGH si estan sueltos).
+  pinMode(PIN_ADELANTE,  INPUT_PULLUP);
+  pinMode(PIN_ATRAS,     INPUT_PULLUP);
+  pinMode(PIN_IZQUIERDA, INPUT_PULLUP);
+  pinMode(PIN_DERECHA,   INPUT_PULLUP);
 
   // Inicializar PS2X
   int error = 0;
@@ -430,6 +504,12 @@ void setup() {
 
   servoDispensador.attach(SERVO_PIN);
   servoDispensador.write(SERVO_REPOSO);
+
+  // ---- Servos de camara (pan/tilt) ----
+  servoPan.attach(PAN_PIN);
+  servoTilt.attach(TILT_PIN);
+  servoPan.write(90);
+  servoTilt.write(90);
 
   // Leer ultima posicion guardada en EEPROM
   byte saved = EEPROM.read(EEPROM_COMP_ADDR);
@@ -464,11 +544,12 @@ void loop() {
     ps2x.read_gamepad(false, 0);
   }
 
-  // Control de movimiento (PS2X tiene prioridad sobre la RPi)
+  // Control de movimiento. Prioridad: PS2 > comandos por COM (MOVE/GPIO).
   bool ps2xActivo = handlePS2Movement();
   if (!ps2xActivo) {
-    // Solo usa RPi si el mando no está enviando comandos
-    handleRPi();
+    // Aplica el estado de movimiento recibido por COM (desde Vision).
+    // (Si se usan los pines fisicos 6-9 en su lugar, cambiar por handleRPi();)
+    aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
   }
 
   // Control de servos del brazo (siempre PS2X)
