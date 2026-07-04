@@ -3520,6 +3520,16 @@ toggle_btn = ttk.Button(control_frame,
            command=toggle_system)
 toggle_btn.pack(pady=5, fill=tk.X)
 
+# Botón destacado: lanza Pastillero.py y divide la pantalla (Visión | Pastillero)
+pastillero_split_btn = tk.Button(control_frame,
+           text="💊  ABRIR PASTILLERO (pantalla dividida)",
+           command=abrir_pastillero_dividido,
+           bg="#2e7d32", fg="white",
+           activebackground="#1b5e20", activeforeground="white",
+           font=("Arial", 11, "bold"), relief=tk.RAISED, bd=2,
+           cursor="hand2")
+pastillero_split_btn.pack(pady=(5, 8), fill=tk.X, ipady=4)
+
 record_btn = ttk.Button(control_frame,
            text="INICIAR GRABACIÓN AMBAS",
            command=toggle_recording)
@@ -3542,12 +3552,6 @@ fullscreen_btn = ttk.Button(control_frame,
            text="PANTALLA COMPLETA (cámara)",
            command=lambda: open_fullscreen())
 fullscreen_btn.pack(pady=5, fill=tk.X)
-
-# Botón: lanza Pastillero.py y divide la pantalla (Visión | Pastillero)
-pastillero_split_btn = ttk.Button(control_frame,
-           text="ABRIR PASTILLERO (pantalla dividida)",
-           command=abrir_pastillero_dividido)
-pastillero_split_btn.pack(pady=5, fill=tk.X)
 
 separator = tk.Frame(monitoring_main_frame, bg="#222222", height=1)
 separator.pack(fill=tk.X, padx=20, pady=10)
