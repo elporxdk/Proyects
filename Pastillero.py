@@ -133,7 +133,10 @@ def dispense():
     medic = str(data.get("medicamento", "")).strip()
     nombre = str(data.get("nombre", "")).strip()
 
-    resp = serial_command(f"DISPENSE,{comp}")
+    # Espera amplia: DISPENSE puede mover hasta 4 compartimientos, girar 180
+    # (giro intencional del firmware) y abrir/cerrar el servo (~3 s de delays),
+    # lo que en el peor caso supera los 4 s por defecto y daria un falso timeout.
+    resp = serial_command(f"DISPENSE,{comp}", wait=12.0)
     conectado = _serial_conn is not None
     ack = " | ".join(resp) if resp else "sin respuesta"
     print(f"DISPENSAR comp={comp} medic='{medic}' paciente='{nombre}' -> Arduino: {ack}")
