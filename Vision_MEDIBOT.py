@@ -119,6 +119,7 @@ else:
 # ================================================
 from datetime import datetime
 import subprocess
+import sys
 
 # ================= CONFIGURACIÓN =================
 MAX_PERSONS = 5
@@ -2734,6 +2735,92 @@ def open_pastillero():
     except Exception as e:
         messagebox.showerror("Error", f"No se pudo abrir el pastillero:\n{str(e)}")
 
+# ========= LANZAR Pastillero.py + PANTALLA DIVIDIDA =========
+# Ejecuta el script local Pastillero.py (levanta su servidor Flask en el
+# puerto 5001) y divide la pantalla: Visión a la izquierda, pastillero a la
+# derecha, para operar ambos a la vez.
+_pastillero_proc = None
+PASTILLERO_PORT = 5001
+
+def _puerto_abierto(host, port, timeout=0.5):
+    """True si hay algo escuchando en host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+def _lanzar_pastillero_proceso():
+    """Lanza Pastillero.py con el mismo interprete de Python.
+    No lo duplica si ya hay un servidor escuchando en el puerto."""
+    global _pastillero_proc
+    # ¿Ya hay un servidor en el puerto? -> reutilizarlo
+    if _puerto_abierto("127.0.0.1", PASTILLERO_PORT):
+        return True
+    # ¿Ya lo lanzamos y sigue vivo?
+    if _pastillero_proc is not None and _pastillero_proc.poll() is None:
+        return True
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    script = os.path.join(base_dir, "Pastillero.py")
+    if not os.path.exists(script):
+        messagebox.showerror("Pastillero",
+            f"No se encontró Pastillero.py en:\n{base_dir}")
+        return False
+    try:
+        _pastillero_proc = subprocess.Popen([sys.executable, script], cwd=base_dir)
+    except Exception as e:
+        messagebox.showerror("Pastillero", f"No se pudo iniciar Pastillero.py:\n{e}")
+        return False
+    # Esperar a que Flask levante (hasta ~8 s)
+    for _ in range(40):
+        if _puerto_abierto("127.0.0.1", PASTILLERO_PORT):
+            return True
+        time.sleep(0.2)
+    messagebox.showwarning("Pastillero",
+        "Pastillero.py se inició, pero el servidor web (puerto 5001) aún no "
+        "responde. Reintenta el botón en unos segundos.")
+    return False
+
+def _abrir_navegador_pastillero(x, y, w, h):
+    """Abre la UI del pastillero. Intenta Chromium en una ventana ya
+    posicionada (para la pantalla dividida); si no, usa el navegador
+    por defecto."""
+    url = f"http://127.0.0.1:{PASTILLERO_PORT}"
+    for navegador in ("chromium-browser", "chromium", "google-chrome", "google-chrome-stable"):
+        ruta = shutil.which(navegador)
+        if ruta:
+            try:
+                subprocess.Popen([ruta,
+                    f"--app={url}",
+                    f"--window-position={x},{y}",
+                    f"--window-size={w},{h}",
+                    "--new-window"])
+                return
+            except Exception:
+                pass
+    # Respaldo: navegador por defecto (no controla la posición de la ventana)
+    webbrowser.open(url)
+
+def abrir_pastillero_dividido():
+    """Lanza Pastillero.py y divide la pantalla: Visión a la izquierda,
+    pastillero (web) a la derecha."""
+    if not _lanzar_pastillero_proceso():
+        return
+    sw = root.winfo_screenwidth()
+    sh = root.winfo_screenheight()
+    half = sw // 2
+    # Visión ocupa la mitad izquierda
+    root.geometry(f"{half}x{sh}+0+0")
+    # Pastillero en la mitad derecha
+    _abrir_navegador_pastillero(half, 0, sw - half, sh)
+    messagebox.showinfo("Pastillero",
+        "Pastillero iniciado en pantalla dividida.\n\n"
+        "Izquierda: Visión MEDIBOT\n"
+        f"Derecha: Pastillero (http://127.0.0.1:{PASTILLERO_PORT})\n\n"
+        "Nota COM: en la Raspberry Pi, Visión maneja el movimiento por los "
+        "pines GPIO y el pastillero usa el puerto serie (USB), así que NO "
+        "compiten por el mismo puerto.")
+
 # ================= CONTROL PRINCIPAL ===================
 def toggle_system():
     """Alterna entre iniciar y detener el sistema"""
@@ -3455,6 +3542,12 @@ fullscreen_btn = ttk.Button(control_frame,
            text="PANTALLA COMPLETA (cámara)",
            command=lambda: open_fullscreen())
 fullscreen_btn.pack(pady=5, fill=tk.X)
+
+# Botón: lanza Pastillero.py y divide la pantalla (Visión | Pastillero)
+pastillero_split_btn = ttk.Button(control_frame,
+           text="ABRIR PASTILLERO (pantalla dividida)",
+           command=abrir_pastillero_dividido)
+pastillero_split_btn.pack(pady=5, fill=tk.X)
 
 separator = tk.Frame(monitoring_main_frame, bg="#222222", height=1)
 separator.pack(fill=tk.X, padx=20, pady=10)
