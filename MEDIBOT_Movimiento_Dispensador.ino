@@ -41,12 +41,17 @@
  *  Todas las ordenes llegan por Serial (via el hub serial_hub.py del lado PC).
  *
  *  ------------------- ORDENES DISPENSADOR (Pillbox) ----------
- *   GOTO,<n>       Gira la ruleta hasta el compartimiento n (1..8)
- *   DISPENSE,<n>   Gira al compartimiento n y ademas dispensa
- *   DISPENSE       Dispensa en el compartimiento actual
- *   HOME           Vuelve al compartimiento 1
+ *  Semantica de la ruleta: al SELECCIONAR un compartimiento este se coloca
+ *  ARRIBA de la zona de dispensacion (posicion de carga/espera, 180 grados
+ *  opuesta). Al DISPENSAR, la ruleta gira media vuelta para BAJARLO a la
+ *  zona de dispensado y el servo suelta la pastilla.
+ *
+ *   GOTO,<n>       Coloca el compartimiento n (1..8) ARRIBA (zona de espera)
+ *   DISPENSE,<n>   Coloca n arriba, lo BAJA a la zona de dispensado y dispensa
+ *   DISPENSE       Baja y dispensa el compartimiento que este arriba
+ *   HOME           Coloca el compartimiento 1 arriba
  *   SERVO,<ang>    Mueve el servo dispensador a <ang> grados (0..90)
- *   GETPOS         Responde con la posicion actual (POS,<n>)
+ *   GETPOS         Responde POS,<n> = compartimiento actualmente arriba
  *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
@@ -56,8 +61,8 @@
  *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
- *   POS,<n>        compartimiento actual tras un giro o al consultar
- *   DISPENSADO,<n> dispensado terminado
+ *   POS,<n>        compartimiento arriba tras un giro o al consultar
+ *   DISPENSADO,<n> dispensado terminado (n = compartimiento que bajo y solto)
  *   OK,MOVE,<dir>  confirmacion de orden de movimiento
  *   ERR,<texto>    orden no reconocida
  * ============================================================
@@ -125,7 +130,11 @@ Servo servoPan;
 Servo servoTilt;
 
 // ------------- Motor paso a paso (ruleta) -------------
-//  Reasignado a A0..A3 para no chocar con PS2 (10-13) ni RPi (6-9)
+//  Reasignado a A0..A3 para no chocar con PS2 (10-13) ni RPi (6-9).
+//  VERIFICADO: en Uno/Mega/Nano, A0..A5 son pines digitales completos
+//  (digitalWrite funciona igual que en 0-13, y la libreria Stepper solo usa
+//  digitalWrite), asi que manejan el ULN2003 sin problema. La excepcion son
+//  A6/A7 del Nano/Pro Mini (solo entrada analogica) — NO usarlos para esto.
 const int PIN_IN1 = A0;
 const int PIN_IN2 = A1;
 const int PIN_IN3 = A2;
@@ -137,7 +146,7 @@ const int  PASOS_POR_COMP    = PASOS_POR_VUELTA / N_COMPARTIMIENTOS; // 256 paso
 
 Stepper ruleta(PASOS_POR_VUELTA, PIN_IN1, PIN_IN3, PIN_IN2, PIN_IN4);
 
-int compActual = 1;   // compartimiento que esta ahora en la posicion de dispensado (1..8)
+int compActual = 1;   // compartimiento que esta ARRIBA (zona de carga/espera, 1..8)
 
 // Buffer para lectura no bloqueante de comandos por Serial
 String bufferSerial = "";
@@ -322,6 +331,8 @@ void liberarBobinas() {
   digitalWrite(PIN_IN4, LOW);
 }
 
+// Coloca el compartimiento 'destino' ARRIBA de la zona de dispensacion
+// (posicion de carga/espera). No dispensa: solo lo deja preparado.
 void irACompartimiento(int destino) {
   destino = constrain(destino, 1, N_COMPARTIMIENTOS);
   int diff = destino - compActual;
@@ -340,18 +351,22 @@ void irACompartimiento(int destino) {
   Serial.println(compActual);
 }
 
+// BAJA el compartimiento que esta arriba hasta la zona de dispensado
+// (media vuelta, 180 grados) y suelta la pastilla con el servo.
 void dispensar() {
   // Seguridad: detener el chasis mientras se dispensa (la accion es bloqueante)
   stopMoving();
 
-  // 1. Girar 180° (media vuelta = 4 compartimentos)
+  int compDispensado = compActual;   // el que esta arriba es el que va a bajar
+
+  // 1. Girar 180° (media vuelta = 4 compartimentos): arriba -> abajo
   int giro = 4; // 4 compartimentos = 180°
   // Gira siempre en una dirección fija (por ejemplo, horario)
   ruleta.step(giro * PASOS_POR_COMP);
-  // Actualizar posición (sumar 4 módulo 8)
+  // El compartimiento que queda ARRIBA ahora es el opuesto (sumar 4 modulo 8)
   compActual = (compActual + giro - 1) % N_COMPARTIMIENTOS + 1;
   liberarBobinas();
-  // Guardar nueva posición en EEPROM
+  // Guardar nueva posición en EEPROM (recuerda la posicion tras un reinicio)
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
 
   // 2. Abrir servo por 2.5 segundos
@@ -362,8 +377,9 @@ void dispensar() {
   servoDispensador.write(SERVO_REPOSO);
   delay(500);
 
+  // Informa el compartimiento QUE SE DISPENSO (el que bajo), no el que quedo arriba
   Serial.print("DISPENSADO,");
-  Serial.println(compActual);
+  Serial.println(compDispensado);
 }
 
 void procesarComando(String linea) {
