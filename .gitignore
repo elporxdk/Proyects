@@ -7,3 +7,6 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Datos de runtime del Pillbox (estado local de la Pi)
+pillbox_data.json
