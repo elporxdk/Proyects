@@ -281,17 +281,22 @@ def dispense():
     ack = " | ".join(resp) if resp else "sin respuesta"
     print(f"DISPENSAR comp={comp} medic='{medic}' paciente='{nombre}' -> Arduino: {ack}")
 
-    if conectado:
+    if ok:
+        # El Arduino confirmo con DISPENSADO
         msg = f"Dispensado en compartimiento {comp}"
         if medic:
             msg += f": {medic}"
         if nombre:
             msg += f" (paciente {nombre})"
-        msg += f".  Arduino: {ack}"
+    elif conectado:
+        # El puerto esta abierto pero el Arduino NO confirmo el dispensado
+        msg = (f"El puerto esta abierto pero el Arduino no confirmo el dispensado "
+               f"(respuesta: {ack}). Revisa que sea el Arduino correcto, el firmware "
+               f"y el cableado. Si el puerto es incorrecto, fija MEDIBOT_SERIAL_PORT.")
     else:
         msg = (f"No hay Arduino conectado. Orden simulada: DISPENSE,{comp}"
                f" ({medic or 'sin medicamento'}).")
-    return jsonify({"ok": conectado, "message": msg, "arduino": resp, "compartimiento": comp})
+    return jsonify({"ok": ok, "message": msg, "arduino": resp, "compartimiento": comp})
 
 
 @app.route("/goto", methods=["POST"])

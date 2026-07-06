@@ -87,7 +87,13 @@ def _autodetect_serial_port():
         return s
 
     ports.sort(key=score, reverse=True)
-    return ports[0].device
+    best = ports[0]
+    # NO caer en un puerto no deseado (p.ej. el UART interno de la Pi ttyS0/
+    # ttyAMA0): si ninguno parece un Arduino, mejor devolver None y avisar,
+    # antes que "conectar" a un puerto que nunca respondera.
+    if score(best) <= 0:
+        return None
+    return best.device
 
 
 def serial_open():
@@ -145,19 +151,32 @@ def _monitor_reconexion():
 
 def procesar(cmd, wait, until):
     """Escribe cmd en el Arduino y recolecta lineas de respuesta.
-    Devuelve (enviado_real, lineas)."""
-    with _serial_lock:
+    Devuelve (enviado_real, lineas).
+
+    JUSTICIA: los comandos "fire and forget" (movimiento/servos de Vision, sin
+    'until') NO bloquean el puerto. Si esta ocupado (p.ej. dispensando o hay un
+    comando con respuesta en curso), se DESCARTAN en vez de encolarse. Asi un
+    DISPENSE nunca se queda sin turno aunque Vision inunde el hub de comandos.
+    Los comandos con respuesta (DISPENSE/GOTO) SI esperan su turno."""
+    fire_and_forget = not until
+
+    if fire_and_forget:
+        if not _serial_lock.acquire(blocking=False):
+            return True, []          # puerto ocupado: descartar el comando transitorio
+    else:
+        _serial_lock.acquire()       # esperar turno para un comando con respuesta
+    try:
         if _serial_conn is None:
-            print(f"[HUB sin Arduino] {cmd}")
+            if not fire_and_forget:
+                print(f"[HUB sin Arduino] {cmd}")
             return False, [f"SIN_ARDUINO: {cmd}"]
         try:
             _serial_conn.reset_input_buffer()
             _serial_conn.write((cmd + "\n").encode())
             _serial_conn.flush()
             lineas = []
-            if not until:
-                # Comando "fire and forget" (movimiento / servos): no bloquear
-                # esperando respuesta; solo drenar lo que ya haya llegado.
+            if fire_and_forget:
+                # No esperar respuesta; solo drenar lo que ya haya llegado.
                 time.sleep(0.01)
                 while _serial_conn.in_waiting:
                     linea = _serial_conn.readline().decode(errors="ignore").strip()
@@ -171,10 +190,13 @@ def procesar(cmd, wait, until):
                     lineas.append(linea)
                     if any(linea.startswith(u) for u in until):
                         break
+            print(f"[HUB] {cmd} -> {lineas} ({time.time()-t0:.1f}s)")
             return True, lineas
         except Exception as e:
             _marcar_desconectado(str(e))
             return False, [f"ERROR serial: {e}"]
+    finally:
+        _serial_lock.release()
 
 
 def _respuesta_status():
