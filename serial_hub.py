@@ -3,23 +3,46 @@
 """
 Hub serial MEDIBOT
 ==================
-Unico proceso dueno del puerto COM/serie del Arduino. Vision y Pillbox
-(Pastillero) NO abren el puerto directamente: se conectan por TCP a este hub
-(127.0.0.1:5055) y le mandan sus comandos; el hub los reenvia al Arduino por el
-UNICO puerto serie y devuelve la respuesta.
+QUE ES: el UNICO programa que abre el puerto serie (COM/USB) del Arduino.
 
-Asi ambos programas pueden "hablar" por COM al mismo tiempo sin pelearse por el
-puerto (dos procesos no pueden abrir el mismo COM a la vez).
+POR QUE EXISTE: dos programas (Medibot/Vision y Pillbox) no pueden abrir el
+mismo puerto COM a la vez — el segundo falla con "puerto ocupado". El hub abre
+el puerto UNA sola vez, y Vision y Pillbox le mandan sus ordenes por TCP local
+(127.0.0.1:5055). El hub las escribe al Arduino en orden y devuelve la
+respuesta. Asi ambos "hablan por COM" sin pelearse.
 
-Protocolo cliente <-> hub (una linea JSON por peticion):
+    Vision  ----TCP----+
+                       +---> serial_hub ---USB/COM---> Arduino
+    Pillbox ----TCP----+
+
+COMO SE USA: no hace falta arrancarlo a mano; Vision y Pillbox lo autolanzan
+(medibot_serial.ensure_hub()). Tambien puede correrse solo:
+    python3 serial_hub.py
+
+PUERTO SERIE:
+  - Por defecto AUTODETECTA el Arduino (ttyUSB*/ttyACM* en la Pi, COMx en
+    Windows).
+  - Para FIJARLO a mano, define la variable de entorno MEDIBOT_SERIAL_PORT:
+        MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 Pastillero.py
+  - Si no hay Arduino al arrancar (o se desconecta), el hub REINTENTA
+    conectarse cada 5 segundos, no hace falta reiniciar nada.
+
+PROTOCOLO cliente <-> hub (una linea JSON por peticion):
+  Comando al Arduino:
    ->  {"cmd": "DISPENSE,3", "wait": 12.0, "until": ["DISPENSADO", "ERR"]}
-   <-  {"ok": true, "lines": ["POS,3", "DISPENSADO,7"]}
+   <-  {"ok": true, "lines": ["POS,3", "DISPENSADO,3"]}
+       ok=true SOLO si el comando se escribio en un Arduino real.
+  Estado real de la conexion:
+   ->  {"op": "status"}
+   <-  {"ok": true, "serial_open": true, "port": "/dev/ttyUSB0", "baud": 9600}
+  Forzar reconexion ahora:
+   ->  {"op": "reconnect"}   <- responde igual que status
 
-Ejecutar:   python3 serial_hub.py     (tambien se autolanza desde Vision/Pillbox)
 Requisitos: pip install pyserial
 """
 
 import json
+import os
 import socket
 import threading
 import time
@@ -27,11 +50,14 @@ import time
 HOST = "127.0.0.1"
 PORT = 5055
 
-SERIAL_PORT = None      # None = autodetectar; o fija "COM3" (Windows) / "/dev/ttyUSB0"
-SERIAL_BAUD = 9600      # DEBE coincidir con Serial.begin() del firmware
+# Puerto serie: fija MEDIBOT_SERIAL_PORT para elegirlo a mano; vacio = autodetectar
+SERIAL_PORT = os.environ.get("MEDIBOT_SERIAL_PORT") or None
+SERIAL_BAUD = int(os.environ.get("MEDIBOT_SERIAL_BAUD", "9600"))
+RETRY_SECONDS = 5        # cada cuanto reintenta conectar si no hay Arduino
 
 _serial_conn = None
 _serial_lock = threading.Lock()
+_port_name = None
 
 
 def _autodetect_serial_port():
@@ -64,37 +90,70 @@ def _autodetect_serial_port():
     return ports[0].device
 
 
+def serial_open():
+    """True si hay un Arduino realmente conectado y el puerto esta abierto."""
+    return _serial_conn is not None
+
+
 def serial_connect():
-    """Abre el unico puerto serie (autodetecta si SERIAL_PORT es None)."""
-    global _serial_conn
+    """Intenta abrir el puerto serie. Devuelve True si quedo conectado."""
+    global _serial_conn, _port_name
+    if serial_open():
+        return True
     try:
         import serial
     except Exception as e:
-        print(f"HUB: pyserial no instalado ({e}). Modo SIMULADO (sin Arduino).")
-        return None
+        print(f"HUB: pyserial NO instalado ({e}). Instala con: pip install pyserial")
+        return False
     port = SERIAL_PORT or _autodetect_serial_port()
     if not port:
-        print("HUB: no se detecto ningun Arduino. Modo SIMULADO.")
-        return None
+        print("HUB: no se detecto ningun Arduino "
+              "(fija MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 si conoces el puerto).")
+        return False
     try:
-        _serial_conn = serial.Serial(port, SERIAL_BAUD, timeout=0.2)
+        conn = serial.Serial(port, SERIAL_BAUD, timeout=0.2)
         time.sleep(2.0)   # el Arduino se reinicia al abrir el puerto; esperar boot
-        print(f"HUB: Arduino conectado en {port} @ {SERIAL_BAUD} baud")
+        with _serial_lock:
+            _serial_conn = conn
+            _port_name = port
+        print(f"HUB: Arduino CONECTADO en {port} @ {SERIAL_BAUD} baud")
+        return True
     except Exception as e:
-        print(f"HUB: no se pudo abrir {port}: {e}. Modo SIMULADO.")
-        _serial_conn = None
-    return _serial_conn
+        print(f"HUB: no se pudo abrir {port}: {e}")
+        return False
+
+
+def _marcar_desconectado(motivo):
+    """Cierra el puerto tras un error; el monitor reintentara solo."""
+    global _serial_conn
+    conn, _serial_conn = _serial_conn, None
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        print(f"HUB: Arduino desconectado ({motivo}); reintentando cada {RETRY_SECONDS} s")
+
+
+def _monitor_reconexion():
+    """Hilo: si no hay Arduino, reintenta conectar cada RETRY_SECONDS."""
+    while True:
+        if not serial_open():
+            serial_connect()
+        time.sleep(RETRY_SECONDS)
 
 
 def procesar(cmd, wait, until):
-    """Envia cmd al Arduino y recolecta lineas de respuesta hasta 'until' o 'wait'."""
+    """Escribe cmd en el Arduino y recolecta lineas de respuesta.
+    Devuelve (enviado_real, lineas)."""
     with _serial_lock:
         if _serial_conn is None:
-            print(f"[HUB SIMULADO] {cmd}")
-            return [f"(sin arduino) {cmd}"]
+            print(f"[HUB sin Arduino] {cmd}")
+            return False, [f"SIN_ARDUINO: {cmd}"]
         try:
             _serial_conn.reset_input_buffer()
             _serial_conn.write((cmd + "\n").encode())
+            _serial_conn.flush()
             lineas = []
             if not until:
                 # Comando "fire and forget" (movimiento / servos): no bloquear
@@ -104,7 +163,7 @@ def procesar(cmd, wait, until):
                     linea = _serial_conn.readline().decode(errors="ignore").strip()
                     if linea:
                         lineas.append(linea)
-                return lineas
+                return True, lineas
             t0 = time.time()
             while time.time() - t0 < wait:
                 linea = _serial_conn.readline().decode(errors="ignore").strip()
@@ -112,9 +171,15 @@ def procesar(cmd, wait, until):
                     lineas.append(linea)
                     if any(linea.startswith(u) for u in until):
                         break
-            return lineas
+            return True, lineas
         except Exception as e:
-            return [f"ERROR serial: {e}"]
+            _marcar_desconectado(str(e))
+            return False, [f"ERROR serial: {e}"]
+
+
+def _respuesta_status():
+    return {"ok": True, "serial_open": serial_open(),
+            "port": _port_name if serial_open() else None, "baud": SERIAL_BAUD}
 
 
 def handle_client(conn, addr):
@@ -132,17 +197,30 @@ def handle_client(conn, addr):
                     continue
                 try:
                     req = json.loads(linea.decode(errors="ignore"))
-                    cmd = str(req.get("cmd", "")).strip()
-                    wait = float(req.get("wait", 0.3))
-                    until = req.get("until") or []
                 except Exception:
                     conn.sendall(b'{"ok": false, "lines": ["ERROR: json invalido"]}\n')
                     continue
+
+                op = str(req.get("op", "")).strip().lower()
+                if op == "status":
+                    conn.sendall((json.dumps(_respuesta_status()) + "\n").encode())
+                    continue
+                if op == "reconnect":
+                    serial_connect()
+                    conn.sendall((json.dumps(_respuesta_status()) + "\n").encode())
+                    continue
+
+                cmd = str(req.get("cmd", "")).strip()
+                try:
+                    wait = float(req.get("wait", 0.3))
+                except (TypeError, ValueError):
+                    wait = 0.3
+                until = req.get("until") or []
                 if not cmd:
                     conn.sendall(b'{"ok": false, "lines": []}\n')
                     continue
-                lineas = procesar(cmd, wait, until)
-                conn.sendall((json.dumps({"ok": True, "lines": lineas}) + "\n").encode())
+                enviado, lineas = procesar(cmd, wait, until)
+                conn.sendall((json.dumps({"ok": enviado, "lines": lineas}) + "\n").encode())
     except Exception:
         pass
     finally:
@@ -151,6 +229,7 @@ def handle_client(conn, addr):
 
 def main():
     serial_connect()
+    threading.Thread(target=_monitor_reconexion, daemon=True).start()
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
@@ -160,7 +239,8 @@ def main():
               "Puede que ya haya un hub corriendo. Saliendo.")
         return
     srv.listen(8)
-    print(f"HUB serial escuchando en {HOST}:{PORT}")
+    print(f"HUB serial escuchando en {HOST}:{PORT} "
+          f"(Arduino: {'conectado en ' + str(_port_name) if serial_open() else 'buscando...'})")
     try:
         while True:
             conn, addr = srv.accept()

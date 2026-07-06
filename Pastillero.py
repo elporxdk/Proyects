@@ -112,8 +112,8 @@ def serial_connect():
 
 
 def hub_disponible():
-    """True si el hub serial esta escuchando (equivale a 'Arduino accesible')."""
-    return medibot_serial.hub_running()
+    """True SOLO si hay un Arduino fisico conectado (estado real via hub)."""
+    return medibot_serial.arduino_conectado()
 
 
 def serial_command(msg, wait=4.0, until=("DISPENSADO", "ERR")):
@@ -310,14 +310,21 @@ def goto():
 
 @app.route("/serial/status")
 def serial_status():
-    disp = hub_disponible()
-    puerto = f"hub {medibot_serial.HUB_HOST}:{medibot_serial.HUB_PORT}" if disp else None
-    return jsonify({"conectado": disp, "puerto": puerto, "baud": SERIAL_BAUD})
+    """Estado REAL: 'conectado' es true solo si hay un Arduino fisico abierto."""
+    s = medibot_serial.hub_status()
+    if s is None:
+        return jsonify({"conectado": False, "puerto": None,
+                        "baud": SERIAL_BAUD, "hub": False})
+    return jsonify({"conectado": bool(s.get("serial_open")),
+                    "puerto": s.get("port"),
+                    "baud": s.get("baud", SERIAL_BAUD), "hub": True})
 
 
 @app.route("/serial/reconnect", methods=["POST"])
 def serial_reconnect():
-    serial_connect()
+    """Relanza el hub si murio y le pide reintentar el puerto serie AHORA."""
+    medibot_serial.ensure_hub()
+    medibot_serial.hub_reconnect()
     return serial_status()
 
 
@@ -416,6 +423,7 @@ HTML_PAGE = """<!DOCTYPE html>
     <h1>Pillbox <span id="globalBadge">8</span></h1>
     <div class="flex-wrap">
       <span class="serial-pill" id="serialPill">Arduino: comprobando...</span>
+      <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
       <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
     </div>
   </div>
@@ -721,10 +729,26 @@ HTML_PAGE = """<!DOCTYPE html>
     function refreshSerial() {
       fetch('/serial/status').then(r => r.json()).then(s => {
         const pill = document.getElementById('serialPill');
-        if (s.conectado) { pill.textContent = 'Arduino: ' + s.puerto; pill.classList.add('ok'); }
-        else { pill.textContent = 'Arduino: sin conexion'; pill.classList.remove('ok'); }
+        const btnR = document.getElementById('btnReconectar');
+        if (s.conectado) {
+          pill.textContent = 'Arduino: ' + s.puerto;
+          pill.classList.add('ok');
+          btnR.classList.add('hidden');
+        } else {
+          pill.textContent = s.hub === false ? 'Hub serial apagado' : 'Arduino: sin conexion';
+          pill.classList.remove('ok');
+          btnR.classList.remove('hidden');
+        }
       }).catch(() => {});
     }
+
+    window.reconectarArduino = function() {
+      const pill = document.getElementById('serialPill');
+      pill.textContent = 'Reconectando...';
+      fetch('/serial/reconnect', { method: 'POST' })
+        .then(r => r.json()).then(() => refreshSerial())
+        .catch(() => refreshSerial());
+    };
 
     // Refresco periodico: capta los dispensados automaticos en el historial
     function refreshData() {

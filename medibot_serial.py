@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Cliente del hub serial MEDIBOT (serial_hub.py).
+medibot_serial: el "cartero" entre Vision/Pillbox y el Arduino.
+================================================================
+QUE HACE (en simple): Vision y Pillbox NO abren el puerto COM directamente
+(dos programas no pueden abrir el mismo puerto a la vez). En su lugar, ambos
+usan este modulo, que entrega cada orden al HUB serial (serial_hub.py) por
+TCP local; el hub es el unico que habla con el Arduino por USB/COM.
 
-Vision y Pillbox usan send_command() para mandar ordenes al Arduino a traves
-del hub, en vez de abrir el puerto COM directamente. Asi ambos programas pueden
-enviar sus comandos por el mismo puerto sin conflicto: el hub es el unico dueno
-del COM y serializa el acceso.
+    Vision  --- medibot_serial ---+
+                                  +--TCP--> serial_hub --USB--> Arduino
+    Pillbox --- medibot_serial ---+
 
-Uso:
-    import medibot_serial
-    medibot_serial.ensure_hub()                     # lanza el hub si hace falta
-    medibot_serial.send_command("MOVE,FWD")         # movimiento (sin espera)
-    medibot_serial.send_command("DISPENSE,3", wait=12.0, until=["DISPENSADO", "ERR"])
+FUNCIONES:
+  ensure_hub()          Lanza serial_hub.py si no esta corriendo (autoarranque).
+  hub_running()         True si el hub esta escuchando (proceso vivo).
+  hub_status()          Estado REAL: {"serial_open": bool, "port": ..., "baud": ...}
+                        serial_open=True significa "hay un Arduino conectado".
+  arduino_conectado()   Atajo: True solo si hay Arduino fisico conectado.
+  hub_reconnect()       Pide al hub reintentar la conexion serie AHORA.
+  send_command(cmd, wait, until)
+                        Envia un comando (p.ej. "DISPENSE,3") y devuelve las
+                        lineas que respondio el Arduino.
+
+Para fijar el puerto a mano (si la autodeteccion falla), exporta antes de
+arrancar Vision o Pillbox:
+    MEDIBOT_SERIAL_PORT=/dev/ttyUSB0   (Pi)      MEDIBOT_SERIAL_PORT=COM3  (Windows)
 """
 
 import json
@@ -27,7 +40,7 @@ HUB_PORT = 5055
 
 
 def hub_running():
-    """True si el hub serial esta escuchando."""
+    """True si el hub serial esta escuchando (el proceso esta vivo)."""
     try:
         with socket.create_connection((HUB_HOST, HUB_PORT), timeout=0.3):
             return True
@@ -56,14 +69,12 @@ def ensure_hub():
     return False
 
 
-def send_command(cmd, wait=0.3, until=None):
-    """Envia un comando al hub y devuelve la lista de lineas de respuesta del
-    Arduino. Si el hub no esta disponible, devuelve un aviso en la lista."""
-    payload = json.dumps({"cmd": cmd, "wait": wait, "until": until or []}) + "\n"
+def _peticion(payload, timeout):
+    """Envia un dict JSON al hub y devuelve el dict de respuesta (o None)."""
     try:
         with socket.create_connection((HUB_HOST, HUB_PORT), timeout=2.0) as s:
-            s.sendall(payload.encode())
-            s.settimeout(wait + 3.0)
+            s.sendall((json.dumps(payload) + "\n").encode())
+            s.settimeout(timeout)
             buf = b""
             while b"\n" not in buf:
                 chunk = s.recv(4096)
@@ -71,8 +82,35 @@ def send_command(cmd, wait=0.3, until=None):
                     break
                 buf += chunk
             if not buf:
-                return []
-            resp = json.loads(buf.split(b"\n", 1)[0].decode(errors="ignore"))
-            return resp.get("lines", [])
-    except Exception as e:
-        return [f"ERROR hub: {e}"]
+                return None
+            return json.loads(buf.split(b"\n", 1)[0].decode(errors="ignore"))
+    except Exception:
+        return None
+
+
+def hub_status():
+    """Estado REAL de la conexion con el Arduino, preguntandole al hub.
+    Devuelve {"serial_open": bool, "port": str|None, "baud": int} o None si
+    el hub no responde."""
+    return _peticion({"op": "status"}, timeout=3.0)
+
+
+def arduino_conectado():
+    """True SOLO si el hub tiene un Arduino fisico conectado por USB/COM."""
+    s = hub_status()
+    return bool(s and s.get("serial_open"))
+
+
+def hub_reconnect():
+    """Pide al hub que reintente abrir el puerto serie ahora mismo."""
+    return _peticion({"op": "reconnect"}, timeout=8.0)
+
+
+def send_command(cmd, wait=0.3, until=None):
+    """Envia un comando al Arduino a traves del hub y devuelve la lista de
+    lineas de respuesta. Si el hub no responde, devuelve un aviso en la lista."""
+    resp = _peticion({"cmd": cmd, "wait": wait, "until": until or []},
+                     timeout=wait + 5.0)
+    if resp is None:
+        return [f"ERROR hub: sin respuesta ({cmd})"]
+    return resp.get("lines", [])
