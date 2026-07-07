@@ -231,6 +231,12 @@ def handle_client(conn, addr):
                     serial_connect()
                     conn.sendall((json.dumps(_respuesta_status()) + "\n").encode())
                     continue
+                if op == "shutdown":
+                    # Permite a main.py apagar un hub viejo que quedo en
+                    # memoria y relanzar uno con el codigo actual.
+                    conn.sendall(b'{"ok": true, "bye": true}\n')
+                    print("HUB: apagado a peticion de un cliente (relanzo con codigo nuevo).")
+                    os._exit(0)
 
                 cmd = str(req.get("cmd", "")).strip()
                 try:

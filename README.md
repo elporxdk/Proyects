@@ -25,12 +25,24 @@ Pillbox ------------+
 - **`medibot_serial.py`**: el "cartero" que usan Vision y Pillbox para hablar
   con el hub. Lo autolanza si no esta corriendo. No hay que arrancarlo a mano.
 
-### Uso normal (Raspberry Pi)
+### Uso normal (Raspberry Pi) — UN SOLO COMANDO
 
 ```bash
 pip install flask pyserial
-python3 Pastillero.py        # Pillbox en http://<ip>:5001 (el hub arranca solo)
-python3 Vision_MEDIBOT.py    # Medibot (usa el mismo hub)
+python3 main.py
+```
+
+`main.py` arranca todo en orden y coexistiendo: apaga cualquier hub viejo en
+memoria y levanta uno con el codigo actual, lanza Pillbox
+(http://<ip>:5001) y abre Medibot/Vision. Al cerrar Medibot, detiene el
+chasis (seguridad) y cierra Pillbox. Si falta un archivo o una libreria, lo
+dice con un mensaje claro y como instalarlo.
+
+Tambien se puede arrancar cada pieza por separado si hace falta:
+
+```bash
+python3 Pastillero.py        # solo Pillbox (el hub arranca solo)
+python3 Vision_MEDIBOT.py    # solo Medibot (usa el mismo hub)
 ```
 
 ### Si la autodeteccion no encuentra el Arduino

@@ -113,6 +113,12 @@ def hub_reconnect():
     return _peticion({"op": "reconnect"}, timeout=8.0)
 
 
+def hub_shutdown():
+    """Apaga el hub si esta corriendo (para relanzarlo con codigo actualizado).
+    No relanza nada si no habia hub."""
+    return _peticion({"op": "shutdown"}, timeout=3.0, _reintentar=False)
+
+
 def send_command(cmd, wait=0.3, until=None):
     """Envia un comando al Arduino a traves del hub y devuelve la lista de
     lineas de respuesta. Si el hub no responde, devuelve un aviso en la lista.
