@@ -69,8 +69,10 @@ def ensure_hub():
     return False
 
 
-def _peticion(payload, timeout):
-    """Envia un dict JSON al hub y devuelve el dict de respuesta (o None)."""
+def _peticion(payload, timeout, _reintentar=True):
+    """Envia un dict JSON al hub y devuelve el dict de respuesta (o None).
+    Si el hub esta caido (conexion rechazada), intenta relanzarlo y reintenta
+    una vez. Un timeout de lectura NO relanza (el hub esta vivo pero ocupado)."""
     try:
         with socket.create_connection((HUB_HOST, HUB_PORT), timeout=2.0) as s:
             s.sendall((json.dumps(payload) + "\n").encode())
@@ -84,6 +86,11 @@ def _peticion(payload, timeout):
             if not buf:
                 return None
             return json.loads(buf.split(b"\n", 1)[0].decode(errors="ignore"))
+    except ConnectionRefusedError:
+        # El hub no esta escuchando: relanzarlo y reintentar una sola vez.
+        if _reintentar and ensure_hub():
+            return _peticion(payload, timeout, _reintentar=False)
+        return None
     except Exception:
         return None
 
@@ -108,9 +115,11 @@ def hub_reconnect():
 
 def send_command(cmd, wait=0.3, until=None):
     """Envia un comando al Arduino a traves del hub y devuelve la lista de
-    lineas de respuesta. Si el hub no responde, devuelve un aviso en la lista."""
+    lineas de respuesta. Si el hub no responde, devuelve un aviso en la lista.
+    El margen del timeout es amplio (wait + 15 s) para que un dispensado lento
+    o con el puerto ocupado no de un falso 'sin respuesta'."""
     resp = _peticion({"cmd": cmd, "wait": wait, "until": until or []},
-                     timeout=wait + 5.0)
+                     timeout=wait + 15.0)
     if resp is None:
         return [f"ERROR hub: sin respuesta ({cmd})"]
     return resp.get("lines", [])
