@@ -122,6 +122,81 @@ def serial_command(msg, wait=4.0, until=("DISPENSADO", "ERR")):
     return medibot_serial.send_command(msg, wait=wait, until=list(until))
 
 
+# ================= SINCRONIZACION CON LA POSICION DEL ARDUINO =================
+# El Arduino es la fuente de verdad de que compartimiento esta ARRIBA (lo
+# recuerda en EEPROM). La web guarda:
+#   - real:     lo que el Arduino REPORTA (respuestas POS,n / GETPOS)
+#   - esperado: lo que la web COMANDO por ultima vez (GOTO n, HOME=1, tras
+#               dispensar n -> el opuesto por el giro de 180)
+# Sincronizado = real y esperado coinciden.
+_pos_lock = threading.Lock()
+_verif_lock = threading.Lock()   # evita GETPOS simultaneos
+POS = {"real": None, "esperado": None, "ts": None}
+
+
+def _parsear_pos(resp):
+    """Extrae <n> de una respuesta 'POS,<n>'; None si no hay."""
+    for l in resp or []:
+        s = str(l)
+        if s.startswith("POS,"):
+            try:
+                return int(s.split(",")[1])
+            except (IndexError, ValueError):
+                pass
+    return None
+
+
+def _set_pos(real=None, esperado=None):
+    with _pos_lock:
+        if real is not None:
+            POS["real"] = real
+        if esperado is not None:
+            POS["esperado"] = esperado
+        POS["ts"] = datetime.now().strftime("%H:%M:%S")
+
+
+def _opuesto(comp):
+    """Compartimiento que queda ARRIBA tras dispensar 'comp' (giro de 180)."""
+    media = N_COMPARTIMIENTOS // 2
+    return ((comp - 1 + media) % N_COMPARTIMIENTOS) + 1
+
+
+def pos_estado(conectado=None):
+    """Estado de sincronizacion (sin tocar el serial: usa lo ya conocido)."""
+    if conectado is None:
+        conectado = hub_disponible()
+    with _pos_lock:
+        r, e, ts = POS["real"], POS["esperado"], POS["ts"]
+    sincronizado = (r is not None and e is not None and r == e)
+    if not conectado:
+        detalle = "Sin conexion con el Arduino"
+    elif r is None:
+        detalle = "Posicion del Arduino aun desconocida (pulsa Verificar)"
+    elif e is None:
+        detalle = f"Arduino en compartimiento {r}"
+    elif sincronizado:
+        detalle = f"Sincronizado en compartimiento {r}"
+    else:
+        detalle = f"Desincronizado: la web espera {e} y el Arduino esta en {r}"
+    return {"real": r, "esperado": e, "sincronizado": sincronizado,
+            "conectado": conectado, "detalle": detalle, "ts": ts}
+
+
+def verificar_pos():
+    """Pregunta al Arduino su posicion real (GETPOS) y actualiza POS['real'].
+    Evita consultas simultaneas; si ya hay una en curso devuelve lo cacheado."""
+    if not _verif_lock.acquire(blocking=False):
+        return POS["real"]
+    try:
+        resp = serial_command("GETPOS", wait=3.0, until=("POS", "ERR"))
+        real = _parsear_pos(resp)
+        if real is not None:
+            _set_pos(real=real)
+        return real
+    finally:
+        _verif_lock.release()
+
+
 def ejecutar_dispensado(comp, origen, detalle=""):
     """Dispensa el compartimiento 'comp' y registra la accion. Devuelve
     (ok, respuestas). Espera amplia: GOTO + bajada 180 + servo ~ 9 s peor caso."""
@@ -131,6 +206,10 @@ def ejecutar_dispensado(comp, origen, detalle=""):
     ok = conectado and any(str(l).startswith("DISPENSADO") for l in resp)
     registrar_historial(origen, comp, detalle,
                         "OK" if ok else ("SIMULADO" if not conectado else ack))
+    if ok:
+        # Tras dispensar 'comp', el que queda ARRIBA es el opuesto (giro 180).
+        _set_pos(esperado=_opuesto(comp))
+        verificar_pos()   # lee la posicion real para saber si coincide
     return ok, resp
 
 
@@ -299,12 +378,14 @@ def dispense():
     else:
         msg = (f"No hay Arduino conectado. Orden simulada: DISPENSE,{comp}"
                f" ({medic or 'sin medicamento'}).")
-    return jsonify({"ok": ok, "message": msg, "arduino": resp, "compartimiento": comp})
+    return jsonify({"ok": ok, "message": msg, "arduino": resp,
+                    "compartimiento": comp, "pos": pos_estado(conectado)})
 
 
 @app.route("/goto", methods=["POST"])
 def goto():
-    """Coloca el compartimiento ARRIBA de la zona de dispensacion (espera)."""
+    """Coloca el compartimiento ARRIBA de la zona de dispensacion (espera).
+    Se llama al ABRIR un compartimiento en la web."""
     data_req = request.get_json(silent=True) or {}
     try:
         comp = int(data_req.get("compartimiento", 0))
@@ -313,19 +394,39 @@ def goto():
     if not (1 <= comp <= N_COMPARTIMIENTOS):
         return jsonify({"ok": False, "message": "Compartimiento invalido"}), 400
     resp = serial_command(f"GOTO,{comp}", wait=8.0, until=("POS", "ERR"))
-    return jsonify({"ok": hub_disponible(), "arduino": resp, "compartimiento": comp})
+    _set_pos(real=_parsear_pos(resp), esperado=comp)
+    return jsonify({"ok": hub_disponible(), "arduino": resp,
+                    "compartimiento": comp, "pos": pos_estado()})
+
+
+@app.route("/home", methods=["POST"])
+def home():
+    """Devuelve la ruleta a su posicion de origen (compartimiento 1).
+    Se llama al CERRAR el detalle de un compartimiento."""
+    resp = serial_command("HOME", wait=8.0, until=("POS", "ERR"))
+    _set_pos(real=_parsear_pos(resp), esperado=1)
+    return jsonify({"ok": hub_disponible(), "arduino": resp, "pos": pos_estado()})
+
+
+@app.route("/arduino/estado")
+def arduino_estado():
+    """Consulta la posicion REAL del Arduino (GETPOS) y la compara con la
+    esperada por la web: dice con detalle si esta sincronizado."""
+    verificar_pos()
+    return jsonify(pos_estado())
 
 
 @app.route("/serial/status")
 def serial_status():
-    """Estado REAL: 'conectado' es true solo si hay un Arduino fisico abierto."""
+    """Estado REAL: 'conectado' es true solo si hay un Arduino fisico abierto.
+    Incluye la sincronizacion de posicion (cacheada, sin tocar el serial)."""
     s = medibot_serial.hub_status()
-    if s is None:
-        return jsonify({"conectado": False, "puerto": None,
-                        "baud": SERIAL_BAUD, "hub": False})
-    return jsonify({"conectado": bool(s.get("serial_open")),
-                    "puerto": s.get("port"),
-                    "baud": s.get("baud", SERIAL_BAUD), "hub": True})
+    conectado = bool(s and s.get("serial_open"))
+    return jsonify({"conectado": conectado,
+                    "puerto": s.get("port") if s else None,
+                    "baud": s.get("baud", SERIAL_BAUD) if s else SERIAL_BAUD,
+                    "hub": s is not None,
+                    "pos": pos_estado(conectado)})
 
 
 @app.route("/serial/reconnect", methods=["POST"])
@@ -350,12 +451,11 @@ HTML_PAGE = """<!DOCTYPE html>
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 10px; }
     .header h1 { font-size: 26px; font-weight: 600; color: #0b2b4a; letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
     .header h1 span { background: #eef3f9; padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: #1f5a8e; }
-    .header h1 span.logo-cap { width: 40px; height: 20px; border-radius: 20px;
-                display: inline-block; padding: 0; flex: none; align-self: center;
-                background: linear-gradient(90deg, #1f5a8e 50%, #dff0fa 50%);
-                border: 2px solid #1f5a8e; }
     .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: #fdecea; color: #b3323d; }
     .serial-pill.ok { background: #d4edda; color: #0e6b3e; }
+    .serial-pill.sync { background: #d4edda; color: #0e6b3e; }
+    .serial-pill.desync { background: #fdf0d5; color: #8a5a00; }
+    .serial-pill.neutro { background: #eef3f9; color: #5a728c; }
     .btn-back { background: #eef3f9; border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: #1f5a8e; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
     .btn-back:hover { background: #dce6f0; }
     .btn-back.hidden { display: none; }
@@ -432,9 +532,11 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
 <div class="app" id="app">
   <div class="header">
-    <h1><span class="logo-cap"></span>Pillbox <span id="globalBadge">8</span></h1>
+    <h1>Pillbox <span id="globalBadge">8</span></h1>
     <div class="flex-wrap">
       <span class="serial-pill" id="serialPill">Arduino: comprobando...</span>
+      <span class="serial-pill hidden" id="posPill" title="Posicion de la ruleta">Posicion: -</span>
+      <button class="btn-back hidden" id="btnVerificar" onclick="verificarSync()">Verificar</button>
       <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
       <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
     </div>
@@ -574,12 +676,16 @@ HTML_PAGE = """<!DOCTYPE html>
       const data = getCompData(num);
       if (data && data.completado === true) showSavedData(num, data);
       else showForm(num, data || null);
+      document.getElementById('detailSub').textContent =
+        'Moviendo la ruleta al compartimiento ' + num + '...';
       fetch('/goto', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ compartimiento: num })
       }).then(r => r.json()).then(res => {
-        if (res.ok) document.getElementById('detailSub').textContent =
-          'Compartimiento ' + num + ' en posicion de espera (arriba de la zona de dispensado)';
+        if (res.pos) updatePos(res.pos);
+        document.getElementById('detailSub').textContent = res.ok
+          ? 'Compartimiento ' + num + ' arriba, en posicion de espera'
+          : 'Sin conexion con el Arduino (posicion no confirmada)';
       }).catch(() => {});
     }
 
@@ -694,7 +800,7 @@ HTML_PAGE = """<!DOCTYPE html>
         })
       })
       .then(r => r.json())
-      .then(res => { alert(res.message); cargarTodo(renderHistorial); })
+      .then(res => { if (res.pos) updatePos(res.pos); alert(res.message); cargarTodo(renderHistorial); })
       .catch(e => alert('Error de conexion con el servidor: ' + e))
       .finally(() => { btn.disabled = false; btn.textContent = original; });
     }
@@ -719,6 +825,9 @@ HTML_PAGE = """<!DOCTYPE html>
     }
 
     function goToMain() {
+      // Al cerrar el detalle, la ruleta vuelve a su posicion de origen.
+      fetch('/home', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .then(r => r.json()).then(res => { if (res.pos) updatePos(res.pos); }).catch(() => {});
       document.getElementById('mainMenu').style.display = 'block';
       const dv = document.getElementById('detailView');
       dv.classList.remove('active'); dv.style.display = 'none';
@@ -732,22 +841,52 @@ HTML_PAGE = """<!DOCTYPE html>
       return String(text).replace(/[&<>"']/g, m => map[m]);
     }
 
-    // ---------- Estado de conexion con el Arduino ----------
+    // ---------- Estado de conexion y sincronizacion con el Arduino ----------
+    function updatePos(pos) {
+      const pill = document.getElementById('posPill');
+      pill.classList.remove('sync', 'desync', 'neutro');
+      if (!pos || !pos.conectado) { pill.classList.add('hidden'); return; }
+      pill.classList.remove('hidden');
+      pill.title = pos.detalle || '';
+      if (pos.real == null) {
+        pill.textContent = 'Posicion: sin verificar';
+        pill.classList.add('neutro');
+      } else if (pos.sincronizado || pos.esperado == null) {
+        pill.textContent = 'Sincronizado: comp ' + pos.real;
+        pill.classList.add('sync');
+      } else {
+        pill.textContent = 'Desincronizado: web ' + pos.esperado + ' / Arduino ' + pos.real;
+        pill.classList.add('desync');
+      }
+    }
+
     function refreshSerial() {
       fetch('/serial/status').then(r => r.json()).then(s => {
         const pill = document.getElementById('serialPill');
         const btnR = document.getElementById('btnReconectar');
+        const btnV = document.getElementById('btnVerificar');
         if (s.conectado) {
           pill.textContent = 'Arduino: ' + s.puerto;
           pill.classList.add('ok');
           btnR.classList.add('hidden');
+          btnV.classList.remove('hidden');
         } else {
           pill.textContent = s.hub === false ? 'Hub serial apagado' : 'Arduino: sin conexion';
           pill.classList.remove('ok');
           btnR.classList.remove('hidden');
+          btnV.classList.add('hidden');
         }
+        updatePos(s.pos);
       }).catch(() => {});
     }
+
+    // Verifica la posicion REAL preguntando al Arduino (GETPOS) y la compara.
+    window.verificarSync = function() {
+      const pill = document.getElementById('posPill');
+      pill.classList.remove('hidden'); pill.textContent = 'Verificando...';
+      fetch('/arduino/estado').then(r => r.json())
+        .then(pos => updatePos(pos)).catch(() => {});
+    };
 
     window.reconectarArduino = function() {
       const pill = document.getElementById('serialPill');
@@ -770,8 +909,17 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById('btnBackMain').classList.add('hidden');
       cargarTodo(renderMainMenu);
       refreshSerial();
+      // Consultar la posicion real del Arduino al cargar (deja el indicador listo).
+      setTimeout(function() {
+        fetch('/arduino/estado').then(r => r.json()).then(updatePos).catch(() => {});
+      }, 600);
       setInterval(refreshSerial, 4000);
       setInterval(refreshData, 12000);
+      // Verificacion periodica de la posicion real (detecta desincronizacion,
+      // ej. tras un reinicio del Arduino o un dispensado automatico).
+      setInterval(function() {
+        fetch('/arduino/estado').then(r => r.json()).then(updatePos).catch(() => {});
+      }, 20000);
     }
 
     window.goToMain = goToMain;
