@@ -344,236 +344,172 @@ HTML_PAGE = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pillbox</title>
   <style>
-    :root {
-      --bg: #eef3f7; --card: #ffffff; --linea: #dde7ee;
-      --texto: #14324d; --suave: #64809a;
-      --primario: #1273b5; --primario-osc: #0d5e96; --primario-claro: #e3f0f9;
-      --verde: #0f8a60; --verde-claro: #e0f3ec;
-      --rojo: #c4403c; --rojo-claro: #fbeae9;
-      --ambar: #b97a14; --ambar-claro: #fdf3e2;
-      --gris-claro: #f1f5f8;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box;
-        font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
-    body { background: var(--bg); min-height: 100vh; color: var(--texto);
-           display: flex; justify-content: center; padding: 22px 16px; }
-    .app { width: 100%; max-width: 1080px; }
-
-    /* ---------- Cabecera ---------- */
-    .top { background: var(--card); border: 1px solid var(--linea); border-radius: 18px;
-           padding: 16px 22px; display: flex; justify-content: space-between;
-           align-items: center; gap: 12px; flex-wrap: wrap;
-           box-shadow: 0 2px 10px rgba(16,50,77,.05); }
-    .brand { display: flex; align-items: center; gap: 14px; }
-    .logo { width: 46px; height: 46px; border-radius: 13px; background: var(--primario);
-            color: white; font-size: 30px; font-weight: 700; line-height: 44px;
-            text-align: center; flex: none; }
-    .brand h1 { font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
-    .brand p { font-size: 13px; color: var(--suave); }
-    .top-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px;
-            background: var(--rojo-claro); color: var(--rojo); }
-    .pill.ok { background: var(--verde-claro); color: var(--verde); }
-
-    /* ---------- Botones ---------- */
-    .btn { border: none; border-radius: 12px; padding: 10px 20px; font-size: 14px;
-           font-weight: 600; cursor: pointer; transition: .15s;
-           background: var(--gris-claro); color: var(--texto); }
-    .btn:disabled { opacity: .55; cursor: default; }
-    .btn.primario { background: var(--primario); color: white; }
-    .btn.primario:hover { background: var(--primario-osc); }
-    .btn.verde { background: var(--verde); color: white; }
-    .btn.verde:hover { filter: brightness(.93); }
-    .btn.rojo { background: var(--rojo-claro); color: var(--rojo); }
-    .btn.rojo:hover { background: #f5d9d8; }
-    .btn.borde { background: transparent; border: 1.5px solid var(--linea); }
-    .btn.borde:hover { background: var(--gris-claro); }
-    .btn.chico { padding: 6px 13px; font-size: 13px; border-radius: 10px; }
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
+    body { background: #f4f7fc; min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
+    .app { max-width: 1200px; width: 100%; background: white; border-radius: 32px; box-shadow: 0 20px 60px rgba(0,20,40,0.12); padding: 30px 35px 40px; transition: all .3s ease; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 10px; }
+    .header h1 { font-size: 26px; font-weight: 600; color: #0b2b4a; letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
+    .header h1 span { background: #eef3f9; padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: #1f5a8e; }
+    .header h1 span.logo-cap { width: 40px; height: 20px; border-radius: 20px;
+                display: inline-block; padding: 0; flex: none; align-self: center;
+                background: linear-gradient(90deg, #1f5a8e 50%, #dff0fa 50%);
+                border: 2px solid #1f5a8e; }
+    .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: #fdecea; color: #b3323d; }
+    .serial-pill.ok { background: #d4edda; color: #0e6b3e; }
+    .btn-back { background: #eef3f9; border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: #1f5a8e; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
+    .btn-back:hover { background: #dce6f0; }
+    .btn-back.hidden { display: none; }
+    .compartments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 22px; margin-top: 10px; }
+    .compartment-card { background: #fff; border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.04); border: 1px solid #e9edf4; cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
+    .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(0,40,80,.08); border-color: #b6cae0; }
+    .compartment-number { font-size: 18px; font-weight: 700; color: #1f3a57; letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .compartment-number .badge { font-size: 12px; font-weight: 500; background: #dff0fa; color: #1f5a8e; padding: 2px 12px; border-radius: 30px; letter-spacing: .3px; }
+    .compartment-number .badge.completed { background: #d4edda; color: #0e6b3e; }
+    .preview-data { font-size: 14px; color: #1f3a57; line-height: 1.5; margin-top: 4px; flex: 1; }
+    .preview-data .label { color: #6f8aa8; font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+    .preview-data .value { font-weight: 500; word-break: break-word; }
+    .preview-empty { color: #9bb0c7; font-size: 14px; margin-top: 6px; font-style: italic; }
+    .detail-view { display: none; animation: fadeIn .25s ease; }
+    .detail-view.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: translateY(0);} }
+    .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
+    .detail-header h2 { font-size: 24px; font-weight: 600; color: #0b2b4a; }
+    .detail-header .sub { font-size: 15px; color: #6f8aa8; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 18px 22px; background: #f9fbfd; padding: 24px 26px; border-radius: 24px; border: 1px solid #e9edf4; margin-bottom: 20px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 13px; font-weight: 500; color: #1f3a57; }
+    .form-group input { padding: 10px 14px; border: 1px solid #d6dee9; border-radius: 14px; font-size: 15px; background: white; transition: .2s; outline: none; width: 100%; }
+    .form-group input:focus { border-color: #1f5a8e; box-shadow: 0 0 0 3px rgba(31,90,142,.12); }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; align-items: center; }
+    .btn { border: none; padding: 10px 28px; border-radius: 40px; font-weight: 500; font-size: 15px; cursor: pointer; transition: .2s; display: inline-flex; align-items: center; gap: 6px; background: #eef3f9; color: #1f3a57; }
+    .btn:disabled { opacity: .6; cursor: default; }
+    .btn-primary { background: #1f5a8e; color: white; }
+    .btn-primary:hover { background: #164a73; }
+    .btn-success { background: #1f8e6b; color: white; }
+    .btn-success:hover { background: #167556; }
+    .btn-danger { background: #cf3e4a; color: white; }
+    .btn-danger:hover { background: #b3323d; }
+    .btn-warning { background: #e6a020; color: white; }
+    .btn-warning:hover { background: #cc8d1a; }
+    .btn-outline { background: transparent; border: 1.5px solid #cbd7e6; }
+    .btn-outline:hover { background: #eef3f9; }
+    .btn-mini { padding: 5px 14px; font-size: 13px; border-radius: 30px; }
+    .saved-data { background: #f9fbfd; padding: 24px 26px; border-radius: 24px; border: 1px solid #e9edf4; margin-bottom: 20px; }
+    .saved-data .row { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 8px 0; border-bottom: 1px solid #e9edf4; }
+    .saved-data .row:last-child { border-bottom: none; }
+    .saved-data .field-label { font-weight: 500; color: #1f3a57; min-width: 120px; }
+    .saved-data .field-value { color: #0b2b4a; word-break: break-word; }
+    .status-badge { display: inline-block; padding: 4px 16px; border-radius: 30px; font-size: 13px; font-weight: 500; background: #d4edda; color: #0e6b3e; }
     .hidden { display: none !important; }
-    .muted { color: var(--suave); font-size: 14px; }
-
-    /* ---------- Resumen ---------- */
-    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; }
-    .stat { background: var(--card); border: 1px solid var(--linea); border-radius: 16px;
-            padding: 14px 18px; }
-    .stat b { display: block; font-size: 21px; font-weight: 700; color: var(--primario); }
-    .stat label { font-size: 12.5px; color: var(--suave); }
-
-    /* ---------- Tarjetas de compartimientos ---------- */
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
-            gap: 14px; }
-    .comp-card { background: var(--card); border: 1px solid var(--linea); border-radius: 16px;
-                 padding: 16px; cursor: pointer; transition: .15s;
-                 display: flex; flex-direction: column; gap: 7px; min-height: 138px; }
-    .comp-card:hover { border-color: var(--primario); transform: translateY(-2px);
-                       box-shadow: 0 8px 18px rgba(16,50,77,.08); }
-    .comp-top { display: flex; justify-content: space-between; align-items: center; }
-    .chip { background: var(--primario-claro); color: var(--primario); font-weight: 700;
-            font-size: 14px; padding: 3px 12px; border-radius: 9px; }
-    .badge { font-size: 11.5px; font-weight: 600; padding: 3px 11px; border-radius: 30px;
-             background: var(--gris-claro); color: var(--suave); }
-    .badge.ok { background: var(--verde-claro); color: var(--verde); }
-    .med { font-size: 17px; font-weight: 700; margin-top: 2px; }
-    .med.vacio { color: var(--suave); font-weight: 500; font-style: italic; }
-    .dosis { font-size: 13.5px; color: var(--suave); }
-    .pac { font-size: 13px; color: var(--texto); }
-    .times { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; padding-top: 6px; }
-    .time { background: var(--ambar-claro); color: var(--ambar); font-size: 12.5px;
-            font-weight: 600; padding: 2px 10px; border-radius: 8px; }
-    .time.ninguno { background: var(--gris-claro); color: var(--suave); font-weight: 500; }
-
-    /* ---------- Secciones ---------- */
-    .card { background: var(--card); border: 1px solid var(--linea); border-radius: 18px;
-            padding: 20px 22px; margin-top: 16px; box-shadow: 0 2px 10px rgba(16,50,77,.04); }
-    .card h2 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
-
-    /* ---------- Detalle ---------- */
-    .detail-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-                   margin-top: 18px; }
-    .detail-head h2 { font-size: 21px; font-weight: 700; }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-    @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; }
-                                .stats { grid-template-columns: 1fr; } }
-
-    .form-group { margin-bottom: 12px; }
-    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-    .form-group label small { color: var(--suave); font-weight: 500; }
-    .form-group input { width: 100%; padding: 10px 13px; border: 1px solid var(--linea);
-                        border-radius: 11px; font-size: 15px; outline: none; transition: .15s; }
-    .form-group input:focus { border-color: var(--primario);
-                              box-shadow: 0 0 0 3px rgba(18,115,181,.13); }
-    .botones { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
-
-    .rows .fila { display: flex; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--linea);
-                  font-size: 14.5px; }
-    .rows .fila:last-child { border-bottom: none; }
-    .rows .k { color: var(--suave); min-width: 110px; flex: none; }
-    .rows .v { font-weight: 600; word-break: break-word; }
-
-    /* ---------- Horarios ---------- */
-    .sched-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-                  padding: 9px 0; border-bottom: 1px solid var(--linea); font-size: 14px; }
-    .sched-item:last-child { border-bottom: none; }
-    .sched-item .hora { font-size: 17px; font-weight: 700; min-width: 56px; }
-    .sched-item .dias { color: var(--primario); font-weight: 600; letter-spacing: 2px;
-                        min-width: 96px; font-size: 13px; }
-    .sched-item .estado { font-size: 11.5px; font-weight: 600; padding: 2px 10px;
-                          border-radius: 30px; background: var(--verde-claro); color: var(--verde); }
-    .sched-item .estado.off { background: var(--gris-claro); color: var(--suave); }
-    .sched-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-                  margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--linea); }
-    .sched-form input[type=time] { padding: 8px 11px; border: 1px solid var(--linea);
-                                   border-radius: 10px; font-size: 15px; }
-    .days { display: flex; gap: 5px; }
-    .day { width: 32px; height: 32px; border-radius: 9px; border: 1.5px solid var(--linea);
-           background: white; font-size: 13px; font-weight: 700; color: var(--suave);
-           cursor: pointer; transition: .12s; }
-    .day.on { background: var(--primario); border-color: var(--primario); color: white; }
-    .hint { font-size: 12.5px; color: var(--suave); margin-top: 10px; }
-
-    /* ---------- Historial ---------- */
-    .hist-item { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-                 padding: 7px 0; border-bottom: 1px solid var(--linea); font-size: 13.5px; }
-    .hist-item:last-child { border-bottom: none; }
-    .hist-item .ts { color: var(--suave); min-width: 140px; font-variant-numeric: tabular-nums; }
-    .hist-item .tag { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 7px;
-                      min-width: 66px; text-align: center; }
-    .tag.AUTO { background: var(--verde-claro); color: var(--verde); }
-    .tag.MANUAL { background: var(--primario-claro); color: var(--primario); }
-    .tag.HORARIO { background: var(--ambar-claro); color: var(--ambar); }
-    .tag.GUARDAR, .tag.ELIMINAR { background: var(--gris-claro); color: var(--suave); }
-    .hist-item .res { color: var(--suave); margin-left: auto; }
-    .res.OK { color: var(--verde); font-weight: 600; }
+    .flex-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .panel { background: #f9fbfd; border: 1px solid #e9edf4; border-radius: 24px; padding: 22px 26px; margin-top: 22px; }
+    .panel h3 { font-size: 17px; font-weight: 600; color: #0b2b4a; margin-bottom: 12px; }
+    .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 0; border-bottom: 1px solid #e9edf4; font-size: 14px; color: #1f3a57; }
+    .sched-row:last-child { border-bottom: none; }
+    .sched-row .hora { font-weight: 700; font-size: 16px; min-width: 60px; }
+    .sched-row .dias { color: #1f5a8e; font-weight: 500; min-width: 130px; }
+    .sched-row .estado { font-size: 12px; padding: 2px 12px; border-radius: 30px; background: #d4edda; color: #0e6b3e; }
+    .sched-row .estado.off { background: #f0f2f6; color: #8a99ab; }
+    .sched-form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+    .sched-form input[type=time] { padding: 8px 12px; border: 1px solid #d6dee9; border-radius: 12px; font-size: 15px; }
+    .day-check { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: #1f3a57; background: white; border: 1px solid #d6dee9; border-radius: 10px; padding: 6px 10px; cursor: pointer; user-select: none; }
+    .day-check input { accent-color: #1f5a8e; }
+    .hist-row { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 0; border-bottom: 1px solid #e9edf4; font-size: 13.5px; color: #1f3a57; }
+    .hist-row:last-child { border-bottom: none; }
+    .hist-row .ts { color: #6f8aa8; min-width: 145px; }
+    .hist-row .tipo { font-weight: 600; min-width: 78px; }
+    .hist-row .tipo.AUTO { color: #1f8e6b; }
+    .hist-row .tipo.MANUAL { color: #1f5a8e; }
+    .hist-row .res { color: #6f8aa8; }
+    .aviso { font-size: 13px; color: #6f8aa8; margin-top: 6px; }
+    @media (max-width: 700px) {
+      .app { padding: 20px 18px; }
+      .compartments-grid { grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 14px; }
+      .form-grid { grid-template-columns: 1fr; padding: 18px; }
+    }
   </style>
 </head>
 <body>
-<div class="app">
-  <header class="top">
-    <div class="brand">
-      <div class="logo">+</div>
-      <div>
-        <h1>Pillbox</h1>
-        <p>Dispensador automatico de medicamentos</p>
-      </div>
+<div class="app" id="app">
+  <div class="header">
+    <h1><span class="logo-cap"></span>Pillbox <span id="globalBadge">8</span></h1>
+    <div class="flex-wrap">
+      <span class="serial-pill" id="serialPill">Arduino: comprobando...</span>
+      <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
+      <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
     </div>
-    <div class="top-right">
-      <span class="pill" id="serialPill">Comprobando...</span>
-      <button class="btn borde chico hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
-      <button class="btn borde chico hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
-    </div>
-  </header>
-
-  <div id="mainMenu">
-    <div class="stats">
-      <div class="stat"><b id="statComps">0 / 8</b><label>Compartimientos configurados</label></div>
-      <div class="stat"><b id="statHor">0</b><label>Horarios activos</label></div>
-      <div class="stat"><b id="statUlt">-</b><label>Ultima accion</label></div>
-    </div>
-    <div class="grid" id="compGrid"></div>
-    <section class="card">
-      <h2>Historial</h2>
-      <div id="histList" class="muted">Cargando...</div>
-    </section>
   </div>
 
-  <div id="detailView" class="hidden">
-    <div class="detail-head">
-      <h2>Compartimiento <span id="detailNumber">1</span></h2>
-      <span class="muted" id="detailSub"></span>
+  <div id="mainMenu">
+    <div class="compartments-grid" id="compGrid"></div>
+    <div class="panel">
+      <h3>Historial de acciones</h3>
+      <div id="histList" class="aviso">Cargando...</div>
     </div>
-    <div class="two-col">
-      <section class="card">
-        <h2>Medicamento</h2>
-        <div id="formContainer">
-          <div class="form-group"><label>Medicamento</label>
-            <input type="text" id="fMedicamento" placeholder="Ej: Losartan 50 mg"></div>
-          <div class="form-group"><label>Dosis</label>
-            <input type="text" id="fDosis" placeholder="Ej: 1 tableta"></div>
-          <div class="form-group"><label>Paciente <small>(opcional)</small></label>
-            <input type="text" id="fNombre" placeholder="Nombre del paciente"></div>
-          <div class="form-group"><label>Notas <small>(opcional)</small></label>
-            <input type="text" id="fNotas" placeholder="Indicaciones, habitacion..."></div>
-          <div class="botones">
-            <button class="btn verde" id="btnCompletar">Guardar</button>
-            <button class="btn borde hidden" id="btnCancelarEdicion" onclick="cancelEdit()">Cancelar</button>
-          </div>
-        </div>
-        <div id="savedContainer" class="hidden">
-          <div class="rows" id="savedDataDisplay"></div>
-          <div class="botones">
-            <button class="btn primario" id="btnDispensar">Dispensar ahora</button>
-            <button class="btn borde" id="btnEditar">Editar</button>
-            <button class="btn rojo" id="btnEliminar">Vaciar</button>
-          </div>
-        </div>
-      </section>
-      <section class="card">
-        <h2>Horarios de dispensado</h2>
-        <div id="schedList" class="muted">Sin horarios programados.</div>
+  </div>
+
+  <div id="detailView" class="detail-view">
+    <div class="detail-header">
+      <div>
+        <h2 id="detailTitle">Compartimiento <span id="detailNumber">1</span></h2>
+        <span class="sub" id="detailSub">Configura el medicamento</span>
+      </div>
+      <div class="flex-wrap">
+        <span id="detailStatusBadge" class="status-badge hidden">Completado</span>
+      </div>
+    </div>
+
+    <div id="formContainer">
+      <div class="form-grid" id="formGrid">
+        <div class="form-group"><label>Medicamento</label><input type="text" id="fMedicamento" placeholder="Ej: Losartan 50 mg"></div>
+        <div class="form-group"><label>Dosis</label><input type="text" id="fDosis" placeholder="Ej: 1 tableta"></div>
+        <div class="form-group"><label>Paciente (opcional)</label><input type="text" id="fNombre" placeholder="Nombre del paciente"></div>
+        <div class="form-group"><label>Notas (opcional)</label><input type="text" id="fNotas" placeholder="Indicaciones, habitacion..."></div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-success" id="btnCompletar">Completado</button>
+        <button class="btn btn-outline" id="btnCancelarEdicion" onclick="cancelEdit()">Cancelar</button>
+      </div>
+      <div class="aviso" id="formHelper">Medicamento y dosis son obligatorios; el resto es opcional.</div>
+    </div>
+
+    <div id="savedContainer" class="hidden">
+      <div class="saved-data" id="savedDataDisplay"></div>
+      <div class="btn-group">
+        <button class="btn btn-warning" id="btnEditar">Editar</button>
+        <button class="btn btn-danger" id="btnEliminar">Eliminar</button>
+        <button class="btn btn-primary" id="btnDispensar">Dispensar</button>
+      </div>
+
+      <div class="panel">
+        <h3>Horarios de dispensado automatico</h3>
+        <div id="schedList" class="aviso">Sin horarios programados.</div>
         <div class="sched-form">
           <input type="time" id="schedHora">
-          <div class="days" id="schedDias"></div>
-          <button class="btn primario chico" id="btnAddHorario">Agregar</button>
+          <span id="schedDias"></span>
+          <button class="btn btn-primary btn-mini" id="btnAddHorario">Agregar horario</button>
         </div>
-        <p class="hint">Se dispensara automaticamente a la hora elegida, los dias marcados.
-        El historial de cada dispensado queda guardado.</p>
-      </section>
+        <div class="aviso">Elige la hora y los dias; se dispensara automaticamente en ese momento.</div>
+      </div>
     </div>
-    <div style="margin-top:16px;">
-      <button class="btn borde" onclick="goToMain()">Volver al menu</button>
+
+    <div style="margin-top:24px;">
+      <button class="btn btn-back" onclick="goToMain()">Volver al menu</button>
     </div>
   </div>
 </div>
 
 <script>
   (function() {
-    const TOTAL = 8;
+    const TOTAL_COMPARTMENTS = 8;
     const DIAS = ['L','M','X','J','V','S','D'];
-    const CAMPOS = ['medicamento','dosis','nombre','notas'];
-    let actual = 1;
-    let dataStore = {}, horarios = [], historial = [];
+    let currentCompartment = 1;
+    let isEditing = false;
+    let dataStore = {};   // compartimientos (desde el servidor)
+    let horarios = [];    // horarios (desde el servidor)
+    let historial = [];   // historial (desde el servidor)
 
-    // ---------- Datos (persistidos en la Pi via backend) ----------
+    // ---------- Estado persistente (guardado en la Pi via backend) ----------
     function cargarTodo(cb) {
       fetch('/data').then(r => r.json()).then(d => {
         dataStore = d.compartimientos || {};
@@ -582,218 +518,221 @@ HTML_PAGE = """<!DOCTYPE html>
         if (cb) cb();
       }).catch(() => { if (cb) cb(); });
     }
-    function comp(n) { return dataStore[String(n)] || null; }
+    function getCompData(num) { return dataStore[String(num)] || null; }
 
-    // ---------- Menu principal ----------
     function renderMainMenu() {
       const grid = document.getElementById('compGrid');
       grid.innerHTML = '';
-      let configurados = 0;
-      for (let i = 1; i <= TOTAL; i++) {
-        const d = comp(i);
-        const activos = horarios.filter(h => h.comp === i && h.activo);
+      let completos = 0;
+      for (let i = 1; i <= TOTAL_COMPARTMENTS; i++) {
+        const data = getCompData(i);
         const card = document.createElement('div');
-        card.className = 'comp-card';
-        let html = '<div class="comp-top"><span class="chip">' + i + '</span>';
-        if (d && d.completado) {
-          configurados++;
-          html += '<span class="badge ok">Configurado</span></div>';
-          html += '<div class="med">' + esc(d.medicamento) + '</div>';
-          html += '<div class="dosis">' + esc(d.dosis) + '</div>';
-          if (d.nombre) html += '<div class="pac">' + esc(d.nombre) + '</div>';
+        card.className = 'compartment-card';
+        let badgeClass = 'badge', badgeText = 'Pendiente';
+        if (data && data.completado === true) { badgeClass += ' completed'; badgeText = 'Completado'; completos++; }
+        const schedTxt = horarios.filter(h => h.comp === i && h.activo)
+                                 .map(h => h.hora).join(', ');
+        let previewHtml;
+        if (data && data.completado === true) {
+          previewHtml = '<div class="preview-data">' +
+            '<div><span class="label">Medicamento</span> <span class="value">' + escapeHtml(data.medicamento) + '</span></div>' +
+            '<div><span class="label">Dosis</span> <span class="value">' + escapeHtml(data.dosis) + '</span></div>' +
+            '<div><span class="label">Horarios</span> <span class="value">' + (schedTxt ? escapeHtml(schedTxt) : 'Sin programar') + '</span></div>' +
+            '</div>';
         } else {
-          html += '<span class="badge">Vacio</span></div>';
-          html += '<div class="med vacio">Sin medicamento</div>';
+          previewHtml = '<div class="preview-empty">Sin datos</div>';
         }
-        html += '<div class="times">';
-        if (activos.length) {
-          activos.forEach(h => { html += '<span class="time">' + esc(h.hora) + '</span>'; });
-        } else {
-          html += '<span class="time ninguno">Sin horario</span>';
-        }
-        html += '</div>';
-        card.innerHTML = html;
-        card.addEventListener('click', () => abrir(i));
+        card.innerHTML = '<div class="compartment-number">COMPARTIMIENTO ' + i +
+          ' <span class="' + badgeClass + '">' + badgeText + '</span></div>' + previewHtml;
+        card.addEventListener('click', () => openCompartment(i));
         grid.appendChild(card);
       }
-      document.getElementById('statComps').textContent = configurados + ' / ' + TOTAL;
-      document.getElementById('statHor').textContent =
-        horarios.filter(h => h.activo).length;
-      document.getElementById('statUlt').textContent =
-        historial.length ? historial[0].ts.slice(5, 16) : '-';
+      document.getElementById('globalBadge').textContent = completos + ' / ' + TOTAL_COMPARTMENTS;
       renderHistorial();
     }
 
     function renderHistorial() {
       const el = document.getElementById('histList');
       if (!historial.length) { el.textContent = 'Sin acciones registradas.'; return; }
-      el.innerHTML = historial.slice(0, 25).map(h =>
-        '<div class="hist-item"><span class="ts">' + esc(h.ts) + '</span>' +
-        '<span class="tag ' + esc(h.tipo) + '">' + esc(h.tipo) + '</span>' +
-        '<span>Comp ' + h.comp + (h.detalle ? ' &middot; ' + esc(h.detalle) : '') + '</span>' +
-        '<span class="res ' + (h.resultado === 'OK' ? 'OK' : '') + '">' +
-        esc(h.resultado || '') + '</span></div>').join('');
+      el.innerHTML = historial.slice(0, 20).map(h =>
+        '<div class="hist-row"><span class="ts">' + escapeHtml(h.ts) + '</span>' +
+        '<span class="tipo ' + escapeHtml(h.tipo) + '">' + escapeHtml(h.tipo) + '</span>' +
+        '<span>Comp ' + h.comp + (h.detalle ? ' - ' + escapeHtml(h.detalle) : '') + '</span>' +
+        '<span class="res">' + escapeHtml(h.resultado || '') + '</span></div>').join('');
     }
 
-    // ---------- Detalle: al abrir, la ruleta deja el compartimiento ARRIBA ----------
-    function abrir(n) {
-      actual = n;
-      document.getElementById('mainMenu').classList.add('hidden');
-      document.getElementById('detailView').classList.remove('hidden');
+    // Al abrir un compartimiento, la ruleta lo coloca ARRIBA de la zona de
+    // dispensacion (posicion de espera); al dispensar, baja.
+    function openCompartment(num) {
+      currentCompartment = num;
+      isEditing = false;
+      document.getElementById('mainMenu').style.display = 'none';
+      const dv = document.getElementById('detailView');
+      dv.classList.add('active'); dv.style.display = 'block';
+      document.getElementById('detailNumber').textContent = num;
       document.getElementById('btnBackMain').classList.remove('hidden');
-      document.getElementById('detailNumber').textContent = n;
-      const d = comp(n);
-      if (d && d.completado) verGuardado(n, d); else verFormulario(n, d);
-      renderHorarios(n);
-      fetch('/goto', { method: 'POST', headers: {'Content-Type': 'application/json'},
-                       body: JSON.stringify({ compartimiento: n }) })
-        .then(r => r.json()).then(res => {
-          if (res.ok) document.getElementById('detailSub').textContent =
-            'En posicion de espera, listo para dispensar';
-        }).catch(() => {});
+      const data = getCompData(num);
+      if (data && data.completado === true) showSavedData(num, data);
+      else showForm(num, data || null);
+      fetch('/goto', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compartimiento: num })
+      }).then(r => r.json()).then(res => {
+        if (res.ok) document.getElementById('detailSub').textContent =
+          'Compartimiento ' + num + ' en posicion de espera (arriba de la zona de dispensado)';
+      }).catch(() => {});
     }
 
-    function verFormulario(n, d) {
+    function showForm(num, existingData) {
       document.getElementById('formContainer').classList.remove('hidden');
       document.getElementById('savedContainer').classList.add('hidden');
-      document.getElementById('detailSub').textContent = d ? 'Editando medicamento'
-                                                           : 'Configura el medicamento';
-      CAMPOS.forEach(c => {
-        const el = document.getElementById('f' + c.charAt(0).toUpperCase() + c.slice(1));
-        if (el) el.value = (d && d[c]) || '';
-      });
-      document.getElementById('btnCancelarEdicion').classList.toggle('hidden', !d);
-      document.getElementById('btnCompletar').onclick = function() { guardar(n); };
+      document.getElementById('detailStatusBadge').classList.add('hidden');
+      const fields = ['medicamento','dosis','nombre','notas'];
+      if (existingData) {
+        fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); if (el) el.value = existingData[f] || ''; });
+        document.getElementById('detailSub').textContent = 'Editando medicamento';
+        document.getElementById('btnCancelarEdicion').classList.remove('hidden');
+        isEditing = true;
+      } else {
+        fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); if (el) el.value = ''; });
+        document.getElementById('detailSub').textContent = 'Configura el medicamento';
+        document.getElementById('btnCancelarEdicion').classList.add('hidden');
+        isEditing = false;
+      }
+      document.getElementById('btnCompletar').textContent = isEditing ? 'Guardar cambios' : 'Completado';
+      document.getElementById('btnCompletar').onclick = function() { handleComplete(num); };
     }
 
-    function verGuardado(n, d) {
+    function showSavedData(num, data) {
       document.getElementById('formContainer').classList.add('hidden');
       document.getElementById('savedContainer').classList.remove('hidden');
-      document.getElementById('detailSub').textContent = 'Configurado';
-      const filas = [['Medicamento','medicamento'], ['Dosis','dosis'],
-                     ['Paciente','nombre'], ['Notas','notas']];
-      document.getElementById('savedDataDisplay').innerHTML = filas
-        .filter(f => d[f[1]])
-        .map(f => '<div class="fila"><span class="k">' + f[0] + '</span>' +
-                  '<span class="v">' + esc(d[f[1]]) + '</span></div>').join('');
-      document.getElementById('btnEditar').onclick = function() { verFormulario(n, comp(n)); };
+      const badge = document.getElementById('detailStatusBadge');
+      badge.classList.remove('hidden'); badge.textContent = 'Completado';
+      document.getElementById('detailSub').textContent = 'Medicamento configurado';
+      const fields = [
+        {label:'Medicamento',key:'medicamento'},{label:'Dosis',key:'dosis'},
+        {label:'Paciente',key:'nombre'},{label:'Notas',key:'notas'}
+      ];
+      let html = '';
+      fields.forEach(f => { html += '<div class="row"><span class="field-label">' + f.label + '</span><span class="field-value">' + escapeHtml(data[f.key]) + '</span></div>'; });
+      document.getElementById('savedDataDisplay').innerHTML = html;
+
+      document.getElementById('btnEditar').onclick = function() { showForm(num, getCompData(num) || null); };
       document.getElementById('btnEliminar').onclick = function() {
-        if (!confirm('Vaciar el compartimiento ' + n + '? Se borran sus datos y horarios.')) return;
-        fetch('/compartimiento/' + n, { method: 'DELETE' })
+        if (!confirm('Eliminar todos los datos y horarios del COMPARTIMIENTO ' + num + '?')) return;
+        fetch('/compartimiento/' + num, { method: 'DELETE' })
           .then(r => r.json()).then(() => cargarTodo(goToMain))
           .catch(e => alert('Error: ' + e));
       };
-      document.getElementById('btnDispensar').onclick = function() { dispensar(n, d); };
+      document.getElementById('btnDispensar').onclick = function() { dispensar(num, data); };
+      renderHorarios(num);
     }
 
-    function guardar(n) {
-      const rec = {};
-      CAMPOS.forEach(c => {
-        const el = document.getElementById('f' + c.charAt(0).toUpperCase() + c.slice(1));
-        rec[c] = el ? el.value.trim() : '';
-      });
-      if (!rec.medicamento || !rec.dosis) {
-        alert('Medicamento y dosis son obligatorios.'); return;
-      }
-      fetch('/compartimiento/' + n, {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(rec)
-      }).then(r => r.json()).then(res => {
-        if (!res.ok) { alert(res.message || 'No se pudo guardar'); return; }
-        cargarTodo(() => verGuardado(n, comp(n)));
-      }).catch(e => alert('Error: ' + e));
-    }
-
-    // ---------- Dispensar: baja el compartimiento y suelta la dosis ----------
-    function dispensar(n, d) {
-      const btn = document.getElementById('btnDispensar');
-      const txt = btn.textContent;
-      btn.disabled = true; btn.textContent = 'Dispensando...';
-      fetch('/dispense', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ compartimiento: n, medicamento: d.medicamento || '',
-                               nombre: d.nombre || '', dosis: d.dosis || '' })
-      }).then(r => r.json())
-        .then(res => { alert(res.message); cargarTodo(renderHistorial); })
-        .catch(e => alert('Error de conexion: ' + e))
-        .finally(() => { btn.disabled = false; btn.textContent = txt; });
-    }
-
-    // ---------- Horarios ----------
-    function renderHorarios(n) {
+    // ---------- Horarios de dispensado automatico ----------
+    function renderHorarios(num) {
       const list = document.getElementById('schedList');
-      const propios = horarios.filter(h => h.comp === n);
+      const propios = horarios.filter(h => h.comp === num);
       if (!propios.length) { list.textContent = 'Sin horarios programados.'; }
       else {
         list.innerHTML = propios.map(h =>
-          '<div class="sched-item">' +
-          '<span class="hora">' + esc(h.hora) + '</span>' +
+          '<div class="sched-row">' +
+          '<span class="hora">' + escapeHtml(h.hora) + '</span>' +
           '<span class="dias">' + h.dias.map(d => DIAS[d]).join(' ') + '</span>' +
-          '<span class="estado' + (h.activo ? '' : ' off') + '">' +
-            (h.activo ? 'Activo' : 'Pausado') + '</span>' +
-          '<button class="btn borde chico" onclick="toggleHorario(' + h.id + ')">' +
-            (h.activo ? 'Pausar' : 'Activar') + '</button>' +
-          '<button class="btn rojo chico" onclick="delHorario(' + h.id + ')">Quitar</button>' +
+          '<span class="estado' + (h.activo ? '' : ' off') + '">' + (h.activo ? 'Activo' : 'Pausado') + '</span>' +
+          '<button class="btn btn-outline btn-mini" onclick="toggleHorario(' + h.id + ')">' + (h.activo ? 'Pausar' : 'Activar') + '</button>' +
+          '<button class="btn btn-danger btn-mini" onclick="delHorario(' + h.id + ')">Quitar</button>' +
           '</div>').join('');
       }
-      const dias = document.getElementById('schedDias');
-      if (!dias.childElementCount) {
-        DIAS.forEach((d, i) => {
-          const b = document.createElement('button');
-          b.type = 'button'; b.className = 'day'; b.textContent = d; b.dataset.dia = i;
-          b.onclick = function() { b.classList.toggle('on'); };
-          dias.appendChild(b);
-        });
+      const diasBox = document.getElementById('schedDias');
+      if (!diasBox.childElementCount) {
+        diasBox.innerHTML = DIAS.map((d, i) =>
+          '<label class="day-check"><input type="checkbox" value="' + i + '">' + d + '</label>').join(' ');
       }
-      document.getElementById('btnAddHorario').onclick = function() { addHorario(n); };
+      document.getElementById('btnAddHorario').onclick = function() { addHorario(num); };
     }
 
-    function addHorario(n) {
+    function addHorario(num) {
       const hora = document.getElementById('schedHora').value;
-      const dias = Array.from(document.querySelectorAll('#schedDias .day.on'))
-                        .map(b => parseInt(b.dataset.dia));
+      const dias = Array.from(document.querySelectorAll('#schedDias input:checked')).map(c => parseInt(c.value));
       if (!hora) { alert('Elige una hora.'); return; }
-      if (!dias.length) { alert('Marca al menos un dia.'); return; }
+      if (!dias.length) { alert('Elige al menos un dia.'); return; }
       fetch('/horarios', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ comp: n, hora: hora, dias: dias })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comp: num, hora: hora, dias: dias })
       }).then(r => r.json()).then(res => {
         if (!res.ok) { alert(res.message || 'No se pudo guardar el horario'); return; }
-        cargarTodo(() => renderHorarios(n));
+        cargarTodo(() => renderHorarios(num));
       }).catch(e => alert('Error: ' + e));
     }
 
     window.toggleHorario = function(id) {
       fetch('/horarios/' + id, { method: 'PATCH' })
-        .then(r => r.json()).then(() => cargarTodo(() => renderHorarios(actual)))
+        .then(r => r.json())
+        .then(() => cargarTodo(() => renderHorarios(currentCompartment)))
         .catch(e => alert('Error: ' + e));
     };
     window.delHorario = function(id) {
       fetch('/horarios/' + id, { method: 'DELETE' })
-        .then(r => r.json()).then(() => cargarTodo(() => renderHorarios(actual)))
+        .then(r => r.json())
+        .then(() => cargarTodo(() => renderHorarios(currentCompartment)))
         .catch(e => alert('Error: ' + e));
     };
 
-    // ---------- Navegacion ----------
+    // ---------- DISPENSAR: baja el compartimiento y suelta la pastilla ----------
+    function dispensar(num, data) {
+      const btn = document.getElementById('btnDispensar');
+      const original = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Dispensando...';
+      fetch('/dispense', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          compartimiento: num,
+          medicamento: data.medicamento || '',
+          nombre: data.nombre || '',
+          dosis: data.dosis || ''
+        })
+      })
+      .then(r => r.json())
+      .then(res => { alert(res.message); cargarTodo(renderHistorial); })
+      .catch(e => alert('Error de conexion con el servidor: ' + e))
+      .finally(() => { btn.disabled = false; btn.textContent = original; });
+    }
+
+    function handleComplete(num) {
+      const fields = ['medicamento','dosis','nombre','notas'];
+      const record = {};
+      fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); record[f] = el ? el.value.trim() : ''; });
+      if (!record.medicamento || !record.dosis) { alert('Medicamento y dosis son obligatorios.'); return; }
+      fetch('/compartimiento/' + num, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      }).then(r => r.json()).then(res => {
+        if (!res.ok) { alert(res.message || 'No se pudo guardar'); return; }
+        cargarTodo(() => showSavedData(num, getCompData(num)));
+      }).catch(e => alert('Error: ' + e));
+    }
+
+    function cancelEdit() {
+      const num = currentCompartment; const data = getCompData(num);
+      if (data && data.completado === true) showSavedData(num, data); else showForm(num, null);
+    }
+
     function goToMain() {
-      document.getElementById('detailView').classList.add('hidden');
-      document.getElementById('mainMenu').classList.remove('hidden');
+      document.getElementById('mainMenu').style.display = 'block';
+      const dv = document.getElementById('detailView');
+      dv.classList.remove('active'); dv.style.display = 'none';
       document.getElementById('btnBackMain').classList.add('hidden');
       renderMainMenu();
     }
-    function cancelEdit() {
-      const d = comp(actual);
-      if (d && d.completado) verGuardado(actual, d); else verFormulario(actual, null);
+
+    function escapeHtml(text) {
+      if (!text) return '-';
+      const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
+      return String(text).replace(/[&<>"']/g, m => map[m]);
     }
 
-    function esc(t) {
-      if (t === 0) t = '0';
-      if (!t) return '';
-      const m = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
-      return String(t).replace(/[&<>"']/g, c => m[c]);
-    }
-
-    // ---------- Estado del Arduino ----------
+    // ---------- Estado de conexion con el Arduino ----------
     function refreshSerial() {
       fetch('/serial/status').then(r => r.json()).then(s => {
         const pill = document.getElementById('serialPill');
@@ -809,8 +748,10 @@ HTML_PAGE = """<!DOCTYPE html>
         }
       }).catch(() => {});
     }
+
     window.reconectarArduino = function() {
-      document.getElementById('serialPill').textContent = 'Reconectando...';
+      const pill = document.getElementById('serialPill');
+      pill.textContent = 'Reconectando...';
       fetch('/serial/reconnect', { method: 'POST' })
         .then(r => r.json()).then(() => refreshSerial())
         .catch(() => refreshSerial());
@@ -819,16 +760,23 @@ HTML_PAGE = """<!DOCTYPE html>
     // Refresco periodico: capta los dispensados automaticos en el historial
     function refreshData() {
       cargarTodo(() => {
-        if (!document.getElementById('mainMenu').classList.contains('hidden')) renderMainMenu();
+        if (document.getElementById('mainMenu').style.display !== 'none') renderMainMenu();
       });
+    }
+
+    function init() {
+      document.getElementById('detailView').style.display = 'none';
+      document.getElementById('detailView').classList.remove('active');
+      document.getElementById('btnBackMain').classList.add('hidden');
+      cargarTodo(renderMainMenu);
+      refreshSerial();
+      setInterval(refreshSerial, 4000);
+      setInterval(refreshData, 12000);
     }
 
     window.goToMain = goToMain;
     window.cancelEdit = cancelEdit;
-    cargarTodo(renderMainMenu);
-    refreshSerial();
-    setInterval(refreshSerial, 4000);
-    setInterval(refreshData, 12000);
+    init();
   })();
 </script>
 </body>
