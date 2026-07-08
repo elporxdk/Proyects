@@ -206,14 +206,17 @@ def compartimiento(comp):
             registrar_historial("ELIMINAR", comp, "datos y horarios borrados")
             return jsonify({"ok": True})
         datos = request.get_json(silent=True) or {}
+        # Registro conciso: medicamento y dosis obligatorios; el resto opcional
         registro = {k: str(datos.get(k, "")).strip() for k in
-                    ("nombre", "edad", "pesoAltura", "diagnostico",
-                     "dosis", "medicamento", "hora", "habitacion")}
+                    ("medicamento", "dosis", "nombre", "notas")}
+        if not registro["medicamento"] or not registro["dosis"]:
+            return jsonify({"ok": False,
+                            "message": "Medicamento y dosis son obligatorios"}), 400
         registro["completado"] = True
         ESTADO["compartimientos"][str(comp)] = registro
         guardar_datos(ESTADO)
     registrar_historial("GUARDAR", comp,
-                        f"{registro['medicamento']} / {registro['nombre']}".strip(" /"))
+                        f"{registro['medicamento']} {registro['dosis']}".strip())
     return jsonify({"ok": True, "compartimiento": comp})
 
 
@@ -347,6 +350,10 @@ HTML_PAGE = """<!DOCTYPE html>
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 10px; }
     .header h1 { font-size: 26px; font-weight: 600; color: #0b2b4a; letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
     .header h1 span { background: #eef3f9; padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: #1f5a8e; }
+    .header h1 span.logo-cap { width: 40px; height: 20px; border-radius: 20px;
+                display: inline-block; padding: 0; flex: none; align-self: center;
+                background: linear-gradient(90deg, #1f5a8e 50%, #dff0fa 50%);
+                border: 2px solid #1f5a8e; }
     .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: #fdecea; color: #b3323d; }
     .serial-pill.ok { background: #d4edda; color: #0e6b3e; }
     .btn-back { background: #eef3f9; border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: #1f5a8e; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
@@ -355,7 +362,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .compartments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 22px; margin-top: 10px; }
     .compartment-card { background: #fff; border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.04); border: 1px solid #e9edf4; cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
     .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(0,40,80,.08); border-color: #b6cae0; }
-    .compartment-number { font-size: 22px; font-weight: 700; color: #1f3a57; letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .compartment-number { font-size: 18px; font-weight: 700; color: #1f3a57; letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
     .compartment-number .badge { font-size: 12px; font-weight: 500; background: #dff0fa; color: #1f5a8e; padding: 2px 12px; border-radius: 30px; letter-spacing: .3px; }
     .compartment-number .badge.completed { background: #d4edda; color: #0e6b3e; }
     .preview-data { font-size: 14px; color: #1f3a57; line-height: 1.5; margin-top: 4px; flex: 1; }
@@ -425,7 +432,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
 <div class="app" id="app">
   <div class="header">
-    <h1>Pillbox <span id="globalBadge">8</span></h1>
+    <h1><span class="logo-cap"></span>Pillbox <span id="globalBadge">8</span></h1>
     <div class="flex-wrap">
       <span class="serial-pill" id="serialPill">Arduino: comprobando...</span>
       <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
@@ -445,7 +452,7 @@ HTML_PAGE = """<!DOCTYPE html>
     <div class="detail-header">
       <div>
         <h2 id="detailTitle">Compartimiento <span id="detailNumber">1</span></h2>
-        <span class="sub" id="detailSub">Completa los datos del paciente</span>
+        <span class="sub" id="detailSub">Configura el medicamento</span>
       </div>
       <div class="flex-wrap">
         <span id="detailStatusBadge" class="status-badge hidden">Completado</span>
@@ -454,20 +461,16 @@ HTML_PAGE = """<!DOCTYPE html>
 
     <div id="formContainer">
       <div class="form-grid" id="formGrid">
-        <div class="form-group"><label>Nombre</label><input type="text" id="fNombre" placeholder="Nombre del paciente"></div>
-        <div class="form-group"><label>Edad</label><input type="text" id="fEdad" placeholder="Ej: 45 anos"></div>
-        <div class="form-group"><label>Peso y altura</label><input type="text" id="fPesoAltura" placeholder="70 kg / 1.75 m"></div>
-        <div class="form-group"><label>Diagnostico</label><input type="text" id="fDiagnostico" placeholder="Diagnostico"></div>
-        <div class="form-group"><label>Dosis</label><input type="text" id="fDosis" placeholder="Dosis"></div>
-        <div class="form-group"><label>Medicamento</label><input type="text" id="fMedicamento" placeholder="Medicamento"></div>
-        <div class="form-group"><label>Hora</label><input type="text" id="fHora" placeholder="Ej: 08:00"></div>
-        <div class="form-group"><label>Habitacion / Area</label><input type="text" id="fHabitacion" placeholder="Habitacion o area"></div>
+        <div class="form-group"><label>Medicamento</label><input type="text" id="fMedicamento" placeholder="Ej: Losartan 50 mg"></div>
+        <div class="form-group"><label>Dosis</label><input type="text" id="fDosis" placeholder="Ej: 1 tableta"></div>
+        <div class="form-group"><label>Paciente (opcional)</label><input type="text" id="fNombre" placeholder="Nombre del paciente"></div>
+        <div class="form-group"><label>Notas (opcional)</label><input type="text" id="fNotas" placeholder="Indicaciones, habitacion..."></div>
       </div>
       <div class="btn-group">
         <button class="btn btn-success" id="btnCompletar">Completado</button>
         <button class="btn btn-outline" id="btnCancelarEdicion" onclick="cancelEdit()">Cancelar</button>
       </div>
-      <div class="aviso" id="formHelper">Completa todos los campos y presiona "Completado" para guardar.</div>
+      <div class="aviso" id="formHelper">Medicamento y dosis son obligatorios; el resto es opcional.</div>
     </div>
 
     <div id="savedContainer" class="hidden">
@@ -532,8 +535,8 @@ HTML_PAGE = """<!DOCTYPE html>
         let previewHtml;
         if (data && data.completado === true) {
           previewHtml = '<div class="preview-data">' +
-            '<div><span class="label">Nombre</span> <span class="value">' + escapeHtml(data.nombre) + '</span></div>' +
             '<div><span class="label">Medicamento</span> <span class="value">' + escapeHtml(data.medicamento) + '</span></div>' +
+            '<div><span class="label">Dosis</span> <span class="value">' + escapeHtml(data.dosis) + '</span></div>' +
             '<div><span class="label">Horarios</span> <span class="value">' + (schedTxt ? escapeHtml(schedTxt) : 'Sin programar') + '</span></div>' +
             '</div>';
         } else {
@@ -584,15 +587,15 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById('formContainer').classList.remove('hidden');
       document.getElementById('savedContainer').classList.add('hidden');
       document.getElementById('detailStatusBadge').classList.add('hidden');
-      const fields = ['nombre','edad','pesoAltura','diagnostico','dosis','medicamento','hora','habitacion'];
+      const fields = ['medicamento','dosis','nombre','notas'];
       if (existingData) {
         fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); if (el) el.value = existingData[f] || ''; });
-        document.getElementById('detailSub').textContent = 'Editando datos del paciente';
+        document.getElementById('detailSub').textContent = 'Editando medicamento';
         document.getElementById('btnCancelarEdicion').classList.remove('hidden');
         isEditing = true;
       } else {
         fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); if (el) el.value = ''; });
-        document.getElementById('detailSub').textContent = 'Completa los datos del paciente';
+        document.getElementById('detailSub').textContent = 'Configura el medicamento';
         document.getElementById('btnCancelarEdicion').classList.add('hidden');
         isEditing = false;
       }
@@ -605,11 +608,10 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById('savedContainer').classList.remove('hidden');
       const badge = document.getElementById('detailStatusBadge');
       badge.classList.remove('hidden'); badge.textContent = 'Completado';
-      document.getElementById('detailSub').textContent = 'Datos del paciente';
+      document.getElementById('detailSub').textContent = 'Medicamento configurado';
       const fields = [
-        {label:'Nombre',key:'nombre'},{label:'Edad',key:'edad'},{label:'Peso y altura',key:'pesoAltura'},
-        {label:'Diagnostico',key:'diagnostico'},{label:'Dosis',key:'dosis'},{label:'Medicamento',key:'medicamento'},
-        {label:'Hora',key:'hora'},{label:'Habitacion / Area',key:'habitacion'}
+        {label:'Medicamento',key:'medicamento'},{label:'Dosis',key:'dosis'},
+        {label:'Paciente',key:'nombre'},{label:'Notas',key:'notas'}
       ];
       let html = '';
       fields.forEach(f => { html += '<div class="row"><span class="field-label">' + f.label + '</span><span class="field-value">' + escapeHtml(data[f.key]) + '</span></div>'; });
@@ -698,10 +700,10 @@ HTML_PAGE = """<!DOCTYPE html>
     }
 
     function handleComplete(num) {
-      const fields = ['nombre','edad','pesoAltura','diagnostico','dosis','medicamento','hora','habitacion'];
-      const record = {}; let allFilled = true;
-      fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); const val = el ? el.value.trim() : ''; record[f] = val; if (val === '') allFilled = false; });
-      if (!allFilled) { alert('Por favor, completa todos los campos antes de guardar.'); return; }
+      const fields = ['medicamento','dosis','nombre','notas'];
+      const record = {};
+      fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); record[f] = el ? el.value.trim() : ''; });
+      if (!record.medicamento || !record.dosis) { alert('Medicamento y dosis son obligatorios.'); return; }
       fetch('/compartimiento/' + num, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record)
