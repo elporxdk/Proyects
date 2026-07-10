@@ -53,6 +53,9 @@ PORT = 5055
 # Puerto serie: fija MEDIBOT_SERIAL_PORT para elegirlo a mano; vacio = autodetectar
 SERIAL_PORT = os.environ.get("MEDIBOT_SERIAL_PORT") or None
 SERIAL_BAUD = int(os.environ.get("MEDIBOT_SERIAL_BAUD", "9600"))
+RETRY_SECONDS = 2        # cada cuanto reintenta conectar si no hay Arduino
+SERIAL_TIMEOUT = 1.0     # timeout de readline() - amplio para evitar
+                         # desconexiones intermitentes en lecturas lentas
 
 _serial_conn = None
 # RLock: permite que un comando en curso reconecte el puerto sin soltarlo
@@ -127,7 +130,8 @@ def serial_connect():
         with _serial_lock:
             _serial_conn = conn
             _port_name = port
-
+        _aviso_sin_puerto = False
+        print(f"HUB: Arduino CONECTADO en {port} @ {SERIAL_BAUD} baud")
         return True
     except Exception as e:
         if not _aviso_sin_puerto:
