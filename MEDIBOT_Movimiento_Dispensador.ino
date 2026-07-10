@@ -46,6 +46,11 @@
  *  opuesta). Al DISPENSAR, la ruleta gira media vuelta para BAJARLO a la
  *  zona de dispensado y el servo suelta la pastilla.
  *
+ *  DIRECCION UNICA: los movimientos hacia atras estan PROHIBIDOS. La ruleta
+ *  SIEMPRE avanza en la misma direccion (pasos positivos); si el destino
+ *  queda "detras", completa la vuelta hacia adelante hasta alcanzarlo.
+ *  Aplica a GOTO, HOME, DISPENSE y al regreso a la posicion de origen.
+ *
  *   GOTO,<n>       Coloca el compartimiento n (1..8) ARRIBA (zona de espera)
  *   DISPENSE,<n>   Coloca n arriba, lo BAJA a la zona de dispensado y dispensa
  *   DISPENSE       Baja y dispensa el compartimiento que este arriba
@@ -333,12 +338,14 @@ void liberarBobinas() {
 
 // Coloca el compartimiento 'destino' ARRIBA de la zona de dispensacion
 // (posicion de carga/espera). No dispensa: solo lo deja preparado.
+//
+// GIRO EN UNA SOLA DIRECCION: los movimientos hacia atras estan PROHIBIDOS.
+// La ruleta siempre AVANZA (pasos positivos); si el destino "queda detras",
+// da la vuelta completa hacia adelante hasta alcanzarlo (0..7 compartimientos).
 void irACompartimiento(int destino) {
   destino = constrain(destino, 1, N_COMPARTIMIENTOS);
   int diff = destino - compActual;
-  // camino mas corto
-  if (diff >  N_COMPARTIMIENTOS / 2) diff -= N_COMPARTIMIENTOS;
-  if (diff < -N_COMPARTIMIENTOS / 2) diff += N_COMPARTIMIENTOS;
+  if (diff < 0) diff += N_COMPARTIMIENTOS;   // nunca retroceder: solo adelante
 
   if (diff != 0) {
     ruleta.step(diff * PASOS_POR_COMP);
@@ -359,9 +366,9 @@ void dispensar() {
 
   int compDispensado = compActual;   // el que esta arriba es el que va a bajar
 
-  // 1. Girar 180° (media vuelta = 4 compartimentos): arriba -> abajo
+  // 1. Girar 180° (media vuelta = 4 compartimentos): arriba -> abajo.
+  //    Siempre hacia ADELANTE (misma direccion unica de toda la ruleta).
   int giro = 4; // 4 compartimentos = 180°
-  // Gira siempre en una dirección fija (por ejemplo, horario)
   ruleta.step(giro * PASOS_POR_COMP);
   // El compartimiento que queda ARRIBA ahora es el opuesto (sumar 4 modulo 8)
   compActual = (compActual + giro - 1) % N_COMPARTIMIENTOS + 1;
