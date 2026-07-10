@@ -199,8 +199,10 @@ def verificar_pos():
 
 def ejecutar_dispensado(comp, origen, detalle=""):
     """Dispensa el compartimiento 'comp' y registra la accion. Devuelve
-    (ok, respuestas). Espera amplia: GOTO + bajada 180 + servo ~ 9 s peor caso."""
-    resp = serial_command(f"DISPENSE,{comp}", wait=12.0)
+    (ok, respuestas). Espera amplia: la ruleta solo avanza (nunca retrocede),
+    asi que el peor caso es GOTO de 7 compartimientos + bajada 180 + servo
+    ~ 11.5 s; se esperan 15 s de margen."""
+    resp = serial_command(f"DISPENSE,{comp}", wait=15.0)
     conectado = hub_disponible()
     ack = " | ".join(resp) if resp else "sin respuesta"
     ok = conectado and any(str(l).startswith("DISPENSADO") for l in resp)
