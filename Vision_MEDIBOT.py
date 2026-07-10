@@ -2752,12 +2752,19 @@ def _abrir_navegador_pastillero(x, y, w, h):
     posicionada (para la pantalla dividida); si no, usa el navegador
     por defecto."""
     url = f"http://127.0.0.1:{PASTILLERO_PORT}"
+    # Perfil de navegador DEDICADO para la ventana de Pillbox: si se usa el
+    # perfil por defecto y ya hay otro Chromium abierto, ambos pelean por el
+    # mismo perfil y aparece "Profile error occurred".
+    perfil = os.path.expanduser("~/.pillbox-webapp-profile")
     for navegador in ("chromium-browser", "chromium", "google-chrome", "google-chrome-stable"):
         ruta = shutil.which(navegador)
         if ruta:
             try:
                 subprocess.Popen([ruta,
                     f"--app={url}",
+                    f"--user-data-dir={perfil}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
                     f"--window-position={x},{y}",
                     f"--window-size={w},{h}",
                     "--new-window"])
