@@ -2,12 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-//curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-//sudo apt-get install -y nodejs
-//bashsudo apt-get update
-//export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-//npm install whatsapp-web.js@1.19.5 qrcode-terminal --legacy-peer-deps
-//sudo apt-get install -y curl
+
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
@@ -22,7 +17,12 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        executablePath: '/usr/bin/chromium', // Chromium del sistema (confirmado con 'which chromium')
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'  // evita errores de memoria compartida en la Pi
+        ]
     }
 });
 
