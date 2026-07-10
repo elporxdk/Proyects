@@ -5,6 +5,7 @@ const path = require('path');
 //curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 //sudo apt-get install -y nodejs
 //bashsudo apt-get update
+//npm install whatsapp-web.js@1.19.5 qrcode-terminal --legacy-peer-deps
 //sudo apt-get install -y curl
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
