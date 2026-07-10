@@ -53,12 +53,13 @@ PORT = 5055
 # Puerto serie: fija MEDIBOT_SERIAL_PORT para elegirlo a mano; vacio = autodetectar
 SERIAL_PORT = os.environ.get("MEDIBOT_SERIAL_PORT") or None
 SERIAL_BAUD = int(os.environ.get("MEDIBOT_SERIAL_BAUD", "9600"))
-RETRY_SECONDS = 5        # cada cuanto reintenta conectar si no hay Arduino
-SERIAL_TIMEOUT = 1.0     # timeout para readline() - aumentado para evitar desconexiones
 
 _serial_conn = None
-_serial_lock = threading.Lock()
+# RLock: permite que un comando en curso reconecte el puerto sin soltarlo
+# (reintento inmediato tras una microcaida del USB).
+_serial_lock = threading.RLock()
 _port_name = None
+_aviso_sin_puerto = False   # para no repetir el mismo aviso en cada reintento
 
 
 def _autodetect_serial_port():
@@ -104,7 +105,7 @@ def serial_open():
 
 def serial_connect():
     """Intenta abrir el puerto serie. Devuelve True si quedo conectado."""
-    global _serial_conn, _port_name
+    global _serial_conn, _port_name, _aviso_sin_puerto
     if serial_open():
         return True
     try:
@@ -114,8 +115,11 @@ def serial_connect():
         return False
     port = SERIAL_PORT or _autodetect_serial_port()
     if not port:
-        print("HUB: no se detecto ningun Arduino "
-              "(fija MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 si conoces el puerto).")
+        if not _aviso_sin_puerto:
+            print("HUB: no se detecto ningun Arduino; sigo buscando cada "
+                  f"{RETRY_SECONDS} s (fija MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 "
+                  "si conoces el puerto).")
+            _aviso_sin_puerto = True
         return False
     try:
         conn = serial.Serial(port, SERIAL_BAUD, timeout=SERIAL_TIMEOUT)
@@ -123,15 +127,17 @@ def serial_connect():
         with _serial_lock:
             _serial_conn = conn
             _port_name = port
-        print(f"HUB: Arduino CONECTADO en {port} @ {SERIAL_BAUD} baud (timeout={SERIAL_TIMEOUT}s)")
+
         return True
     except Exception as e:
-        print(f"HUB: no se pudo abrir {port}: {e}")
+        if not _aviso_sin_puerto:
+            print(f"HUB: no se pudo abrir {port}: {e}")
+            _aviso_sin_puerto = True
         return False
 
 
 def _marcar_desconectado(motivo):
-    """Cierra el puerto tras un error; el monitor reintentara solo."""
+    """Cierra el puerto tras un error; se reintenta reconectar enseguida."""
     global _serial_conn
     conn, _serial_conn = _serial_conn, None
     if conn is not None:
@@ -139,11 +145,13 @@ def _marcar_desconectado(motivo):
             conn.close()
         except Exception:
             pass
-        print(f"HUB: Arduino desconectado ({motivo}); reintentando cada {RETRY_SECONDS} s")
+        print(f"HUB: Arduino desconectado ({motivo}); reconectando...")
 
 
 def _monitor_reconexion():
-    """Hilo: si no hay Arduino, reintenta conectar cada RETRY_SECONDS."""
+    """Hilo: si no hay Arduino, reintenta conectar cada RETRY_SECONDS.
+    Con 2 s, una microcaida del USB (p.ej. bajon de tension al mover el
+    motor) se recupera sola casi al instante, sin tocar ningun boton."""
     while True:
         if not serial_open():
             serial_connect()
@@ -195,6 +203,31 @@ def procesar(cmd, wait, until):
             return True, lineas
         except Exception as e:
             _marcar_desconectado(str(e))
+            # REINTENTO INMEDIATO en la misma peticion, solo para comandos
+            # seguros de repetir (GOTO/HOME/GETPOS). Cubre las microcaidas del
+            # USB al arrancar el motor: se reconecta y reenvia sin que el
+            # usuario toque nada. DISPENSE NO se reintenta (riesgo de doble
+            # dosis); para el, el monitor reconecta en ~2 s y el usuario ve el
+            # aviso honesto.
+            base = cmd.split(",")[0].strip().upper()
+            if until and base in ("GOTO", "HOME", "GETPOS") and serial_connect():
+                try:
+                    _serial_conn.reset_input_buffer()
+                    _serial_conn.write((cmd + "\n").encode())
+                    _serial_conn.flush()
+                    lineas = []
+                    t0 = time.time()
+                    while time.time() - t0 < wait:
+                        linea = _serial_conn.readline().decode(errors="ignore").strip()
+                        if linea:
+                            lineas.append(linea)
+                            if any(linea.startswith(u) for u in until):
+                                break
+                    print(f"[HUB] {cmd} (reintento tras reconexion) -> {lineas}")
+                    return True, lineas
+                except Exception as e2:
+                    _marcar_desconectado(str(e2))
+                    return False, [f"ERROR serial: {e2}"]
             return False, [f"ERROR serial: {e}"]
     finally:
         _serial_lock.release()
