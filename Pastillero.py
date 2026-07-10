@@ -209,9 +209,8 @@ def ejecutar_dispensado(comp, origen, detalle=""):
     registrar_historial(origen, comp, detalle,
                         "OK" if ok else ("SIMULADO" if not conectado else ack))
     if ok:
-        # Tras dispensar 'comp', el que queda ARRIBA es el opuesto (giro 180).
-        _set_pos(esperado=_opuesto(comp))
-        verificar_pos()   # lee la posicion real para saber si coincide
+        # El firmware vuelve a HOME (compartimiento 1 arriba) tras dispensar.
+        _set_pos(real=_parsear_pos(resp), esperado=1)
     return ok, resp
 
 
