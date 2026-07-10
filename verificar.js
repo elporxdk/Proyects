@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 //curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 //sudo apt-get install -y nodejs
+//bashsudo apt-get update
+//sudo apt-get install -y curl
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
