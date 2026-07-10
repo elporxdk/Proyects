@@ -860,6 +860,7 @@ HTML_PAGE = """<!DOCTYPE html>
       }
     }
 
+    let ultimaAutoReconexion = 0;
     function refreshSerial() {
       fetch('/serial/status').then(r => r.json()).then(s => {
         const pill = document.getElementById('serialPill');
@@ -871,10 +872,21 @@ HTML_PAGE = """<!DOCTYPE html>
           btnR.classList.add('hidden');
           btnV.classList.remove('hidden');
         } else {
-          pill.textContent = s.hub === false ? 'Hub serial apagado' : 'Arduino: sin conexion';
           pill.classList.remove('ok');
           btnR.classList.remove('hidden');
           btnV.classList.add('hidden');
+          // AUTO-RECONEXION: sin tocar botones. Si el hub esta vivo pero el
+          // Arduino se cayo (p.ej. microcaida del USB al mover el motor), se
+          // pide reconectar solo, como maximo una vez cada 6 s.
+          const ahora = Date.now();
+          if (s.hub !== false && ahora - ultimaAutoReconexion > 6000) {
+            ultimaAutoReconexion = ahora;
+            pill.textContent = 'Reconectando...';
+            fetch('/serial/reconnect', { method: 'POST' })
+              .then(r => r.json()).then(() => refreshSerial()).catch(() => {});
+          } else {
+            pill.textContent = s.hub === false ? 'Hub serial apagado' : 'Arduino: sin conexion';
+          }
         }
         updatePos(s.pos);
       }).catch(() => {});
