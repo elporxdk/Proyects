@@ -2,7 +2,10 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-
+//cd /home/elpoxdk/Desktop/numeros
+//rm -rf .wwebjs_auth .wwebjs_cache
+//npm uninstall whatsapp-web.js
+//npm install whatsapp-web.js@latest --legacy-peer-deps
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
@@ -16,7 +19,7 @@ const PAUSA_LOTE_MS = 60000;                // pausa larga entre lotes (1 minuto
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: false, // TEMPORAL: modo visible para diagnosticar
+        headless: true,
         executablePath: '/usr/bin/chromium', // Chromium del sistema (confirmado con 'which chromium')
         args: [
             '--no-sandbox',
