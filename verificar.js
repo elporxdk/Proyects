@@ -6,6 +6,7 @@ const path = require('path');
 //rm -rf .wwebjs_auth .wwebjs_cache
 //npm uninstall whatsapp-web.js
 //npm install whatsapp-web.js@latest --legacy-peer-deps
+//export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
