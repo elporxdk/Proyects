@@ -7,6 +7,11 @@ const path = require('path');
 //npm uninstall whatsapp-web.js
 //npm install whatsapp-web.js@latest --legacy-peer-deps
 //export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+//echo 'export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true' >> ~/.bashrc
+//source ~/.bashrc
+//echo $PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+//rm -rf node_modules package-lock.json
+//npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
