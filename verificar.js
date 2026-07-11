@@ -12,6 +12,8 @@ const path = require('path');
 //echo $PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
 //rm -rf node_modules package-lock.json
 //npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps
+//rm -rf node_modules package-lock.json
+//npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps --ignore-scripts
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
