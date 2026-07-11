@@ -16,7 +16,7 @@ const PAUSA_LOTE_MS = 60000;                // pausa larga entre lotes (1 minuto
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: true,
+        headless: false, // TEMPORAL: modo visible para diagnosticar
         executablePath: '/usr/bin/chromium', // Chromium del sistema (confirmado con 'which chromium')
         args: [
             '--no-sandbox',
