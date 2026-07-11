@@ -14,6 +14,11 @@ const path = require('path');
 //npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps
 //rm -rf node_modules package-lock.json
 //npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps --ignore-scripts
+//cd ~
+//wget https://unofficial-builds.nodejs.org/download/release/v18.20.4/node-v18.20.4-linux-x86.tar.xz
+//sudo apt-get remove -y nodejs
+//tar -xf node-v18.20.4-linux-x86.tar.xz   # o .tar.gz si usaste esa
+//sudo cp -r node-v18.20.4-linux-x86/* /usr/local/
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
