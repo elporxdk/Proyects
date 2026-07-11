@@ -2,24 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-//cd /home/elpoxdk/Desktop/numeros
-//rm -rf .wwebjs_auth .wwebjs_cache
-//npm uninstall whatsapp-web.js
-//npm install whatsapp-web.js@latest --legacy-peer-deps
-//export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-//echo 'export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true' >> ~/.bashrc
-//source ~/.bashrc
-//echo $PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-//rm -rf node_modules package-lock.json
-//npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps
-//rm -rf node_modules package-lock.json
-//npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps --ignore-scripts
-//cd ~
-//wget https://unofficial-builds.nodejs.org/download/release/v18.20.4/node-v18.20.4-linux-x86.tar.xz
-//sudo apt-get remove -y nodejs
-//tar -xf node-v18.20.4-linux-x86.tar.xz   # o .tar.gz si usaste esa
-//sudo cp -r node-v18.20.4-linux-x86/* /usr/local/
-//npm install whatsapp-web.js@latest qrcode-terminal --legacy-peer-deps
+
 // ================== CONFIGURACIÓN ==================
 const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
 const ARCHIVO_SALIDA_CSV = './resultados.csv';
@@ -68,6 +51,24 @@ function leerNumeros(archivo) {
         .filter(l => l.length > 0);
 }
 
+function cargarResultadosPrevios() {
+    if (!fs.existsSync(ARCHIVO_SALIDA_CSV)) {
+        return [];
+    }
+    const contenido = fs.readFileSync(ARCHIVO_SALIDA_CSV, 'utf-8');
+    const lineas = contenido.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    lineas.shift(); // quitar encabezado
+
+    return lineas.map(linea => {
+        const [original, normalizado, tieneWhatsappStr, error] = linea.split(',');
+        let tieneWhatsapp;
+        if (tieneWhatsappStr === 'true') tieneWhatsapp = true;
+        else if (tieneWhatsappStr === 'false') tieneWhatsapp = false;
+        else tieneWhatsapp = null;
+        return { original, normalizado, tieneWhatsapp, error: error || null };
+    });
+}
+
 function guardarResultados(resultados) {
     // CSV
     const encabezado = 'numero_original,numero_normalizado,tiene_whatsapp,error\n';
@@ -86,15 +87,24 @@ function guardarResultados(resultados) {
     console.log(`\nResultados guardados en:\n- ${ARCHIVO_SALIDA_CSV}\n- ${ARCHIVO_SALIDA_TXT}`);
 }
 
-async function verificarTodos(numeros) {
-    const resultados = [];
+async function verificarTodos(numeros, resultadosPrevios) {
+    const resultados = [...resultadosPrevios];
+    const yaVerificados = new Set(resultadosPrevios.map(r => r.original));
 
-    for (let i = 0; i < numeros.length; i++) {
-        const original = numeros[i];
+    const pendientes = numeros.filter(n => !yaVerificados.has(n));
+    const saltados = numeros.length - pendientes.length;
+
+    if (saltados > 0) {
+        console.log(`Saltando ${saltados} número(s) ya verificados anteriormente.`);
+    }
+    console.log(`Números pendientes por verificar: ${pendientes.length}\n`);
+
+    for (let i = 0; i < pendientes.length; i++) {
+        const original = pendientes[i];
         const normalizado = normalizarNumero(original);
         const idWhatsapp = `${normalizado}@c.us`;
 
-        process.stdout.write(`[${i + 1}/${numeros.length}] Verificando ${original} (${normalizado})... `);
+        process.stdout.write(`[${i + 1}/${pendientes.length}] Verificando ${original} (${normalizado})... `);
 
         try {
             const tieneWhatsapp = await client.isRegisteredUser(idWhatsapp);
@@ -108,7 +118,7 @@ async function verificarTodos(numeros) {
         // Guardado incremental por si el proceso se corta a la mitad
         guardarResultados(resultados);
 
-        if (i < numeros.length - 1) {
+        if (i < pendientes.length - 1) {
             const esFinDeLote = (i + 1) % TAMANO_LOTE === 0;
             if (esFinDeLote) {
                 console.log(`\nPausa larga de ${PAUSA_LOTE_MS / 1000}s para evitar bloqueos (lote completado)...\n`);
@@ -140,9 +150,20 @@ client.on('ready', async () => {
     }
 
     const numeros = leerNumeros(ARCHIVO_ENTRADA);
-    console.log(`Se encontraron ${numeros.length} números para verificar.\n`);
+    const resultadosPrevios = cargarResultadosPrevios();
+    console.log(`Se encontraron ${numeros.length} números en el archivo de entrada.`);
+    console.log(`Resultados previos cargados: ${resultadosPrevios.length}\n`);
 
-    const resultados = await verificarTodos(numeros);
+    const yaVerificados = new Set(resultadosPrevios.map(r => r.original));
+    const hayPendientes = numeros.some(n => !yaVerificados.has(n));
+
+    if (!hayPendientes) {
+        console.log('Todos los números del archivo ya fueron verificados anteriormente. Nada que hacer.');
+        await client.destroy();
+        process.exit(0);
+    }
+
+    const resultados = await verificarTodos(numeros, resultadosPrevios);
 
     const totalSi = resultados.filter(r => r.tieneWhatsapp === true).length;
     const totalNo = resultados.filter(r => r.tieneWhatsapp === false).length;
