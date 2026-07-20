@@ -495,6 +495,23 @@ void procesarComando(String linea) {
       else if (pin == 13) servoTilt.write(ang);
     }
 
+  } else if (cmd == "MOTORTEST") {
+    // Diagnostico: prueba cada motor DC por separado, 1 s hacia adelante.
+    // Sirve para aislar si el problema es el Motor Shield, el cableado o la
+    // alimentacion (si NINGUNO gira, casi seguro falta alimentacion externa
+    // al shield: los motores no arrancan solo con el USB del Arduino).
+    Serial.println("MOTORTEST: probando motores 1..4 (1 s c/u)");
+    QGPMaker_DCMotor* motores[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
+    for (int i = 0; i < 4; i++) {
+      Serial.print("  motor "); Serial.println(i + 1);
+      motores[i]->setSpeed(VELOCIDAD);
+      motores[i]->run(FORWARD);
+      delay(1000);
+      motores[i]->run(RELEASE);
+      delay(300);
+    }
+    Serial.println("MOTORTEST: fin");
+
   } else {
     Serial.print("ERR,");
     Serial.println(linea);
