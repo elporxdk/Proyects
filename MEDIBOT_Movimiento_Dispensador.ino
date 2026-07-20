@@ -512,6 +512,26 @@ void procesarComando(String linea) {
     }
     Serial.println("MOTORTEST: fin");
 
+  } else if (cmd == "I2CSCAN") {
+    // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
+    // El Motor Shield (tipo Adafruit v2 / QGPMaker) suele estar en 0x60.
+    // Si NO aparece 0x60, el shield no se comunica (revisar SDA/SCL, encastre
+    // o que la libreria sea la correcta para tu shield).
+    Serial.println("I2CSCAN: buscando dispositivos I2C...");
+    int encontrados = 0;
+    for (byte addr = 1; addr < 127; addr++) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) {
+        Serial.print("  encontrado 0x");
+        if (addr < 16) Serial.print("0");
+        Serial.println(addr, HEX);
+        encontrados++;
+      }
+    }
+    Serial.print("I2CSCAN: ");
+    Serial.print(encontrados);
+    Serial.println(" dispositivo(s). El Motor Shield suele estar en 0x60.");
+
   } else {
     Serial.print("ERR,");
     Serial.println(linea);
