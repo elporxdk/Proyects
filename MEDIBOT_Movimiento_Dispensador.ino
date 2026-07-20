@@ -40,26 +40,28 @@
  *
  *  Todas las ordenes llegan por Serial (via el hub serial_hub.py del lado PC).
  *
+ *  El mando PS2 y el Motor Shield son OPCIONALES: si no estan conectados, el
+ *  Arduino arranca igual y responde por Serial (movimiento por COM + dispensador).
+ *
  *  ------------------- ORDENES DISPENSADOR (Pillbox) ----------
- *  Semantica de la ruleta: al SELECCIONAR un compartimiento este se coloca
- *  ARRIBA de la zona de dispensacion (posicion de carga/espera, 180 grados
- *  opuesta). Al DISPENSAR, la ruleta gira media vuelta para BAJARLO a la
- *  zona de dispensado y el servo suelta la pastilla.
+ *  SELECT,N: coloca el compartimiento N ARRIBA (zona de seleccion/espera).
+ *  DISPENSE,N: parte de HOME, lleva N a la zona de dispensado (abajo) con
+ *  rot=(N<=4)?N+3:N-5, acciona el servo y vuelve a HOME. Todo hacia adelante.
  *
  *  DIRECCION UNICA: los movimientos hacia atras estan PROHIBIDOS. La ruleta
- *  SIEMPRE avanza en la misma direccion (pasos positivos); si el destino
- *  queda "detras", completa la vuelta hacia adelante hasta alcanzarlo.
- *  Aplica a GOTO, HOME, DISPENSE y al regreso a la posicion de origen.
+ *  SIEMPRE avanza (pasos positivos); si el destino queda "detras", completa la
+ *  vuelta hacia adelante. Aplica a SELECT, HOME y DISPENSE.
  *
- *   GOTO,<n>       Coloca el compartimiento n (1..8) ARRIBA (zona de espera)
- *   DISPENSE,<n>   Coloca n arriba, lo BAJA a la zona de dispensado y dispensa
- *   DISPENSE       Baja y dispensa el compartimiento que este arriba
- *   HOME           Coloca el compartimiento 1 arriba
+ *   SELECT,<n> / GOTO,<n>  Coloca el compartimiento n (1..8) ARRIBA
+ *   DISPENSE,<n>   Lleva n a dispensado, suelta y vuelve a HOME
+ *   DISPENSE       Dispensa el compartimiento que este arriba
+ *   HOME           Vuelve a HOME (compartimiento 1 arriba)
  *   SERVO,<ang>    Mueve el servo dispensador a <ang> grados (0..90)
  *   GETPOS         Responde POS,<n> = compartimiento actualmente arriba
  *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
+ *   FWD/BACK/...   la direccion SOLA tambien vale (para probar por el Monitor)
  *   GPIO,<pin>,<v> Protocolo de Vision: pin 17=adel,27=atras,22=izq,23=der; v=0/1
  *   GPIO,CLEANUP,0 Detiene el chasis y limpia el estado de movimiento
  *   PWM,<pin>,<d>  Servos de camara: pin 18=pan, 13=tilt; d = duty % (2.5..12.5)
@@ -152,6 +154,11 @@ const int  PASOS_POR_COMP    = PASOS_POR_VUELTA / N_COMPARTIMIENTOS; // 256 paso
 Stepper ruleta(PASOS_POR_VUELTA, PIN_IN1, PIN_IN3, PIN_IN2, PIN_IN4);
 
 int compActual = 1;   // compartimiento que esta ARRIBA (zona de carga/espera, 1..8)
+
+// El mando PS2 es OPCIONAL: si no esta conectado, el robot sigue funcionando
+// (movimiento por COM desde Vision y dispensador por Serial). Antes el arranque
+// se colgaba esperando el PS2 y el Arduino no respondia nada.
+bool ps2Presente = false;
 
 // Buffer para lectura no bloqueante de comandos por Serial
 String bufferSerial = "";
@@ -336,57 +343,85 @@ void liberarBobinas() {
   digitalWrite(PIN_IN4, LOW);
 }
 
-// Coloca el compartimiento 'destino' ARRIBA de la zona de dispensacion
-// (posicion de carga/espera). No dispensa: solo lo deja preparado.
-//
-// GIRO EN UNA SOLA DIRECCION: los movimientos hacia atras estan PROHIBIDOS.
-// La ruleta siempre AVANZA (pasos positivos); si el destino "queda detras",
-// da la vuelta completa hacia adelante hasta alcanzarlo (0..7 compartimientos).
+// ═════════════════════════════════════════════════════════════
+//  RULETA - GIRO EN UNA SOLA DIRECCION (retroceso PROHIBIDO)
+//  Logica SELECT + DISPENSE (misma que Pillbox_Dispensador.ino)
+// ═════════════════════════════════════════════════════════════
+
+// Avanza 'k' compartimientos HACIA ADELANTE (solo adelante; k normalizado 0..7).
+void avanzarComps(int k) {
+  k = ((k % N_COMPARTIMIENTOS) + N_COMPARTIMIENTOS) % N_COMPARTIMIENTOS;
+  if (k > 0) {
+    ruleta.step((long)k * PASOS_POR_COMP);
+    liberarBobinas();
+  }
+}
+
+// Vuelve a HOME (compartimiento 1 arriba) completando el giro hacia adelante.
+void irAHome() {
+  avanzarComps((N_COMPARTIMIENTOS - (compActual - 1)) % N_COMPARTIMIENTOS);
+  compActual = 1;
+  EEPROM.write(EEPROM_COMP_ADDR, compActual);
+}
+
+// SELECT,N / GOTO,N: coloca el compartimiento N ARRIBA (posicion de espera),
+// avanzando solo lo necesario hacia adelante. No dispensa.
 void irACompartimiento(int destino) {
   destino = constrain(destino, 1, N_COMPARTIMIENTOS);
-  int diff = destino - compActual;
-  if (diff < 0) diff += N_COMPARTIMIENTOS;   // nunca retroceder: solo adelante
-
-  if (diff != 0) {
-    ruleta.step(diff * PASOS_POR_COMP);
-    compActual = destino;
-    liberarBobinas();
-    // Guardar en EEPROM
-    EEPROM.write(EEPROM_COMP_ADDR, compActual);
-  }
+  avanzarComps((destino - compActual + N_COMPARTIMIENTOS) % N_COMPARTIMIENTOS);
+  compActual = destino;
+  EEPROM.write(EEPROM_COMP_ADDR, compActual);
   Serial.print("POS,");
   Serial.println(compActual);
 }
 
-// BAJA el compartimiento que esta arriba hasta la zona de dispensado
-// (media vuelta, 180 grados) y suelta la pastilla con el servo.
-void dispensar() {
-  // Seguridad: detener el chasis mientras se dispensa (la accion es bloqueante)
-  stopMoving();
+// DISPENSE,N: parte de HOME, lleva N a la zona de dispensado (abajo) con la
+// formula rot = (N<=4)?N+3:N-5, acciona el servo y vuelve a HOME. Todo adelante.
+void dispensar(int n) {
+  stopMoving();                                // seguridad: chasis detenido
+  n = constrain(n, 1, N_COMPARTIMIENTOS);
+  irAHome();
 
-  int compDispensado = compActual;   // el que esta arriba es el que va a bajar
+  int rot = (n <= 4) ? (n + 3) : (n - 5);      // 1..8 -> 4,5,6,7,0,1,2,3
+  avanzarComps(rot);                           // comp N a la zona de dispensado
 
-  // 1. Girar 180° (media vuelta = 4 compartimentos): arriba -> abajo.
-  //    Siempre hacia ADELANTE (misma direccion unica de toda la ruleta).
-  int giro = 4; // 4 compartimentos = 180°
-  ruleta.step(giro * PASOS_POR_COMP);
-  // El compartimiento que queda ARRIBA ahora es el opuesto (sumar 4 modulo 8)
-  compActual = (compActual + giro - 1) % N_COMPARTIMIENTOS + 1;
-  liberarBobinas();
-  // Guardar nueva posición en EEPROM (recuerda la posicion tras un reinicio)
-  EEPROM.write(EEPROM_COMP_ADDR, compActual);
-
-  // 2. Abrir servo por 2.5 segundos
   servoDispensador.write(SERVO_DISPENSA);
   delay(2500);
-
-  // 3. Cerrar servo (volver a reposo)
   servoDispensador.write(SERVO_REPOSO);
   delay(500);
 
-  // Informa el compartimiento QUE SE DISPENSO (el que bajo), no el que quedo arriba
+  avanzarComps((N_COMPARTIMIENTOS - rot) % N_COMPARTIMIENTOS);   // vuelve a HOME
+  compActual = 1;
+  EEPROM.write(EEPROM_COMP_ADDR, compActual);
+
   Serial.print("DISPENSADO,");
-  Serial.println(compDispensado);
+  Serial.println(n);
+  Serial.print("POS,");
+  Serial.println(compActual);
+}
+
+// Aplica una direccion de movimiento a partir de un texto. Acepta ingles y
+// espanol. Sirve tanto para "MOVE,<dir>" como para escribir la direccion sola.
+void moverDireccion(String dir) {
+  dir.toUpperCase();
+  vAdelante = vAtras = vIzquierda = vDerecha = false;
+  if      (dir == "FWD"  || dir == "FORWARD"  || dir == "ADELANTE") vAdelante  = true;
+  else if (dir == "BACK" || dir == "BACKWARD" || dir == "ATRAS")    vAtras     = true;
+  else if (dir == "LEFT" || dir == "IZQUIERDA"|| dir == "IZQ")      vIzquierda = true;
+  else if (dir == "RIGHT"|| dir == "DERECHA"  || dir == "DER")      vDerecha   = true;
+  // "STOP" (u otro valor) -> las cuatro quedan en false: detener
+  aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
+  Serial.print("OK,MOVE,");
+  Serial.println(dir);
+}
+
+// True si 'cmd' es una direccion de movimiento suelta (sin el prefijo MOVE).
+bool esDireccion(const String &cmd) {
+  return cmd == "FWD" || cmd == "FORWARD" || cmd == "ADELANTE" ||
+         cmd == "BACK" || cmd == "BACKWARD" || cmd == "ATRAS" ||
+         cmd == "LEFT" || cmd == "IZQUIERDA" || cmd == "IZQ" ||
+         cmd == "RIGHT" || cmd == "DERECHA" || cmd == "DER" ||
+         cmd == "STOP";
 }
 
 void procesarComando(String linea) {
@@ -403,13 +438,15 @@ void procesarComando(String linea) {
   }
   cmd.toUpperCase();
 
-  if (cmd == "GOTO") {
+  if (cmd == "SELECT" || cmd == "GOTO") {
     irACompartimiento(arg.toInt());
   } else if (cmd == "DISPENSE" || cmd == "DISPENSAR") {
-    if (arg.length() > 0) irACompartimiento(arg.toInt());
-    dispensar();
+    int n = (arg.length() > 0) ? arg.toInt() : compActual;
+    dispensar(n);
   } else if (cmd == "HOME") {
-    irACompartimiento(1);
+    irAHome();
+    Serial.print("POS,");
+    Serial.println(compActual);
   } else if (cmd == "SERVO") {
     servoDispensador.write(constrain(arg.toInt(), 0, 90));
     Serial.print("SERVO,");
@@ -420,16 +457,11 @@ void procesarComando(String linea) {
 
   } else if (cmd == "MOVE") {
     // MOVE,<dir>   dir = FWD | BACK | LEFT | RIGHT | STOP
-    arg.toUpperCase();
-    vAdelante = vAtras = vIzquierda = vDerecha = false;
-    if      (arg == "FWD"  || arg == "FORWARD")  vAdelante  = true;
-    else if (arg == "BACK" || arg == "BACKWARD") vAtras     = true;
-    else if (arg == "LEFT")                      vIzquierda = true;
-    else if (arg == "RIGHT")                     vDerecha   = true;
-    // "STOP" u otro valor -> las cuatro quedan en false (detener)
-    aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
-    Serial.print("OK,MOVE,");
-    Serial.println(arg);
+    moverDireccion(arg);
+
+  } else if (esDireccion(cmd)) {
+    // Direccion escrita SOLA (sin el prefijo MOVE): FWD, BACK, LEFT, RIGHT, STOP
+    moverDireccion(cmd);
 
   } else if (cmd == "GPIO") {
     // GPIO,<pin>,<val>  (protocolo de Vision). pin 17=adel, 27=atras, 22=izq, 23=der
@@ -462,6 +494,43 @@ void procesarComando(String linea) {
       if      (pin == 18) servoPan.write(ang);
       else if (pin == 13) servoTilt.write(ang);
     }
+
+  } else if (cmd == "MOTORTEST") {
+    // Diagnostico: prueba cada motor DC por separado, 1 s hacia adelante.
+    // Sirve para aislar si el problema es el Motor Shield, el cableado o la
+    // alimentacion (si NINGUNO gira, casi seguro falta alimentacion externa
+    // al shield: los motores no arrancan solo con el USB del Arduino).
+    Serial.println("MOTORTEST: probando motores 1..4 (1 s c/u)");
+    QGPMaker_DCMotor* motores[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
+    for (int i = 0; i < 4; i++) {
+      Serial.print("  motor "); Serial.println(i + 1);
+      motores[i]->setSpeed(VELOCIDAD);
+      motores[i]->run(FORWARD);
+      delay(1000);
+      motores[i]->run(RELEASE);
+      delay(300);
+    }
+    Serial.println("MOTORTEST: fin");
+
+  } else if (cmd == "I2CSCAN") {
+    // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
+    // El Motor Shield (tipo Adafruit v2 / QGPMaker) suele estar en 0x60.
+    // Si NO aparece 0x60, el shield no se comunica (revisar SDA/SCL, encastre
+    // o que la libreria sea la correcta para tu shield).
+    Serial.println("I2CSCAN: buscando dispositivos I2C...");
+    int encontrados = 0;
+    for (byte addr = 1; addr < 127; addr++) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) {
+        Serial.print("  encontrado 0x");
+        if (addr < 16) Serial.print("0");
+        Serial.println(addr, HEX);
+        encontrados++;
+      }
+    }
+    Serial.print("I2CSCAN: ");
+    Serial.print(encontrados);
+    Serial.println(" dispositivo(s). El Motor Shield suele estar en 0x60.");
 
   } else {
     Serial.print("ERR,");
@@ -500,13 +569,17 @@ void setup() {
   pinMode(PIN_IZQUIERDA, INPUT_PULLUP);
   pinMode(PIN_DERECHA,   INPUT_PULLUP);
 
-  // Inicializar PS2X
-  int error = 0;
-  do {
-    error = ps2x.config_gamepad(13, 11, 10, 12, true, true);
-    if (error == 0) break;
-    else delay(100);
-  } while (1);
+  // Inicializar PS2X (OPCIONAL). Se intenta unas veces; si NO hay mando
+  // conectado se CONTINUA igual (antes se colgaba en un bucle infinito y el
+  // Arduino nunca respondia por Serial).
+  ps2Presente = false;
+  for (int intento = 0; intento < 10; intento++) {
+    if (ps2x.config_gamepad(13, 11, 10, 12, true, true) == 0) {
+      ps2Presente = true;
+      break;
+    }
+    delay(100);
+  }
 
   // Posición inicial de servos del brazo
   Servo1->writeServo(90);
@@ -557,26 +630,31 @@ void loop() {
   leerSerial();
 
   // ── Movimiento ────────────────────────────────────────────
-  ps2x.read_gamepad(false, 0);
-  delay(30);
+  bool ps2xActivo = false;
 
-  // Botón X: vibración
-  if (ps2x.Button(PSB_CROSS)) {
-    ps2x.read_gamepad(true, 200);
-    delay(300);
+  if (ps2Presente) {
+    // Hay mando PS2 conectado: tiene prioridad sobre los comandos por COM.
     ps2x.read_gamepad(false, 0);
+    delay(30);
+
+    // Botón X: vibración
+    if (ps2x.Button(PSB_CROSS)) {
+      ps2x.read_gamepad(true, 200);
+      delay(300);
+      ps2x.read_gamepad(false, 0);
+    }
+
+    ps2xActivo = handlePS2Movement();
+    handlePS2Servos();     // servos del brazo (solo con mando PS2)
+  } else {
+    delay(30);
   }
 
-  // Control de movimiento. Prioridad: PS2 > comandos por COM (MOVE/GPIO).
-  bool ps2xActivo = handlePS2Movement();
   if (!ps2xActivo) {
-    // Aplica el estado de movimiento recibido por COM (desde Vision).
-    // (Si se usan los pines fisicos 6-9 en su lugar, cambiar por handleRPi();)
+    // Sin mando (o mando inactivo): aplica el movimiento recibido por COM
+    // desde Vision (MOVE/GPIO). El robot se maneja igual sin PS2.
     aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
   }
-
-  // Control de servos del brazo (siempre PS2X)
-  handlePS2Servos();
 
   delay(2);
 }
