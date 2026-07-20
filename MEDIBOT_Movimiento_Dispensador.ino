@@ -61,6 +61,7 @@
  *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
+ *   FWD/BACK/...   la direccion SOLA tambien vale (para probar por el Monitor)
  *   GPIO,<pin>,<v> Protocolo de Vision: pin 17=adel,27=atras,22=izq,23=der; v=0/1
  *   GPIO,CLEANUP,0 Detiene el chasis y limpia el estado de movimiento
  *   PWM,<pin>,<d>  Servos de camara: pin 18=pan, 13=tilt; d = duty % (2.5..12.5)
@@ -399,6 +400,30 @@ void dispensar(int n) {
   Serial.println(compActual);
 }
 
+// Aplica una direccion de movimiento a partir de un texto. Acepta ingles y
+// espanol. Sirve tanto para "MOVE,<dir>" como para escribir la direccion sola.
+void moverDireccion(String dir) {
+  dir.toUpperCase();
+  vAdelante = vAtras = vIzquierda = vDerecha = false;
+  if      (dir == "FWD"  || dir == "FORWARD"  || dir == "ADELANTE") vAdelante  = true;
+  else if (dir == "BACK" || dir == "BACKWARD" || dir == "ATRAS")    vAtras     = true;
+  else if (dir == "LEFT" || dir == "IZQUIERDA"|| dir == "IZQ")      vIzquierda = true;
+  else if (dir == "RIGHT"|| dir == "DERECHA"  || dir == "DER")      vDerecha   = true;
+  // "STOP" (u otro valor) -> las cuatro quedan en false: detener
+  aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
+  Serial.print("OK,MOVE,");
+  Serial.println(dir);
+}
+
+// True si 'cmd' es una direccion de movimiento suelta (sin el prefijo MOVE).
+bool esDireccion(const String &cmd) {
+  return cmd == "FWD" || cmd == "FORWARD" || cmd == "ADELANTE" ||
+         cmd == "BACK" || cmd == "BACKWARD" || cmd == "ATRAS" ||
+         cmd == "LEFT" || cmd == "IZQUIERDA" || cmd == "IZQ" ||
+         cmd == "RIGHT" || cmd == "DERECHA" || cmd == "DER" ||
+         cmd == "STOP";
+}
+
 void procesarComando(String linea) {
   linea.trim();
   if (linea.length() == 0) return;
@@ -432,16 +457,11 @@ void procesarComando(String linea) {
 
   } else if (cmd == "MOVE") {
     // MOVE,<dir>   dir = FWD | BACK | LEFT | RIGHT | STOP
-    arg.toUpperCase();
-    vAdelante = vAtras = vIzquierda = vDerecha = false;
-    if      (arg == "FWD"  || arg == "FORWARD")  vAdelante  = true;
-    else if (arg == "BACK" || arg == "BACKWARD") vAtras     = true;
-    else if (arg == "LEFT")                      vIzquierda = true;
-    else if (arg == "RIGHT")                     vDerecha   = true;
-    // "STOP" u otro valor -> las cuatro quedan en false (detener)
-    aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
-    Serial.print("OK,MOVE,");
-    Serial.println(arg);
+    moverDireccion(arg);
+
+  } else if (esDireccion(cmd)) {
+    // Direccion escrita SOLA (sin el prefijo MOVE): FWD, BACK, LEFT, RIGHT, STOP
+    moverDireccion(cmd);
 
   } else if (cmd == "GPIO") {
     // GPIO,<pin>,<val>  (protocolo de Vision). pin 17=adel, 27=atras, 22=izq, 23=der
