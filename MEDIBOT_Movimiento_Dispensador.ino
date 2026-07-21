@@ -8,8 +8,8 @@
  *   1) "Movement v1 MEDIBOT"
  *        - Chasis con 4 motores DC y brazo con 4 servos,
  *          gestionados por el QGPMaker Motor Shield (I2C).
- *        - Control por mando PS2 (PS2X) y/o por Raspberry Pi
- *          (4 entradas digitales).
+ *        - Control por mando PS2 (PS2X) y/o por Serial (COM)
+ *          desde la Raspberry Pi (comandos MOVE/GPIO).
  *
  *   2) "Dispensador MEDIBOT" (deepseek_cpp)
  *        - Ruleta de 8 compartimientos con motor paso a paso
@@ -27,7 +27,7 @@
  *    4,6,7,12   -> Mando PS2 (data/attention/command/clock) - OPCIONAL
  *    8,9,10,11  -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
  *    13         -> libre
- *    A0..A3     -> libres (entradas RPi legacy, sin usar)
+ *    A0..A3     -> libres (sin cablear; el movimiento llega por COM)
  *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC
  *
  *  Motores DC: por el Motor Shield (I2C). AFMS.begin(1600) para que giren
@@ -53,6 +53,8 @@
  *   HOME           Vuelve a HOME (compartimiento 1 arriba)
  *   SERVO,<ang>    Mueve el servo dispensador a <ang> grados (0..90)
  *   GETPOS         Responde POS,<n> = compartimiento actualmente arriba
+ *   STEPTEST[,<k>] Diagnostico: gira la ruleta k compartimientos (def. 8 = 1
+ *                  vuelta) para probar el paso a paso AISLADO del resto
  *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
@@ -101,15 +103,9 @@ QGPMaker_DCMotor *DCMotor_2 = AFMS.getMotor(2);
 QGPMaker_DCMotor *DCMotor_3 = AFMS.getMotor(3);
 QGPMaker_DCMotor *DCMotor_4 = AFMS.getMotor(4);
 
-// ── Pines de entrada desde Raspberry Pi (LEGACY, sin usar) ────
-//  El movimiento llega por COM (comandos MOVE/GPIO de Vision), no por estos
-//  pines. Se dejan en A0..A3 (libres) solo para que compile handleRPi(); no
-//  se cablean. Antes chocaban con el stepper (8,9).
-#define PIN_ADELANTE   A0
-#define PIN_ATRAS      A1
-#define PIN_IZQUIERDA  A2
-#define PIN_DERECHA    A3
-
+//  NOTA: el movimiento del chasis llega SIEMPRE por COM (comandos MOVE/GPIO de
+//  Vision). No hay pines de entrada fisicos desde la Raspberry Pi: no se cablea
+//  nada hacia el Arduino para mover, asi que A0..A3 quedan libres.
 #define VELOCIDAD 200
 
 // ════════════════════════════════════════════════════════════
@@ -233,15 +229,6 @@ void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) 
   else if   (izquierda)             { moveLeft();   }
   else if   (derecha)               { moveRight();  }
   else                              { stopMoving(); } // Nada activo
-}
-
-// ═════════════════════════════════════════════════════════════
-//  CONTROL POR RASPBERRY PI (movimiento por pines fisicos, opcional)
-//  Solo se usa si se cablean los pines 6-9; con control por COM no hace falta.
-// ═════════════════════════════════════════════════════════════
-void handleRPi() {
-  aplicarMovimiento(digitalRead(PIN_ADELANTE), digitalRead(PIN_ATRAS),
-                    digitalRead(PIN_IZQUIERDA), digitalRead(PIN_DERECHA));
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -433,11 +420,17 @@ void procesarComando(String linea) {
   cmd.toUpperCase();
 
   if (cmd == "SELECT" || cmd == "GOTO") {
+    // ACK inmediato: confirma que el comando LLEGO y el giro va a empezar. Asi
+    // se distingue "no llego" de "llego pero el Arduino se reinicio a mitad de
+    // giro" (bajon de tension). El POS,<n> final llega al terminar de girar.
+    Serial.print("OK,GOTO,"); Serial.println(arg.toInt());
     irACompartimiento(arg.toInt());
   } else if (cmd == "DISPENSE" || cmd == "DISPENSAR") {
     int n = (arg.length() > 0) ? arg.toInt() : compActual;
+    Serial.print("OK,DISPENSE,"); Serial.println(n);   // ACK inmediato (ver arriba)
     dispensar(n);
   } else if (cmd == "HOME") {
+    Serial.println("OK,HOME");                          // ACK inmediato (ver arriba)
     irAHome();
     Serial.print("POS,");
     Serial.println(compActual);
@@ -506,6 +499,28 @@ void procesarComando(String linea) {
     }
     Serial.println("MOTORTEST: fin");
 
+  } else if (cmd == "STEPTEST") {
+    // Diagnostico del PASO A PASO, aislado del resto (como MOTORTEST para los DC).
+    // Gira la ruleta 'k' compartimientos (por defecto 8 = una vuelta completa),
+    // imprimiendo cada paso. Uso: STEPTEST  o  STEPTEST,3
+    //  - Si GIRA aqui pero NO con SELECT/DISPENSE -> el stepper y su cableado
+    //    estan bien; el problema esta fuera del firmware (tipicamente un bajon
+    //    de tension al mover a la vez motores DC / servos por el mismo USB:
+    //    alimenta el ULN2003 / el shield con una fuente aparte).
+    //  - Si NO gira ni aqui -> revisar cableado ULN2003 en 8/9/10/11 y su 5V.
+    int comps = (arg.length() > 0) ? arg.toInt() : N_COMPARTIMIENTOS;
+    comps = constrain(comps, 1, 64);
+    Serial.print("STEPTEST: girando ");
+    Serial.print(comps);
+    Serial.println(" compartimiento(s) hacia adelante...");
+    for (int i = 0; i < comps; i++) {
+      ruleta.step(PASOS_POR_COMP);
+      Serial.print("  comp ");
+      Serial.println(i + 1);
+    }
+    liberarBobinas();
+    Serial.println("STEPTEST: fin");
+
   } else if (cmd == "I2CSCAN") {
     // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
     // El Motor Shield (tipo Adafruit v2 / QGPMaker) suele estar en 0x60.
@@ -560,13 +575,6 @@ void setup() {
   //  SI se usan (dispensador y camara pan/tilt) van por la libreria Servo
   //  estandar en pines 2/3/5, no por el shield, asi que no se ven afectados.
   AFMS.begin(1600);
-
-  // Pines RPi como entrada. Con control por COM no se usan; se ponen en
-  // INPUT_PULLUP para que no floten (lectura estable en HIGH si estan sueltos).
-  pinMode(PIN_ADELANTE,  INPUT_PULLUP);
-  pinMode(PIN_ATRAS,     INPUT_PULLUP);
-  pinMode(PIN_IZQUIERDA, INPUT_PULLUP);
-  pinMode(PIN_DERECHA,   INPUT_PULLUP);
 
   // Inicializar PS2X (OPCIONAL). Se intenta unas veces; si NO hay mando
   // conectado se CONTINUA igual (antes se colgaba en un bucle infinito y el
