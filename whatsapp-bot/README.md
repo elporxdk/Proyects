@@ -1,8 +1,10 @@
 # Chatbot de WhatsApp (local)
 
 Bot que conecta tu numero de WhatsApp y responde automaticamente a quien te
-escriba, usando Claude para generar las respuestas. Corre solo en tu
-computadora: no se despliega en Cloudflare ni forma parte del sitio web.
+escriba, en el personaje de Medibot (el robot del proyecto): habla en primera
+persona, con humor, pero con los datos reales del proyecto para no inventar
+nada. Usa Claude para generar las respuestas. Corre solo en tu computadora:
+no se despliega en Cloudflare ni forma parte del sitio web.
 
 Usa `whatsapp-web.js` (la misma libreria que `verificar.js` en la rama
 `main`), que controla WhatsApp Web mediante un Chromium local.
