@@ -161,6 +161,38 @@ respuesta generada por Claude. Los mensajes de grupos y los tuyos propios se
 ignoran a proposito, para que no responda en conversaciones donde no
 corresponde.
 
+## Reinstalar todo desde cero (Raspberry Pi)
+
+Si ya intentaste varias veces y no estas seguro de que version de los
+archivos tienes en tu carpeta, lo mas rapido es borrar todo y clonar de
+nuevo. Copia y pega este bloque completo en la terminal de la Pi (cambia
+`Whats` por el nombre de tu carpeta si es otro):
+
+```bash
+cp ~/Desktop/Whats/.env ~/Desktop/env-backup 2>/dev/null
+rm -rf ~/Desktop/Whats
+cd ~/Desktop
+git clone --single-branch --branch whatsapp-bot-standalone --depth 1 https://github.com/elporxdk/Proyects.git Whats
+cd Whats
+cp ~/Desktop/env-backup .env 2>/dev/null || cp .env.example .env
+sudo apt update
+sudo apt install -y chromium-browser || sudo apt install -y chromium
+CHROME_BIN=$(which chromium-browser || which chromium)
+echo "Chromium encontrado en: $CHROME_BIN"
+PUPPETEER_SKIP_DOWNLOAD=true npm install
+nano .env
+```
+
+La primera linea guarda tu `.env` si ya tenias uno con la API key puesta
+(si no existe, no pasa nada). El `nano .env` al final es el unico paso
+manual: revisa que `ANTHROPIC_API_KEY` tenga tu clave y que `CHROME_PATH`
+tenga la ruta que imprimio `echo "Chromium encontrado en: ..."` un poco mas
+arriba. Guarda con `Ctrl+O`, Enter, sal con `Ctrl+X`, y despues:
+
+```bash
+npm start
+```
+
 ## Solucion de problemas
 
 **`Error: Cannot find module 'dotenv'`** (o de cualquier otro paquete) al
