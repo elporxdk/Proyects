@@ -213,6 +213,14 @@ Chromium que funcione para tu arquitectura. Sigue los pasos 2 y 3 de
 sistema, reinstalar con `PUPPETEER_SKIP_DOWNLOAD=true`, y apuntar
 `CHROME_PATH` en el `.env` a esa ruta.
 
+**El bot responde "Tuve un problema respondiendo" y en la consola sale
+`Error respondiendo a ...@lid` con un stack de `getChatById`**: las
+direcciones nuevas de WhatsApp (las que terminan en `@lid` en vez de
+`@c.us`) rompen el `getChat()` de `whatsapp-web.js`. Solo lo usabamos para
+el indicador de "escribiendo...", asi que ahora esa parte es opcional y su
+fallo no impide responder. Si tienes una copia vieja del `index.js`,
+actualizala.
+
 **`git clone` dice que la carpeta ya existe y no esta vacia**: no se puede
 clonar directo dentro de una carpeta con archivos dentro (por ejemplo un
 intento anterior fallido). Usa un nombre de carpeta nuevo al clonar, o borra

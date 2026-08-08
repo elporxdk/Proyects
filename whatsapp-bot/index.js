@@ -129,16 +129,25 @@ client.on("message", async (msg) => {
     return;
   }
 
+  // El indicador de "escribiendo..." es puramente cosmetico, y obtenerlo
+  // exige un getChat() que falla con las direcciones nuevas de WhatsApp
+  // (las que terminan en @lid). Si no se puede, se sigue adelante sin el:
+  // mejor responder sin aviso que no responder.
   try {
     const chat = await msg.getChat();
     await chat.sendStateTyping();
+  } catch {
+    // Sin indicador de escritura, no pasa nada.
+  }
+
+  try {
     const texto = await responder(msg.from, msg.body.trim());
     await msg.reply(texto);
   } catch (error) {
     console.error(`Error respondiendo a ${msg.from}:`, error);
-    await msg.reply(
-      "Tuve un problema respondiendo justo ahora. Intenta de nuevo en un momento."
-    );
+    await msg
+      .reply("Tuve un problema respondiendo justo ahora. Intenta de nuevo en un momento.")
+      .catch(() => {});
   }
 });
 
