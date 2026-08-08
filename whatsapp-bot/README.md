@@ -12,18 +12,145 @@ Usa `whatsapp-web.js` (la misma libreria que `verificar.js` en la rama
 ## Requisitos
 
 - Node.js 18 o superior.
-- Chromium o Google Chrome instalado (o dejar que Puppeteer descargue uno la
-  primera vez que instales las dependencias).
+- Git (para clonar el repositorio).
+- Chromium o Google Chrome instalado (en Raspberry Pi hace falta instalarlo
+  tu mismo; en Windows normalmente no, ver mas abajo).
 - Una clave de la API de Anthropic: https://console.anthropic.com/settings/keys
 
-## Uso
+## Instalacion en Raspberry Pi / Linux
+
+### 1. Clonar el repositorio
+
+`git clone` no deja clonar dentro de una carpeta que ya exista y no este
+vacia, y el bot vive dentro de una subcarpeta del repositorio completo (no en
+la raiz). Por eso se clona en una carpeta temporal y se saca solo
+`whatsapp-bot/`:
 
 ```bash
-cd whatsapp-bot
-npm install
-cp .env.example .env    # y pegar tu ANTHROPIC_API_KEY
+cd ~/Desktop
+git clone --branch claude/whatsapp-chatbot-local-54wlrj https://github.com/elporxdk/Proyects.git proyects-tmp
+mv proyects-tmp/whatsapp-bot numeros
+rm -rf proyects-tmp
+cd numeros
+```
+
+(Cambia `numeros` por el nombre de carpeta que prefieras.)
+
+### 2. Instalar Chromium del sistema
+
+Puppeteer intenta descargar su propio Chromium al instalar las dependencias,
+pero en Raspberry Pi (ARM) esa descarga suele quedar incompleta o no tener un
+binario compatible, y `npm start` falla mas adelante con un error del tipo
+`The browser folder ... exists but the executable ... is missing`. La
+solucion es usar el Chromium del sistema en vez del que Puppeteer intenta
+bajar:
+
+```bash
+sudo apt update
+sudo apt install -y chromium-browser
+```
+
+Si el paquete no existe (pasa en versiones nuevas de Raspberry Pi OS, tipo
+Bookworm), usa este nombre en su lugar:
+
+```bash
+sudo apt install -y chromium
+```
+
+Anota la ruta donde quedo instalado:
+
+```bash
+which chromium-browser || which chromium
+```
+
+### 3. Instalar las dependencias del bot sin que Puppeteer descargue su Chromium
+
+```bash
+PUPPETEER_SKIP_DOWNLOAD=true npm install
+```
+
+Si ya habias corrido `npm install` antes y fallo, limpia primero los restos
+de la descarga rota:
+
+```bash
+rm -rf ~/.cache/puppeteer node_modules
+PUPPETEER_SKIP_DOWNLOAD=true npm install
+```
+
+### 4. Configurar el `.env`
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Rellena:
+
+- `ANTHROPIC_API_KEY`: tu clave de https://console.anthropic.com/settings/keys
+- `CHROME_PATH`: la ruta que anotaste en el paso 2, por ejemplo
+  `/usr/bin/chromium-browser`
+
+Guarda con `Ctrl+O`, Enter, y sal con `Ctrl+X`.
+
+### 5. Arrancar
+
+```bash
 npm start
 ```
+
+## Instalacion en Windows
+
+### 1. Instalar Node.js y Git
+
+Descarga e instala Node.js LTS desde https://nodejs.org y Git desde
+https://git-scm.com/download/win (siguiente, siguiente, siguiente en ambos).
+Verifica en PowerShell:
+
+```powershell
+node -v
+git --version
+```
+
+### 2. Clonar el repositorio
+
+Igual que en Linux, el bot vive en una subcarpeta del repositorio completo:
+
+```powershell
+cd C:\Users\TU_USUARIO\Desktop
+git clone --branch claude/whatsapp-chatbot-local-54wlrj https://github.com/elporxdk/Proyects.git proyects-tmp
+move proyects-tmp\whatsapp-bot numeros
+rmdir /s /q proyects-tmp
+cd numeros
+```
+
+### 3. Instalar las dependencias
+
+```powershell
+npm install
+```
+
+En Windows Puppeteer si suele bajar su propio Chromium sin problema (a
+diferencia de Raspberry Pi), asi que normalmente no hace falta instalar
+Chrome aparte ni tocar `CHROME_PATH`. Puede tardar un rato porque descarga
+varios cientos de MB.
+
+### 4. Configurar el `.env`
+
+```powershell
+copy .env.example .env
+notepad .env
+```
+
+Pega tu `ANTHROPIC_API_KEY` en la linea correspondiente (queda
+`ANTHROPIC_API_KEY=sk-ant-...`). Deja `CHROME_PATH` vacio. Guarda y cierra.
+
+### 5. Arrancar
+
+```powershell
+npm start
+```
+
+## Uso
 
 La primera vez aparece un codigo QR en la terminal. Escanealo desde tu
 telefono: WhatsApp > Ajustes > Dispositivos vinculados > Vincular un
@@ -35,6 +162,33 @@ respuesta generada por Claude. Los mensajes de grupos y los tuyos propios se
 ignoran a proposito, para que no responda en conversaciones donde no
 corresponde.
 
+## Solucion de problemas
+
+**`Error: Cannot find module 'dotenv'`** (o de cualquier otro paquete) al
+correr `npm start`: falta correr `npm install` primero en esa carpeta. Este
+error tambien sale si copiaste solo `index.js` a mano en vez de traerte toda
+la carpeta `whatsapp-bot/` completa (con `package.json` incluido).
+
+**`npm error Missing script: "start"`**: la carpeta donde estas parado no
+tiene el `package.json` real del bot, solo paquetes instalados sueltos.
+Revisa que exista `index.js` en esa misma carpeta (`ls` en Linux, `dir` en
+Windows); si no esta, te falta clonar el proyecto ahi (ver instalacion mas
+arriba) en vez de instalar las librerias a mano una por una.
+
+**`The browser folder ... exists but the executable ... is missing`** al
+correr `npm start` (tipico en Raspberry Pi): Puppeteer no pudo descargar un
+Chromium que funcione para tu arquitectura. Sigue los pasos 2 y 3 de
+"Instalacion en Raspberry Pi / Linux" de mas arriba: instalar Chromium del
+sistema, reinstalar con `PUPPETEER_SKIP_DOWNLOAD=true`, y apuntar
+`CHROME_PATH` en el `.env` a esa ruta.
+
+**`git clone` dice que la carpeta ya existe y no esta vacia**: no se puede
+clonar directo dentro de una carpeta con archivos dentro. Clona en una
+carpeta temporal nueva y mueve `whatsapp-bot/` a donde la quieras (ver paso 1
+de la instalacion), o borra el contenido de la carpeta destino primero si
+estas seguro de que no tiene nada que quieras conservar (ojo con tu `.env`,
+haz una copia antes si ya habias puesto tu API key).
+
 ## Configuracion
 
 Todo se ajusta por variables de entorno en `.env` (ver `.env.example`):
@@ -43,7 +197,7 @@ Todo se ajusta por variables de entorno en `.env` (ver `.env.example`):
 |---|---|
 | `ANTHROPIC_API_KEY` | Obligatoria. Sin ella el bot no arranca. |
 | `CLAUDE_MODEL` | Modelo de Claude a usar. Por defecto uno rapido y barato. |
-| `CHROME_PATH` | Ruta a tu Chromium/Chrome, si no quieres que Puppeteer descargue uno propio. |
+| `CHROME_PATH` | Ruta a tu Chromium/Chrome. Necesaria en Raspberry Pi; en Windows se puede dejar vacia. |
 
 El texto que define como se comporta el bot esta en `SYSTEM_PROMPT`, dentro
 de `index.js`. Editalo ahi para cambiar el tono o la informacion que da.
