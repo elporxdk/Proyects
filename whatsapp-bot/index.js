@@ -129,8 +129,8 @@ client.on("message", async (msg) => {
     return;
   }
 
-  const chat = await msg.getChat();
   try {
+    const chat = await msg.getChat();
     await chat.sendStateTyping();
     const texto = await responder(msg.from, msg.body.trim());
     await msg.reply(texto);
@@ -140,6 +140,13 @@ client.on("message", async (msg) => {
       "Tuve un problema respondiendo justo ahora. Intenta de nuevo en un momento."
     );
   }
+});
+
+// whatsapp-web.js a veces lanza errores async fuera de nuestros manejadores
+// (por ejemplo, evaluaciones internas de Puppeteer justo tras conectar). Sin
+// esto, uno de esos errores tumba el proceso entero en vez de solo avisar.
+process.on("unhandledRejection", (error) => {
+  console.error("Promesa rechazada sin atrapar:", error);
 });
 
 client.initialize();
