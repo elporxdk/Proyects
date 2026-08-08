@@ -9,6 +9,12 @@ no se despliega en Cloudflare ni forma parte del sitio web.
 Usa `whatsapp-web.js` (la misma libreria que `verificar.js` en la rama
 `main`), que controla WhatsApp Web mediante un Chromium local.
 
+> **Para clonar solo esto:** el repositorio completo pesa varias decenas de
+> MB por el modelo 3D y las fotos del sitio web, que no hacen falta para
+> correr el bot. La rama `whatsapp-bot-standalone` tiene *unicamente* estos
+> archivos, en la raiz, sin esa historia pesada — clonarla pesa menos de
+> 1 MB. Las instrucciones de abajo ya usan esa rama.
+
 ## Requisitos
 
 - Node.js 18 o superior.
@@ -21,20 +27,17 @@ Usa `whatsapp-web.js` (la misma libreria que `verificar.js` en la rama
 
 ### 1. Clonar el repositorio
 
-`git clone` no deja clonar dentro de una carpeta que ya exista y no este
-vacia, y el bot vive dentro de una subcarpeta del repositorio completo (no en
-la raiz). Por eso se clona en una carpeta temporal y se saca solo
-`whatsapp-bot/`:
-
 ```bash
 cd ~/Desktop
-git clone --branch claude/whatsapp-chatbot-local-54wlrj https://github.com/elporxdk/Proyects.git proyects-tmp
-mv proyects-tmp/whatsapp-bot numeros
-rm -rf proyects-tmp
+git clone --single-branch --branch whatsapp-bot-standalone --depth 1 https://github.com/elporxdk/Proyects.git numeros
 cd numeros
 ```
 
-(Cambia `numeros` por el nombre de carpeta que prefieras.)
+`--single-branch --depth 1` es lo que hace que la descarga sea de menos de
+1 MB en vez de decenas: solo trae la rama `whatsapp-bot-standalone` y su
+ultimo commit, sin el resto del repositorio. (Cambia `numeros` por el nombre
+de carpeta que prefieras — como es una carpeta nueva, no hay problema de que
+ya exista.)
 
 ### 2. Instalar Chromium del sistema
 
@@ -113,13 +116,9 @@ git --version
 
 ### 2. Clonar el repositorio
 
-Igual que en Linux, el bot vive en una subcarpeta del repositorio completo:
-
 ```powershell
 cd C:\Users\TU_USUARIO\Desktop
-git clone --branch claude/whatsapp-chatbot-local-54wlrj https://github.com/elporxdk/Proyects.git proyects-tmp
-move proyects-tmp\whatsapp-bot numeros
-rmdir /s /q proyects-tmp
+git clone --single-branch --branch whatsapp-bot-standalone --depth 1 https://github.com/elporxdk/Proyects.git numeros
 cd numeros
 ```
 
@@ -183,11 +182,11 @@ sistema, reinstalar con `PUPPETEER_SKIP_DOWNLOAD=true`, y apuntar
 `CHROME_PATH` en el `.env` a esa ruta.
 
 **`git clone` dice que la carpeta ya existe y no esta vacia**: no se puede
-clonar directo dentro de una carpeta con archivos dentro. Clona en una
-carpeta temporal nueva y mueve `whatsapp-bot/` a donde la quieras (ver paso 1
-de la instalacion), o borra el contenido de la carpeta destino primero si
-estas seguro de que no tiene nada que quieras conservar (ojo con tu `.env`,
-haz una copia antes si ya habias puesto tu API key).
+clonar directo dentro de una carpeta con archivos dentro (por ejemplo un
+intento anterior fallido). Usa un nombre de carpeta nuevo al clonar, o borra
+el contenido de la carpeta destino primero si estas seguro de que no tiene
+nada que quieras conservar (ojo con tu `.env`, haz una copia antes si ya
+habias puesto tu API key).
 
 ## Configuracion
 
