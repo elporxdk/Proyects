@@ -15,13 +15,69 @@ Usa `whatsapp-web.js` (la misma libreria que `verificar.js` en la rama
 > archivos, en la raiz, sin esa historia pesada — clonarla pesa menos de
 > 1 MB. Las instrucciones de abajo ya usan esa rama.
 
+## Instalacion en un comando (Raspberry Pi / Linux)
+
+Pega esto en la terminal. Descarga el codigo, instala Chromium y las
+dependencias, y te pide la clave de la API:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/elporxdk/Proyects/whatsapp-bot-standalone/setup.sh)"
+```
+
+Al terminar te dice la ruta donde quedo instalado (por defecto
+`~/medibot-bot`). Arrancalo con:
+
+```bash
+cd ~/medibot-bot && npm start
+```
+
+Sale un codigo QR: escanealo desde tu telefono en **WhatsApp > Ajustes >
+Dispositivos vinculados > Vincular un dispositivo**. Ya esta funcionando.
+
+El script se puede volver a correr las veces que haga falta — no borra tu
+`.env` ni la sesion de WhatsApp ya vinculada, asi que tambien sirve para
+actualizar el bot a la ultima version.
+
+> Para instalarlo en otra carpeta: `MEDIBOT_DIR=~/otra/ruta bash -c "$(curl ...)"`
+
+### Que arranque solo al encender la Pi
+
+Mientras el script no este corriendo, el bot no responde. Para que se levante
+solo al encender la Raspberry Pi (y se reinicie si se cae), **una vez que ya
+hayas vinculado el telefono**:
+
+```bash
+cd ~/medibot-bot && ./servicio.sh instalar
+```
+
+| Comando | Que hace |
+|---|---|
+| `./servicio.sh instalar` | Lo registra en systemd y lo arranca |
+| `./servicio.sh estado` | Ver si esta corriendo |
+| `./servicio.sh logs` | Ver la salida en vivo (`Ctrl+C` para salir) |
+| `./servicio.sh reiniciar` | Aplicar cambios en `index.js` o `.env` |
+| `./servicio.sh quitar` | Desinstalar el servicio (no borra el proyecto) |
+
+Vincula el telefono **antes** de instalar el servicio: corriendo en segundo
+plano no hay terminal donde mostrar el codigo QR. El script lo comprueba y te
+avisa si te adelantas.
+
 ## Requisitos
 
-- Node.js 18 o superior.
-- Git (para clonar el repositorio).
-- Chromium o Google Chrome instalado (en Raspberry Pi hace falta instalarlo
-  tu mismo; en Windows normalmente no, ver mas abajo).
-- Una clave de la API de Anthropic: https://console.anthropic.com/settings/keys
+El instalador de arriba resuelve casi todo solo. Lo unico que necesitas tener
+de antemano:
+
+- **Node.js 18 o superior** — el script no lo instala, porque la forma correcta
+  cambia segun el sistema. Comprueba con `node -v`; si falta, bajalo de
+  https://nodejs.org
+- **Una clave de la API de Anthropic** — https://console.anthropic.com/settings/keys
+
+Git y Chromium los instala el propio script si no los tienes (en Linux, via
+`apt`). En Windows y Mac, Puppeteer descarga su propio Chromium.
+
+## Instalacion manual (paso a paso)
+
+Si prefieres ver cada paso en vez de usar el instalador, sigue leyendo.
 
 ## Instalacion en Raspberry Pi / Linux
 
@@ -161,39 +217,33 @@ respuesta generada por Claude. Los mensajes de grupos y los tuyos propios se
 ignoran a proposito, para que no responda en conversaciones donde no
 corresponde.
 
-## Reinstalar todo desde cero (Raspberry Pi)
+## Empezar de cero
 
-Si ya intentaste varias veces y no estas seguro de que version de los
-archivos tienes en tu carpeta, lo mas rapido es borrar todo y clonar de
-nuevo. Copia y pega este bloque completo en la terminal de la Pi (cambia
-`Whats` por el nombre de tu carpeta si es otro):
+Si has probado varias veces y ya no sabes que version de los archivos tienes
+en tu carpeta, no hace falta depurarlo: borra esa carpeta y vuelve a correr el
+instalador de arriba, que deja todo consistente.
 
 ```bash
-cp ~/Desktop/Whats/.env ~/Desktop/env-backup 2>/dev/null
+cp ~/Desktop/Whats/.env ~/env-backup 2>/dev/null   # guarda tu clave, si la tenias
 rm -rf ~/Desktop/Whats
-cd ~/Desktop
-git clone --single-branch --branch whatsapp-bot-standalone --depth 1 https://github.com/elporxdk/Proyects.git Whats
-cd Whats
-cp ~/Desktop/env-backup .env 2>/dev/null || cp .env.example .env
-sudo apt update
-sudo apt install -y chromium-browser || sudo apt install -y chromium
-CHROME_BIN=$(which chromium-browser || which chromium)
-echo "Chromium encontrado en: $CHROME_BIN"
-PUPPETEER_SKIP_DOWNLOAD=true npm install
-nano .env
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/elporxdk/Proyects/whatsapp-bot-standalone/setup.sh)"
 ```
 
-La primera linea guarda tu `.env` si ya tenias uno con la API key puesta
-(si no existe, no pasa nada). El `nano .env` al final es el unico paso
-manual: revisa que `ANTHROPIC_API_KEY` tenga tu clave y que `CHROME_PATH`
-tenga la ruta que imprimio `echo "Chromium encontrado en: ..."` un poco mas
-arriba. Guarda con `Ctrl+O`, Enter, sal con `Ctrl+X`, y despues:
+Si guardaste el `.env` viejo, puedes recuperar la clave con
+`grep ANTHROPIC_API_KEY ~/env-backup` en vez de sacarla otra vez de la consola
+de Anthropic.
 
-```bash
-npm start
-```
+> Borrar la carpeta tambien borra `.wwebjs_auth/`, asi que tendras que volver
+> a escanear el QR una vez. La vinculacion anterior queda huerfana en tu
+> telefono: borrala desde **WhatsApp > Dispositivos vinculados**.
 
 ## Solucion de problemas
+
+**El bot deja de responder cuando cierro la terminal**: es lo esperado — el
+bot solo existe mientras el proceso de Node este vivo. La sesion de WhatsApp
+si sobrevive (esta en `.wwebjs_auth/`), pero el historial de las
+conversaciones no, porque vive en memoria. Para que siga corriendo sin la
+terminal abierta, instala el servicio (`./servicio.sh instalar`, mas arriba).
 
 **`Error: Cannot find module 'dotenv'`** (o de cualquier otro paquete) al
 correr `npm start`: falta correr `npm install` primero en esa carpeta. Este
