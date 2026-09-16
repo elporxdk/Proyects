@@ -15,65 +15,51 @@ El MAX30100 **no** funciona con la librería MAX3010x (es otro chip, PART ID
 `0x11`); el firmware lo detecta y lo avisa por Serial y en la pantalla de
 arranque.
 
-## 1. Rangos de cada botón del ADKeyboard
+## 1. Los botones: se calibran solos
 
-### Aviso de hardware (leer antes de calibrar)
+**No hay que adivinar ningún umbral ni copiar números al código.** El asistente
+mide tus botones reales, calcula los rangos y los guarda en la memoria del
+ESP32 (sobreviven al apagado y a recompilar).
 
-Las tensiones medidas (`0.01 / 0.70 / 1.50 / 2.50 / 3.70 V`) corresponden a la
-escalera resistiva alimentada a **5 V**. El ESP32 admite como máximo **3.3 V**
-en un GPIO y su ADC satura hacia **~3.15 V**, por lo que:
+Se abre de cuatro formas, y siempre hay una disponible:
 
-* el botón de **3.70 V** no se puede distinguir del reposo (5 V): ambos leen 4095;
-* además se está metiendo sobretensión en GPIO34.
+1. **Automáticamente** en el primer arranque tras grabar (no hay nada guardado).
+2. **Manteniendo cualquier botón mientras enciendes.** Esta es la vía de escape:
+   funciona aunque la calibración guardada haya quedado mal y no puedas navegar.
+3. Menú → **Calibrar teclado**.
+4. Enviando `c` por el Monitor Serie a 115200.
 
-Dos soluciones:
+El proceso: no toques nada 1,5 s (mide el reposo) → pulsa y mantén cada botón
+cuando te lo pida. Si un botón no se puede usar, a los 12 s lo omite y sigue.
+En pantalla siempre se ve la lectura en vivo (`ADC / mV / reposo`), así que si
+algo va mal se ve al instante.
 
-* **(A) Recomendada** — alimentar el módulo con **3V3**. La escalera es
-  ratiométrica, así que todas las tensiones se multiplican por `3.3/5 = 0.66`
-  (`0.00 / 0.46 / 0.99 / 1.65 / 2.44 V`). Poner `#define KEYPAD_SUPPLY_5V 0`
-  para usar la tabla ya preparada.
-* **(B)** Divisor resistivo 1:2 a la entrada y `KEYPAD_DIVIDER_RATIO 0.5`.
-  El divisor carga la escalera y desplaza los valores: hay que recalibrar.
+Al terminar guarda y muestra cuántos botones quedaron activos. Si ninguno
+sirve, restaura la tabla de fábrica en vez de dejarte sin teclado.
 
-Mientras se alimente a 5 V, `BTN_MENU` no es utilizable; por eso ninguna
-función imprescindible depende de él (es sólo un atajo al menú).
+### Por qué antes no funcionaban
 
-### Modo calibración
+Con umbrales fijos basta con que el **reposo** de tu módulo no esté donde el
+código supone para que todo deje de responder: si el reposo cae dentro del
+rango de un botón, el firmware cree que está pulsado permanentemente y no
+genera ni un evento. Y si alimentas el módulo a 3V3 con la tabla de 5 V, las
+teclas salen cambiadas (el botón de ARRIBA se lee como OK, etc.). Ahora el
+reposo se mide al arrancar y se declara zona prohibida (`KEY_IDLE_GUARD_MV`),
+y los rangos salen de una medida real, no de una suposición.
 
-1. Abrir el Monitor Serie a **115200**.
-2. Enviar `c` (o compilar con `#define KEYPAD_CALIB_AT_BOOT 1`).
-3. Pantalla y Serial muestran en vivo: cuentas ADC, voltios en el pin y
-   voltios en el teclado.
-4. Pulsar cada botón **manteniéndolo 1–2 s**. Al soltar, el firmware imprime
-   el rango real que ha ocupado la pulsación y un `vMin`/`vMax` sugerido:
+### Aviso de hardware: el botón de 3,7 V
 
-```
-[CALIB] Pulsacion OK    -> ADC 1842..1871 | pin 1.487..1.512 V | teclado 1.487..1.512 V
-        sugerido -> vMin 1.37  vMax 1.63 (centro +-0.12 V)
-```
+Alimentado a **5 V**, el botón de 3,70 V y el reposo (5 V) leen los dos 4095
+en el ESP32 (el ADC satura hacia 3,15 V) y **son indistinguibles**; además
+metes sobretensión en GPIO34. El asistente lo detecta y lo deja
+`DESACTIVADO` en vez de provocar pulsaciones erráticas.
 
-5. Copiar esos valores a la tabla `KEYPAD_MAP`:
+Para recuperar ese quinto botón, alimenta el módulo con **3V3**: la escalera
+es ratiométrica y todas las tensiones se multiplican por 0,66
+(`0,00 / 0,46 / 0,99 / 1,65 / 2,44 V`). Luego repite la calibración. No hace
+falta tocar el código: el asistente mide lo que haya.
 
-```cpp
-const KeyDef KEYPAD_MAP[] = {
-  { BTN_DOWN, "DOWN", -0.05f, 0.30f },   // ~0.01 V
-  { BTN_BACK, "BACK",  0.45f, 0.95f },   // ~0.70 V
-  { BTN_OK,   "OK",    1.25f, 1.75f },   // ~1.50 V
-  { BTN_UP,   "UP",    2.25f, 2.75f },   // ~2.50 V
-  { BTN_MENU, "MENU",  3.40f, 3.95f },   // ~3.70 V
-};
-```
-
-6. Enviar `c` de nuevo para salir.
-
-Reglas al definir los rangos:
-
-* Dejar **hueco (zona muerta) entre rangos**. Con la tabla por defecto los
-  huecos son de 0.15 a 0.65 V y cada botón tiene ±0.25 V de margen.
-* Nunca solapar dos rangos: al arrancar, el firmware valida la tabla e imprime
-  `!! SOLAPE entre X e Y` si los hay (y en marcha, una tensión ambigua se
-  descarta como “sin pulsación”, así que nunca se detectan dos botones a la vez).
-* El reposo (VCC) debe quedar **fuera** de todos los rangos.
+Ninguna función imprescindible depende de ese botón: es sólo un atajo al menú.
 
 ### Otros parámetros del teclado
 
@@ -82,8 +68,9 @@ Reglas al definir los rangos:
 | `KEY_SAMPLES` | muestras por lectura (mediana) | subir si hay mucho ruido |
 | `KEY_EMA_ALPHA` | filtro exponencial (1.0 = sin filtro) | bajar si sigue temblando |
 | `KEY_DEBOUNCE_MS` / `KEY_RELEASE_MS` | antirrebote | subir si se cuelan dobles pulsaciones |
-| `KEY_HYSTERESIS_V` | ensancha el rango del botón ya pulsado | subir si una pulsación larga “se corta” |
-| `KEY_REPEAT_*` | autorepetición en UP/DOWN | gusto personal |
+| `KEY_HYSTERESIS_MV` | ensancha el rango del botón ya pulsado | subir si una pulsación larga "se corta" |
+| `KEY_IDLE_GUARD_MV` | franja prohibida alrededor del reposo | subir si el reposo es ruidoso |
+| `KEY_REPEAT_*` | autorepetición en ARRIBA/ABAJO | gusto personal |
 
 ## 2. Referencia y resolución del ADC
 
@@ -93,10 +80,13 @@ Reglas al definir los rangos:
 | `ADC_ATTENUATION` | `ADC_11db` | ~0..3.1 V. `ADC_6db` ≈ 0..2.2 V, `ADC_2_5db` ≈ 0..1.5 V, `ADC_0db` ≈ 0..1.1 V |
 | `USE_ESP_ADC_CAL` | 1 | usa `analogReadMilliVolts()`, que aplica la calibración de fábrica del eFuse: es lo más exacto y hace innecesario tocar `ADC_FULLSCALE_MV` |
 | `ADC_FULLSCALE_MV` | 3300 | sólo se usa con `USE_ESP_ADC_CAL 0` (o al portar a otra placa) |
-| `KEYPAD_DIVIDER_RATIO` | 1.0 | `Vpin / Vteclado`. 0.5 con divisor 1:2 |
+
+El teclado trabaja siempre con la tensión **medida en el pin**, así que si hay
+un divisor resistivo a la entrada no hay nada que configurar: el asistente mide
+los botones tal y como llegan al ESP32.
 
 Para otra placa (AVR de 5 V, RP2040, STM32): `USE_ESP_ADC_CAL 0`,
-`ADC_BITS 10` y `ADC_FULLSCALE_MV 5000` (AVR), y recalibrar la tabla.
+`ADC_BITS 10` y `ADC_FULLSCALE_MV 5000` (AVR), y repetir la calibración.
 
 ## 3. Corrección de temperatura
 
@@ -142,6 +132,38 @@ DS18B20 está dejado como plantilla comentada con las líneas exactas.
 | `PPG_TARGET_READINGS` | 8 | cada lectura válida es 1 s ⇒ ~8–12 s de medida |
 | `SPO2_OFFSET` | 0 | **en el código original había un `-3` fijo**. Es una corrección arbitraria: sólo debe usarse si se ha comparado contra un pulsioxímetro certificado |
 | `HR_MIN_BPM` / `HR_MAX_BPM` | 40 / 180 | rango de pulso aceptado |
+
+### 4.1 El pulso NO se mide con `checkForBeat()`
+
+`heartRate.h` (de la misma librería SparkFun) trae `checkForBeat()`, que es lo
+que usaban las versiones anteriores y casi todos los ejemplos. **No se usa
+aquí, y es a propósito:**
+
+```cpp
+int16_t averageDCEstimator(int32_t *p, uint16_t x);   // <-- uint16_t
+int16_t lowPassFIRFilter(int16_t din);                // <-- int16_t
+```
+
+La muestra IR se trunca a 16 bits. Con el dedo puesto, el MAX30102 entrega
+entre 60.000 y 250.000 cuentas: muy por encima de 65.535. La línea de base da
+la vuelta y el detector dispara latidos falsos; además cuenta la **onda
+dicrota** (el rebote que sigue a cada sístole, un 30–50 % del pico) como si
+fuera otro latido. Midiendo una PPG sintética de 72 BPM, ese camino devolvía
+**150 BPM** — el síntoma clásico de "el pulso sale casi al doble".
+
+El detector propio (bloque `4.2b` del sketch) trabaja en coma flotante sobre la
+muestra completa: línea de base exponencial, señal AC invertida y filtrada,
+**umbral adaptativo** sobre la envolvente, histéresis, periodo refractario y
+**mediana** de los últimos intervalos.
+
+| Constante | Por defecto | Cuándo tocarla |
+|---|---|---|
+| `BEAT_TH_HIGH` | 0.55 | fracción del pico reciente para aceptar un latido. Bajar si **pierde** latidos; subir si cuenta de más (onda dicrota muy marcada) |
+| `BEAT_TH_LOW` | 0.25 | por debajo de esto se rearma el disparo |
+| `BEAT_LP_ALPHA` | 0.25 | filtro paso bajo (~4 Hz). Bajar si hay mucho ruido |
+| `BEAT_DC_ALPHA` | 0.01 | seguimiento de la línea de base (~1 s) |
+| `BEAT_MIN_AMPLITUDE` | 25 cuentas | por debajo se considera ruido y no dispara |
+| `BEAT_RING` | 8 | intervalos que entran en la mediana |
 
 ## 5. Pantalla
 

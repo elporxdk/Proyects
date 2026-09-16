@@ -1,0 +1,83 @@
+// Banco de pruebas del firmware del PANEL: calibra el teclado, entra en
+// Auto-Chequeo y comprueba que el pulso medido coincide con el simulado.
+#include <Arduino.h>
+#include <U8g2lib.h>
+#include <MAX30105.h>
+#include <string>
+#include <vector>
+
+void setup();
+void loop();
+static std::atomic<bool> corriendo{true};
+static void hiloUI() { while (corriendo.load()) loop(); }
+static void esperar(uint32_t ms) { delay(ms); }
+static int fallos = 0;
+static void comprobar(bool c, const char *q) { printf("   %s %s\n", c ? "OK  " : "FALLO", q); if (!c) fallos++; }
+static void pulsar(int mv, const char *n) { printf("   [tecla] %s\n", n); g_adcMv = mv; esperar(180); g_adcMv = 3200; esperar(180); }
+#define OK()   pulsar(1500, "OK")
+#define DOWN() pulsar(10, "ABAJO")
+static std::string pantalla() { std::string l; for (auto &s : pantallaUltimoFrame()) { l += "\""; l += s; l += "\" "; } return l; }
+static void volcar(const char *e) { printf("   [pantalla %s] %s\n", e, pantalla().c_str()); }
+static bool esperarTexto(const char *f, uint32_t t) {
+  const uint32_t t0 = millis();
+  while (millis() - t0 < t) { if (pantallaContiene(f)) return true; esperar(50); }
+  printf("      (no aparecio <%s>; pantalla: %s)\n", f, pantalla().c_str());
+  return false;
+}
+static int numeroTras(const char *p) {
+  for (auto &s : pantallaUltimoFrame()) { const size_t i = s.find(p); if (i != std::string::npos) return atoi(s.c_str() + i + strlen(p)); }
+  return -1;
+}
+static int mvDeBoton(const std::string &n) {
+  if (n == "ARRIBA") return 2500;
+  if (n == "ABAJO")  return 10;
+  if (n == "OK")     return 1500;
+  if (n == "ATRAS")  return 700;
+  if (n == "MENU")   return 3700;
+  return -1;
+}
+static void atenderAsistente() {
+  if (!esperarTexto("CALIBRAR TECLADO", 4000)) return;
+  const uint32_t t0 = millis();
+  while (millis() - t0 < 90000) {
+    if (pantallaContiene("botones OK")) break;
+    if (pantallaContiene("Pulsa y manten")) {
+      int mv = -1;
+      for (auto &s : pantallaUltimoFrame()) if (mvDeBoton(s) > 0) mv = mvDeBoton(s);
+      if (mv > 0) g_adcMv = mv;
+    } else g_adcMv = 3200;
+    esperar(100);
+  }
+  g_adcMv = 3200;
+  volcar("calibracion");
+}
+
+int main(int argc, char **argv) {
+  const int bpmReal = argc > 1 ? atoi(argv[1]) : 72;
+  sensorSim.bpm = bpmReal;
+  sensorSim.dedo = false;
+  printf("== PANEL: auto-chequeo con pulso simulado de %d BPM ==\n", bpmReal);
+  setup();
+  std::thread(hiloUI).detach();
+
+  atenderAsistente();
+  esperar(3000);
+  if (!pantallaContiene("Auto-Chequeo")) OK();          // cara de reposo -> menu
+  comprobar(esperarTexto("Auto-Chequeo", 12000), "el menu queda operativo");
+  OK();
+  comprobar(esperarTexto("Coloque el dedo", 6000), "pide el dedo");
+  esperar(1500);
+  printf("   [usuario] pone el dedo\n");
+  sensorSim.dedo = true;
+  comprobar(esperarTexto("BPM", 12000), "muestra el pulso en vivo");
+  comprobar(esperarTexto("TUS RESULTADOS", 45000), "llega a los resultados");
+  volcar("resultados");
+  const int visto = numeroTras("Latidos: ");
+  comprobar(abs(visto - bpmReal) <= 2, "el pulso medido coincide con el real");
+  printf("   muestras: generadas=%ld entregadas=%ld perdidas=%ld\n",
+         sensorSim.generadas.load(), sensorSim.entregadas.load(), sensorSim.perdidas.load());
+  corriendo = false;
+  esperar(200);
+  printf("== panel: %s ==\n", fallos == 0 ? "OK" : "CON FALLOS");
+  return fallos == 0 ? 0 : 1;
+}

@@ -124,9 +124,26 @@ Para que mDNS sea instantáneo, opcionalmente en la Pi:
 | `MIN_PERFUSION` | Exigencia de calidad de señal (AC/DC) |
 | `PPG_TARGET` | Lecturas válidas; cada una es 1 s → 8 ≈ 11 s de medida |
 | `SPO2_OFFSET` | **0 por defecto.** Sólo si has comparado contra un pulsioxímetro certificado |
+| `BEAT_TH_HIGH` | Detector de latidos: bajar si **pierde** latidos, subir si cuenta de más |
 
 Si cambias `MAX_SAMPLE_RATE` o `MAX_SAMPLE_AVERAGE`, mantén
 `PPG_SPS / SPO2_DECIM = 25 Hz`, que es la `FS` que asume `spo2_algorithm.h`.
+
+### El pulso NO se mide con `checkForBeat()`
+
+`heartRate.h` (de la misma librería SparkFun) trae `checkForBeat()`, que es lo
+que usan casi todos los ejemplos. **Aquí no se usa, y es a propósito:** esa
+función pasa la muestra por `averageDCEstimator(int32_t*, uint16_t)` y
+`lowPassFIRFilter(int16_t)`, o sea que la **trunca a 16 bits**. Con el dedo
+puesto el MAX30102 entrega entre 60.000 y 250.000 cuentas, muy por encima de
+65.535: la línea de base da la vuelta y salen latidos falsos. Además cuenta la
+onda dicrota (el rebote que sigue a cada sístole) como un latido más. Midiendo
+una PPG sintética de 72 BPM devolvía **150 BPM**.
+
+El detector propio (bloque `7.1` del sketch) filtra en coma flotante sobre la
+muestra completa, usa un umbral **adaptativo** sobre la envolvente de la señal
+con histéresis y periodo refractario, y da el pulso como **mediana** de los
+últimos intervalos.
 
 ## Red y ADC
 

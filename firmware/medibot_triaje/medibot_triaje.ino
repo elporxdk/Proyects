@@ -15,9 +15,12 @@
 #include <math.h>
 #include <stdlib.h>
 #include "MAX30105.h"          // Libreria SparkFun MAX3010x (MAX30102 / MAX30105)
-#include "heartRate.h"
 #include "spo2_algorithm.h"
+//  NO se usa "heartRate.h" (checkForBeat): ver el bloque 4.2b. Esa funcion
+//  trunca la muestra IR a 16 bits y con el dedo puesto el sensor entrega
+//  muchas mas cuentas, por lo que devuelve un pulso erroneo.
 #include <Adafruit_MLX90614.h>
+#include <Preferences.h>       // memoria no volatil: calibracion del teclado
 
 // =====================================================================
 // 1. CONFIGURACION
@@ -45,83 +48,86 @@
 //  * USE_ESP_ADC_CAL = 0 : conversion lineal cruda con ADC_FULLSCALE_MV.
 //                          Si migras a otra placa (RP2040, AVR 5 V, STM32...),
 //                          pon 0 y ajusta ADC_BITS + ADC_FULLSCALE_MV.
-//  * KEYPAD_DIVIDER_RATIO: Vpin / Vteclado. 1.0 = conexion directa.
-//                          Con un divisor 1:2 (dos resistencias iguales) -> 0.5.
+//  Todo el teclado trabaja con la tension MEDIDA EN EL PIN, asi que si hay un
+//  divisor resistivo a la entrada no hay nada que configurar: el asistente de
+//  calibracion (bloque 1.3) mide los botones tal y como llegan al ESP32.
 #define ADC_BITS               12
 #define ADC_MAX_COUNTS         ((1 << ADC_BITS) - 1)
 #define ADC_ATTENUATION        ADC_11db
 #define ADC_FULLSCALE_MV       3300.0f
 #define USE_ESP_ADC_CAL        1
-#define KEYPAD_DIVIDER_RATIO   1.0f
 
 // ---------------------------------------------------------------------
 // 1.3 TECLADO ANALOGICO (ADKeyboard: escalera resistiva en 1 sola entrada)
 // ---------------------------------------------------------------------
-//  Tensiones medidas en la salida del modulo (documento adjunto):
-//      0.01 V | 0.70 V | 1.50 V | 2.50 V | 3.70 V      y ~VCC en reposo.
-//  Ese patron corresponde a la escalera clasica alimentada a 5 V.
+//  ESTOS VALORES SON SOLO EL PUNTO DE PARTIDA. El asistente de calibracion
+//  MIDE los botones reales y guarda los rangos en la memoria del ESP32; lo
+//  guardado manda sobre esta tabla y sobrevive al apagado y a recompilar.
+//  El asistente se abre de cuatro formas:
+//     1. solo, en el primer arranque tras grabar (no hay nada guardado);
+//     2. manteniendo cualquier boton mientras se enciende  <-- via de escape
+//        si la calibracion guardada quedo mal y no se puede navegar el menu;
+//     3. desde el menu -> "Calibrar teclado";
+//     4. enviando 'c' por el Monitor Serie a 115200.
+//
+//  Por que hacia falta: con umbrales fijos basta con que el REPOSO de tu
+//  modulo no caiga donde el codigo supone para que no responda ni un boton
+//  (si el reposo cae dentro del rango de una tecla, el firmware la cree
+//  pulsada para siempre y no genera ni un evento). Ahora el reposo se mide al
+//  arrancar y se declara zona prohibida (KEY_IDLE_GUARD_MV).
 //
 //  *** AVISO DE HARDWARE ***
-//  El ESP32 NO admite 3.7 V en un GPIO (maximo 3.3 V) y ademas el ADC satura
-//  a ~3.15 V, con lo que el boton de 3.70 V y el reposo (5 V) darian el mismo
-//  4095 y son indistinguibles. Dos opciones:
-//    (A) RECOMENDADA: alimentar el ADKeyboard con 3V3 en vez de 5 V. La
-//        escalera es ratiometrica, asi que todas las tensiones se multiplican
-//        por 3.3/5 = 0.66 -> usa la tabla KEYPAD_SUPPLY_5V = 0.
-//    (B) Divisor resistivo 1:2 a la entrada (y KEYPAD_DIVIDER_RATIO = 0.5).
-//        Ojo: el divisor carga la escalera y desplaza los valores, hay que
-//        recalibrar con el modo calibracion.
-//  Mientras se alimente a 5 V, BTN_MENU (3.70 V) NO es utilizable: por eso
-//  ninguna funcion imprescindible depende de el.
-#define KEYPAD_SUPPLY_5V   1     // 1 = modulo a 5 V | 0 = modulo a 3V3
+//  Alimentado a 5 V, el boton de 3.70 V y el reposo (5 V) leen los dos 4095
+//  en el ESP32 (su ADC satura hacia 3.15 V) y son INDISTINGUIBLES; ademas se
+//  mete sobretension en GPIO34. El asistente lo detecta y deja ese boton
+//  DESACTIVADO en vez de provocar pulsaciones erraticas. Para recuperarlo,
+//  alimenta el modulo con 3V3: la escalera es ratiometrica y todas las
+//  tensiones se multiplican por 0.66 (0.00/0.46/0.99/1.65/2.44 V). Luego
+//  repite la calibracion. Ninguna funcion imprescindible depende de el.
+enum Button : uint8_t { BTN_NONE = 0, BTN_OK, BTN_UP, BTN_DOWN, BTN_BACK, BTN_MENU, BTN_COUNT };
 
-enum Button : uint8_t { BTN_NONE = 0, BTN_OK, BTN_UP, BTN_DOWN, BTN_BACK, BTN_MENU };
+//  Nombre en pantalla y orden en el que el asistente pide cada boton
+const char *BTN_NOMBRE[BTN_COUNT] = { "----", "OK", "ARRIBA", "ABAJO", "ATRAS", "MENU" };
+const Button BTN_ORDEN[] = { BTN_UP, BTN_DOWN, BTN_OK, BTN_BACK, BTN_MENU };
+const uint8_t BTN_ORDEN_N = sizeof(BTN_ORDEN) / sizeof(BTN_ORDEN[0]);
 
-struct KeyDef {
-  Button      id;
-  const char *label;
-  float       vMin;      // voltios en la SALIDA del teclado (antes del divisor)
-  float       vMax;
+//  Tabla de partida en MILIVOLTIOS MEDIDOS EN EL PIN del ESP32 (modulo a 5 V:
+//  0.01 / 0.70 / 1.50 / 2.50 / 3.70 V). mvMin > mvMax = boton desactivado.
+struct KeyDef { Button id; int16_t mvMin; int16_t mvMax; };
+KeyDef KEYPAD_MAP[] = {
+  { BTN_DOWN,   -50,  300 },
+  { BTN_BACK,   450,  950 },
+  { BTN_OK,    1250, 1750 },
+  { BTN_UP,    2250, 2750 },
+  { BTN_MENU,  3400, 3950 },   // a 5 V el ADC satura: el asistente lo detecta
 };
-
-// Rango minimo/maximo INDEPENDIENTE por boton. Entre rango y rango queda una
-// ZONA MUERTA: cualquier lectura que caiga ahi se descarta como BTN_NONE, con
-// lo que el ruido y los transitorios de pulsacion no generan pulsaciones falsas.
-#if KEYPAD_SUPPLY_5V
-const KeyDef KEYPAD_MAP[] = {
-  //  id         etiqueta   vMin     vMax      (centro nominal)
-  { BTN_DOWN,   "DOWN",   -0.05f,   0.30f },   // ~0.01 V
-  { BTN_BACK,   "BACK",    0.45f,   0.95f },   // ~0.70 V
-  { BTN_OK,     "OK",      1.25f,   1.75f },   // ~1.50 V
-  { BTN_UP,     "UP",      2.25f,   2.75f },   // ~2.50 V
-  { BTN_MENU,   "MENU",    3.40f,   3.95f },   // ~3.70 V (inalcanzable a 5 V, ver aviso)
-};
-#else
-const KeyDef KEYPAD_MAP[] = {
-  //  Mismos botones con el modulo alimentado a 3V3 (x0.66)
-  { BTN_DOWN,   "DOWN",   -0.05f,   0.20f },   // ~0.007 V
-  { BTN_BACK,   "BACK",    0.30f,   0.62f },   // ~0.46  V
-  { BTN_OK,     "OK",      0.85f,   1.15f },   // ~0.99  V
-  { BTN_UP,     "UP",      1.50f,   1.80f },   // ~1.65  V
-  { BTN_MENU,   "MENU",    2.28f,   2.60f },   // ~2.44  V
-};
-#endif
 const uint8_t KEYPAD_MAP_SIZE = sizeof(KEYPAD_MAP) / sizeof(KEYPAD_MAP[0]);
+KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seguridad)
 
 // ---------------------------------------------------------------------
 // 1.4 FILTRADO / ANTIRREBOTE / HISTERESIS DEL TECLADO
 // ---------------------------------------------------------------------
 #define KEY_POLL_MS          10      // periodo de muestreo del teclado
 #define KEY_SAMPLES          9       // muestras por lectura (mediana). Impar y >= 3
-#define KEY_EMA_ALPHA        0.35f   // filtro exponencial (1.0 = sin filtro)
+#define KEY_EMA_ALPHA        0.40f   // filtro exponencial (1.0 = sin filtro)
 #define KEY_DEBOUNCE_MS      40      // ms estable para aceptar una pulsacion
 #define KEY_RELEASE_MS       40      // ms estable para aceptar la soltada
-#define KEY_HYSTERESIS_V     0.08f   // el boton ya pulsado ensancha su rango
+#define KEY_HYSTERESIS_MV    70      // el boton ya pulsado ensancha su rango
+#define KEY_IDLE_GUARD_MV    120     // franja prohibida alrededor del reposo
 #define KEY_REPEAT_ENABLED   1       // autorepeticion en UP/DOWN
 #define KEY_REPEAT_DELAY_MS  600
 #define KEY_REPEAT_RATE_MS   180
-#define KEYPAD_CALIB_AT_BOOT 0       // 1 = arranca en modo calibracion
-// En marcha tambien se entra/sale enviando 'c' por Serial (115200).
+
+// ---------------------------------------------------------------------
+// 1.4b ASISTENTE DE CALIBRACION
+// ---------------------------------------------------------------------
+#define WIZ_REPOSO_MS        1500    // tiempo midiendo el reposo al empezar
+#define WIZ_ESTABLE_MS       700     // pulsacion mantenida para darla por buena
+#define WIZ_SALTO_MS         12000   // si no se pulsa, se omite ese boton
+#define WIZ_UMBRAL_MV        150     // diferencia minima con el reposo
+#define WIZ_TOLER_MV         45      // cuanto puede moverse y seguir "estable"
+#define NVS_NS               "medibot"
+#define CAL_MAGIC            0x4B32
 
 // ---------------------------------------------------------------------
 // 1.5 SENSOR MAX3010x  --> PARAMETROS AJUSTABLES
@@ -159,6 +165,24 @@ const uint8_t KEYPAD_MAP_SIZE = sizeof(KEYPAD_MAP) / sizeof(KEYPAD_MAP[0]);
 #define PPG_MAX_READINGS     16
 #define PPG_TIMEOUT_MS       45000UL // si no se completa -> error de senal
 #define NO_FINGER_TIMEOUT_MS 20000UL // sin dedo tanto tiempo -> se cancela
+
+// ---------------------------------------------------------------------
+// 1.5b DETECTOR DE LATIDOS  --> RARA VEZ HAY QUE TOCAR ESTO
+// ---------------------------------------------------------------------
+//  Umbral ADAPTATIVO: se calcula sobre la envolvente de la propia senal, asi
+//  que funciona igual con un dedo frio (poca amplitud) que con uno caliente.
+//  BEAT_TH_HIGH es la clave para NO contar la onda dicrota (el "rebote" que
+//  toda PPG tiene tras la sistole y que vale un 30-50 % del pico): con 0.55
+//  hace falta superar el 55 % del pico reciente para dar un latido por bueno.
+#define BEAT_DC_ALPHA        0.01f   // linea de base (constante ~1 s a 100 Hz)
+#define BEAT_LP_ALPHA        0.25f   // filtro paso bajo (~4 Hz a 100 Hz)
+#define BEAT_ENV_DECAY       0.997f  // caida de la envolvente por muestra
+#define BEAT_TH_HIGH         0.55f   // fraccion de la envolvente para disparar
+#define BEAT_TH_LOW          0.25f   // fraccion por debajo de la cual se rearma
+#define BEAT_MIN_AMPLITUDE   25.0f   // cuentas; por debajo solo hay ruido
+#define BEAT_WARMUP_SAMPLES  80      // muestras hasta asentar la linea de base
+#define BEAT_RING            8       // intervalos guardados para la mediana
+#define BEAT_MIN_INTERVALS   2       // intervalos minimos para dar un BPM
 
 // ---------------------------------------------------------------------
 // 1.6 TEMPERATURA  --> SELECCION DE SENSOR Y CORRECCIONES
@@ -232,7 +256,7 @@ enum AppState : uint8_t {
   STATE_SIGNAL_ERROR,
   STATE_HISTORY,
   STATE_ABOUT,
-  STATE_KEYPAD_CALIB
+  STATE_KEYPAD_WIZARD
 };
 
 enum Emotion : uint8_t {
@@ -247,6 +271,9 @@ enum SensorMode : uint8_t { SENS_IDLE, SENS_PPG, SENS_TEMP };
 // dentro de una seccion critica (spinlock) para que la UI nunca lea una
 // mezcla de dos actualizaciones distintas.
 struct Vitals {
+  uint32_t epoch;            // epoca de medida que ha adoptado el nucleo 0:
+                             // mientras no coincida con g_modeEpoch, lo que
+                             // haya aqui es del modo ANTERIOR y no vale.
   bool     fingerPresent;
   bool     signalReliable;
   int      liveBPM;
@@ -281,6 +308,7 @@ struct Report {
 // --- Objetos de hardware ---
 U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R0, OLED_CS_PIN, OLED_RESET_PIN);
 MAX30105 particleSensor;
+Preferences prefs;
 #if TEMP_SOURCE == TEMP_SOURCE_MLX90614
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 #endif
@@ -298,7 +326,12 @@ bool      isBlinking     = false;
 uint32_t  nextBlinkMs    = 0;
 uint32_t  blinkEndsMs    = 0;
 
-int  mainMenuSelection = 0;      // 0 Auto-chequeo | 1 Historial | 2 Sobre Medibot
+const char *MENU_ITEMS[] = { "Auto-Chequeo", "Historial", "Calibrar teclado", "Sobre Medibot" };
+const int   MENU_N = sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]);
+#define MENU_VISIBLES 4
+
+int  mainMenuSelection = 0;      // indice dentro de MENU_ITEMS
+int  mainMenuTop  = 0;           // primera entrada visible (lista con scroll)
 int  aboutPage    = 0;
 int  resultPage   = 0;
 int  historyPage  = 0;
@@ -329,20 +362,22 @@ volatile SensorMode  g_sensorMode = SENS_IDLE;
 volatile uint32_t    g_modeEpoch  = 0;
 TaskHandle_t         SensorTaskHandle = NULL;
 
-// --- Modo calibracion del teclado ---
-bool     calibMode = (KEYPAD_CALIB_AT_BOOT != 0);
-AppState calibReturnState = STATE_MENU;
-
 // --- Prototipos ---
 void     setState(AppState s);
 Button   keypadPoll();
-uint16_t keypadLastMv();
-float    keypadLastVolts();
-Button   keypadHeld();
-void     keypadValidateMap();
-void     keypadCalibrationService(uint32_t now);
+int16_t  keypadLastMv();
+uint16_t keypadCounts();
+uint8_t  keypadActiveCount();
+void     keypadRestoreDefaults();
+bool     keypadHasCalibration();
+void     keypadLoadCalibration();
+void     keypadSaveCalibration();
+Button   keypadMeasureIdle();
+void     keypadWizardStart();
+bool     keypadWizardStep(uint32_t now);
 void     processInputs(Button btn);
 Vitals   vitalsGet();
+bool     vitalsVigentes(const Vitals &v);
 void     sensorRequest(SensorMode m);
 void     sensorTaskCode(void *pv);
 void     evaluateDiagnoses();
@@ -359,12 +394,16 @@ void     drawAbout();
 void     drawHistoryUI();
 void     drawTriageResult();
 void     drawSignalError();
-void     drawCalibScreen();
+void     drawWizardScreen();
 void     renderUI();
 static bool screenIsAnimated();
 
 // =====================================================================
 // 3. TECLADO ANALOGICO (ADKeyboard en una unica entrada ADC)
+// =====================================================================
+//  Todo se trabaja en MILIVOLTIOS MEDIDOS EN EL PIN, que es lo unico que el
+//  ESP32 puede saber de verdad: asi la calibracion es valida sea cual sea la
+//  tension de alimentacion del modulo y su tolerancia de resistencias.
 // =====================================================================
 struct KeypadRuntime {
   Button   raw           = BTN_NONE;   // clasificacion instantanea
@@ -372,51 +411,54 @@ struct KeypadRuntime {
   uint32_t lastRawChange = 0;
   uint32_t pressStartMs  = 0;
   uint32_t lastRepeatMs  = 0;
-  float    ema           = 0.0f;       // en mV de pin
+  float    ema           = 0.0f;
   bool     emaInit       = false;
-  uint16_t lastPinMv     = 0;
-  float    lastKeyVolts  = 0.0f;
-  uint16_t lastRawCounts = 0;
+  int16_t  mv            = 0;          // tension filtrada en el pin
+  uint16_t counts        = 0;          // cuentas crudas del ADC (diagnostico)
+  int16_t  idleMv        = 3300;       // nivel de reposo medido al arrancar
+  bool     idleOk        = false;
 } keypad;
 
-static int cmpInt(const void *a, const void *b) {
-  int ia = *(const int *)a, ib = *(const int *)b;
-  return (ia > ib) - (ia < ib);
+static int cmpI16(const void *a, const void *b) {
+  const int16_t x = *(const int16_t *)a, y = *(const int16_t *)b;
+  return (x > y) - (x < y);
 }
+static inline int16_t difAbs(int16_t a, int16_t b) { return (a > b) ? (a - b) : (b - a); }
 
 // Lectura filtrada: N muestras -> mediana robusta (media de las 3 centrales).
 // La mediana elimina los picos impulsivos del ADC del ESP32; el EMA posterior
 // alisa el ruido de baja amplitud.
-static uint16_t keypadReadPinMv() {
-  int s[KEY_SAMPLES];
-  int counts = 0;
+static int16_t keypadReadRawMv() {
+  int16_t s[KEY_SAMPLES];
+  uint32_t acc = 0;
   for (uint8_t i = 0; i < KEY_SAMPLES; i++) {
-    int raw = analogRead(KEYPAD_PIN);
-    counts += raw;
+    const int bruto = analogRead(KEYPAD_PIN);
+    acc += bruto;
 #if USE_ESP_ADC_CAL
-    s[i] = (int)analogReadMilliVolts(KEYPAD_PIN);
+    s[i] = (int16_t)analogReadMilliVolts(KEYPAD_PIN);
 #else
-    s[i] = (int)((raw * ADC_FULLSCALE_MV) / (float)ADC_MAX_COUNTS);
+    s[i] = (int16_t)((bruto * ADC_FULLSCALE_MV) / (float)ADC_MAX_COUNTS);
 #endif
   }
-  keypad.lastRawCounts = (uint16_t)(counts / KEY_SAMPLES);
-  qsort(s, KEY_SAMPLES, sizeof(int), cmpInt);
-  const int mid = KEY_SAMPLES / 2;
-  return (uint16_t)((s[mid - 1] + s[mid] + s[mid + 1]) / 3);
+  keypad.counts = (uint16_t)(acc / KEY_SAMPLES);
+  qsort(s, KEY_SAMPLES, sizeof(int16_t), cmpI16);
+  const uint8_t m = KEY_SAMPLES / 2;
+  return (int16_t)((s[m - 1] + s[m] + s[m + 1]) / 3);
 }
 
-// Clasificacion con rangos independientes + histeresis + exclusion mutua.
-// Si la tension cae en una zona muerta -> BTN_NONE.
-// Si por un error de configuracion cayera en DOS rangos -> BTN_NONE tambien,
-// de modo que es imposible detectar dos botones a la vez.
-static Button keypadClassify(float volts, Button held) {
+// Clasificacion: rangos independientes + histeresis + guarda de reposo.
+// Devuelve BTN_NONE si la tension cae en zona muerta, si esta pegada al
+// reposo, o si (por una tabla mal puesta) encajase en dos botones a la vez:
+// es imposible que se detecten dos botones simultaneos.
+static Button keypadClassify(int16_t mv, Button held) {
+  if (keypad.idleOk && difAbs(mv, keypad.idleMv) < KEY_IDLE_GUARD_MV) return BTN_NONE;
   Button found = BTN_NONE;
   uint8_t matches = 0;
   for (uint8_t i = 0; i < KEYPAD_MAP_SIZE; i++) {
-    float lo = KEYPAD_MAP[i].vMin;
-    float hi = KEYPAD_MAP[i].vMax;
-    if (KEYPAD_MAP[i].id == held) { lo -= KEY_HYSTERESIS_V; hi += KEY_HYSTERESIS_V; }
-    if (volts >= lo && volts <= hi) { found = KEYPAD_MAP[i].id; matches++; }
+    int16_t lo = KEYPAD_MAP[i].mvMin, hi = KEYPAD_MAP[i].mvMax;
+    if (lo > hi) continue;                                  // boton desactivado
+    if (KEYPAD_MAP[i].id == held) { lo -= KEY_HYSTERESIS_MV; hi += KEY_HYSTERESIS_MV; }
+    if (mv >= lo && mv <= hi) { found = KEYPAD_MAP[i].id; matches++; }
   }
   return (matches == 1) ? found : BTN_NONE;
 }
@@ -424,15 +466,13 @@ static Button keypadClassify(float volts, Button held) {
 // Devuelve UN evento por pulsacion (flanco), o autorepeticion en UP/DOWN.
 Button keypadPoll() {
   const uint32_t now = millis();
-  const uint16_t mv  = keypadReadPinMv();
+  const int16_t bruto = keypadReadRawMv();
 
-  if (!keypad.emaInit) { keypad.ema = mv; keypad.emaInit = true; }
-  else keypad.ema = KEY_EMA_ALPHA * mv + (1.0f - KEY_EMA_ALPHA) * keypad.ema;
+  if (!keypad.emaInit) { keypad.ema = bruto; keypad.emaInit = true; }
+  else keypad.ema = KEY_EMA_ALPHA * bruto + (1.0f - KEY_EMA_ALPHA) * keypad.ema;
+  keypad.mv = (int16_t)keypad.ema;
 
-  keypad.lastPinMv    = (uint16_t)keypad.ema;
-  keypad.lastKeyVolts = (keypad.ema / 1000.0f) / KEYPAD_DIVIDER_RATIO;
-
-  const Button raw = keypadClassify(keypad.lastKeyVolts, keypad.stable);
+  const Button raw = keypadClassify(keypad.mv, keypad.stable);
   if (raw != keypad.raw) { keypad.raw = raw; keypad.lastRawChange = now; }
 
   Button ev = BTN_NONE;
@@ -449,7 +489,7 @@ Button keypadPoll() {
     }
   }
 #if KEY_REPEAT_ENABLED
-  else if (raw != BTN_NONE && (raw == BTN_UP || raw == BTN_DOWN)) {
+  else if (raw == BTN_UP || raw == BTN_DOWN) {
     if (now - keypad.pressStartMs > KEY_REPEAT_DELAY_MS &&
         now - keypad.lastRepeatMs > KEY_REPEAT_RATE_MS) {
       keypad.lastRepeatMs = now;
@@ -460,84 +500,220 @@ Button keypadPoll() {
   return ev;
 }
 
-uint16_t keypadLastMv()    { return keypad.lastPinMv; }
-float    keypadLastVolts() { return keypad.lastKeyVolts; }
-Button   keypadHeld()      { return keypad.stable; }
+int16_t  keypadLastMv()   { return keypad.mv; }
+uint16_t keypadCounts()   { return keypad.counts; }
 
 static const char *buttonName(Button b) {
+  return (b < BTN_COUNT) ? BTN_NOMBRE[b] : "----";
+}
+
+// Cuantos botones tienen ahora mismo un rango utilizable
+uint8_t keypadActiveCount() {
+  uint8_t n = 0;
   for (uint8_t i = 0; i < KEYPAD_MAP_SIZE; i++)
-    if (KEYPAD_MAP[i].id == b) return KEYPAD_MAP[i].label;
-  return "----";
+    if (KEYPAD_MAP[i].mvMin <= KEYPAD_MAP[i].mvMax) n++;
+  return n;
 }
 
-// Comprueba al arrancar que la tabla no tiene rangos invertidos ni solapados.
-void keypadValidateMap() {
-  Serial.println(F("[TECLADO] Tabla de rangos (cuentas ADC aproximadas):"));
-  for (uint8_t i = 0; i < KEYPAD_MAP_SIZE; i++) {
-    const float k = KEYPAD_DIVIDER_RATIO;
-    Serial.printf("  %-5s  %.2f..%.2f V  (pin %.2f..%.2f V | ADC %d..%d)\n",
-                  KEYPAD_MAP[i].label, KEYPAD_MAP[i].vMin, KEYPAD_MAP[i].vMax,
-                  KEYPAD_MAP[i].vMin * k, KEYPAD_MAP[i].vMax * k,
-                  (int)(KEYPAD_MAP[i].vMin * k / (ADC_FULLSCALE_MV / 1000.0f) * ADC_MAX_COUNTS),
-                  (int)(KEYPAD_MAP[i].vMax * k / (ADC_FULLSCALE_MV / 1000.0f) * ADC_MAX_COUNTS));
-    if (KEYPAD_MAP[i].vMin >= KEYPAD_MAP[i].vMax)
-      Serial.printf("  !! %s tiene vMin >= vMax\n", KEYPAD_MAP[i].label);
-    for (uint8_t j = i + 1; j < KEYPAD_MAP_SIZE; j++) {
-      if (KEYPAD_MAP[i].vMin <= KEYPAD_MAP[j].vMax &&
-          KEYPAD_MAP[j].vMin <= KEYPAD_MAP[i].vMax)
-        Serial.printf("  !! SOLAPE entre %s y %s\n",
-                      KEYPAD_MAP[i].label, KEYPAD_MAP[j].label);
-    }
-  }
-  const float pinMaxV = 3.3f;
-  for (uint8_t i = 0; i < KEYPAD_MAP_SIZE; i++) {
-    if (KEYPAD_MAP[i].vMax * KEYPAD_DIVIDER_RATIO > pinMaxV)
-      Serial.printf("  !! %s supera 3.3 V en el pin: usa 3V3 o divisor\n",
-                    KEYPAD_MAP[i].label);
-  }
+void keypadRestoreDefaults() {
+  memcpy(KEYPAD_MAP, KEYPAD_MAP_DEFECTO, sizeof(KEYPAD_MAP));
+  Serial.println(F("[TECLADO] Tabla de fabrica restaurada"));
 }
 
-// Modo calibracion: imprime ADC y voltios en vivo y, al soltar, el rango real
-// que ha ocupado la pulsacion (justo lo que hay que copiar a KEYPAD_MAP).
-void keypadCalibrationService(uint32_t now) {
-  static uint32_t lastPrint = 0;
-  static Button   watching  = BTN_NONE;
-  static uint16_t seenMinMv = 0xFFFF, seenMaxMv = 0;
-  static uint16_t seenMinAd = 0xFFFF, seenMaxAd = 0;
+// ---------------------------------------------------------------------
+// 3.1 CALIBRACION GUARDADA EN LA MEMORIA DEL ESP32 (NVS)
+// ---------------------------------------------------------------------
+struct CalEntrada { uint8_t id; int16_t mn, mx; };
+struct CalBlob {
+  uint16_t   magic;
+  int16_t    reposo;
+  uint8_t    n;
+  CalEntrada e[BTN_COUNT];
+};
 
-  const uint16_t mv = keypadLastMv();
-  const uint16_t ad = keypad.lastRawCounts;
+bool keypadHasCalibration() {
+  CalBlob b;
+  if (prefs.getBytesLength("keycal") != sizeof(b)) return false;
+  prefs.getBytes("keycal", &b, sizeof(b));
+  return (b.magic == CAL_MAGIC && b.n > 0);
+}
 
-  if (mv < seenMinMv) seenMinMv = mv;
-  if (mv > seenMaxMv) seenMaxMv = mv;
-  if (ad < seenMinAd) seenMinAd = ad;
-  if (ad > seenMaxAd) seenMaxAd = ad;
+void keypadLoadCalibration() {
+  CalBlob b;
+  if (prefs.getBytesLength("keycal") != sizeof(b)) return;
+  prefs.getBytes("keycal", &b, sizeof(b));
+  if (b.magic != CAL_MAGIC || b.n == 0 || b.n > BTN_COUNT) return;
 
-  const Button held = keypadHeld();
-  if (held != watching) {
-    if (watching == BTN_NONE && held != BTN_NONE) {
-      seenMinMv = seenMaxMv = mv;
-      seenMinAd = seenMaxAd = ad;
-    } else if (watching != BTN_NONE) {
-      Serial.printf("[CALIB] Pulsacion %-5s -> ADC %u..%u | pin %.3f..%.3f V | teclado %.3f..%.3f V\n",
-                    buttonName(watching), seenMinAd, seenMaxAd,
-                    seenMinMv / 1000.0f, seenMaxMv / 1000.0f,
-                    (seenMinMv / 1000.0f) / KEYPAD_DIVIDER_RATIO,
-                    (seenMaxMv / 1000.0f) / KEYPAD_DIVIDER_RATIO);
-      Serial.printf("        sugerido -> vMin %.2f  vMax %.2f (centro +-0.12 V)\n",
-                    ((seenMinMv / 1000.0f) / KEYPAD_DIVIDER_RATIO) - 0.12f,
-                    ((seenMaxMv / 1000.0f) / KEYPAD_DIVIDER_RATIO) + 0.12f);
-      seenMinMv = 0xFFFF; seenMaxMv = 0;
-      seenMinAd = 0xFFFF; seenMaxAd = 0;
+  for (uint8_t i = 0; i < KEYPAD_MAP_SIZE; i++) { KEYPAD_MAP[i].mvMin = 1; KEYPAD_MAP[i].mvMax = 0; }
+  for (uint8_t i = 0; i < b.n; i++)
+    for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++)
+      if (KEYPAD_MAP[k].id == b.e[i].id) {
+        KEYPAD_MAP[k].mvMin = b.e[i].mn;
+        KEYPAD_MAP[k].mvMax = b.e[i].mx;
+      }
+  keypad.idleMv = b.reposo;
+  keypad.idleOk = true;
+  Serial.printf("[TECLADO] Calibracion cargada. Reposo %d mV\n", (int)b.reposo);
+  for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++)
+    if (KEYPAD_MAP[k].mvMin <= KEYPAD_MAP[k].mvMax)
+      Serial.printf("   %-7s %d..%d mV\n", buttonName(KEYPAD_MAP[k].id),
+                    (int)KEYPAD_MAP[k].mvMin, (int)KEYPAD_MAP[k].mvMax);
+}
+
+void keypadSaveCalibration() {
+  CalBlob b;
+  memset(&b, 0, sizeof(b));
+  b.magic  = CAL_MAGIC;
+  b.reposo = keypad.idleMv;
+  for (uint8_t k = 0; k < KEYPAD_MAP_SIZE && b.n < BTN_COUNT; k++) {
+    if (KEYPAD_MAP[k].mvMin <= KEYPAD_MAP[k].mvMax) {
+      b.e[b.n].id = KEYPAD_MAP[k].id;
+      b.e[b.n].mn = KEYPAD_MAP[k].mvMin;
+      b.e[b.n].mx = KEYPAD_MAP[k].mvMax;
+      b.n++;
     }
-    watching = held;
   }
+  prefs.putBytes("keycal", &b, sizeof(b));
+  Serial.printf("[TECLADO] Calibracion guardada (%u botones)\n", (unsigned)b.n);
+}
 
-  if (now - lastPrint >= 250) {
-    lastPrint = now;
-    Serial.printf("[CALIB] ADC %4u | pin %5.3f V | teclado %5.3f V | boton %s\n",
-                  ad, mv / 1000.0f, keypadLastVolts(), buttonName(held));
+// Al encender: mide el nivel de reposo. Si ese nivel coincide con un boton de
+// la tabla es que el usuario esta MANTENIENDO una tecla -> se devuelve, y esa
+// es la via de escape para abrir el asistente cuando la calibracion guardada
+// quedo mal y no se puede navegar el menu.
+Button keypadMeasureIdle() {
+  int16_t m[24];
+  for (uint8_t i = 0; i < 24; i++) { m[i] = keypadReadRawMv(); delay(20); }
+  qsort(m, 24, sizeof(int16_t), cmpI16);
+  const int16_t mediana = m[12];
+  const int16_t disp = m[21] - m[2];
+
+  keypad.idleOk = false;                       // sin guarda, para poder clasificar
+  const Button coincide = keypadClassify(mediana, BTN_NONE);
+  keypad.ema = mediana; keypad.emaInit = true; keypad.mv = mediana;
+
+  Serial.printf("[TECLADO] Nivel en reposo: %d mV (ADC %u, dispersion %d mV)\n",
+                (int)mediana, (unsigned)keypad.counts, (int)disp);
+  if (coincide != BTN_NONE) {
+    Serial.printf("[TECLADO] Coincide con %s: hay un boton pulsado al arrancar\n",
+                  buttonName(coincide));
+    return coincide;
   }
+  keypad.idleMv = mediana;
+  keypad.idleOk = true;
+  return BTN_NONE;
+}
+
+// ---------------------------------------------------------------------
+// 3.2 ASISTENTE DE CALIBRACION
+// ---------------------------------------------------------------------
+//  Mide los botones REALES y calcula los rangos: no hay que adivinar ningun
+//  umbral ni copiar numeros a mano en el codigo.
+struct Asistente {
+  uint8_t  paso;                 // indice dentro de BTN_ORDEN
+  uint8_t  fase;                 // 0 reposo | 1 pidiendo | 2 soltar | 3 calcular | 4 resumen
+  uint32_t t0;
+  uint32_t estableDesde;
+  int16_t  ultimo;
+  int16_t  centro[BTN_COUNT];
+  bool     hecho[BTN_COUNT];
+  uint8_t  capturados;
+  char     aviso[30];
+} wiz;
+
+void keypadWizardStart() {
+  memset(&wiz, 0, sizeof(wiz));
+  wiz.t0 = millis();
+  wiz.ultimo = keypad.mv;
+  keypad.idleOk = false;         // durante el asistente no se filtra por reposo
+  Serial.println(F("\n[ASISTENTE] Calibracion del teclado. No toques nada..."));
+}
+
+// Devuelve true cuando ha terminado (y ya ha guardado)
+bool keypadWizardStep(uint32_t now) {
+  const int16_t mv = keypadReadRawMv();
+  keypad.ema = KEY_EMA_ALPHA * mv + (1.0f - KEY_EMA_ALPHA) * keypad.ema;
+  keypad.mv = (int16_t)keypad.ema;
+
+  if (difAbs(keypad.mv, wiz.ultimo) > WIZ_TOLER_MV) { wiz.ultimo = keypad.mv; wiz.estableDesde = now; }
+
+  switch (wiz.fase) {
+    case 0:                                          // ---- medir reposo ----
+      if (now - wiz.t0 >= WIZ_REPOSO_MS) {
+        keypad.idleMv = keypad.mv;
+        wiz.fase = 1; wiz.paso = 0; wiz.t0 = now; wiz.estableDesde = now;
+        Serial.printf("[ASISTENTE] Reposo = %d mV\n", (int)keypad.idleMv);
+      }
+      break;
+
+    case 1: {                                        // ---- capturar un boton ----
+      const bool pulsado = difAbs(keypad.mv, keypad.idleMv) >= WIZ_UMBRAL_MV;
+      if (pulsado && (now - wiz.estableDesde >= WIZ_ESTABLE_MS)) {
+        const Button b = BTN_ORDEN[wiz.paso];
+        wiz.centro[b] = keypad.mv;
+        wiz.hecho[b]  = true;
+        wiz.capturados++;
+        Serial.printf("[ASISTENTE] %-7s = %d mV (ADC %u)\n", buttonName(b),
+                      (int)keypad.mv, (unsigned)keypad.counts);
+        wiz.fase = 2; wiz.t0 = now;
+      } else if (now - wiz.t0 >= WIZ_SALTO_MS) {
+        Serial.printf("[ASISTENTE] %s omitido (sin pulsacion)\n", buttonName(BTN_ORDEN[wiz.paso]));
+        wiz.fase = 2; wiz.t0 = now;
+      }
+      break;
+    }
+
+    case 2:                                          // ---- esperar a que suelte ----
+      if (difAbs(keypad.mv, keypad.idleMv) < WIZ_UMBRAL_MV / 2 || (now - wiz.t0 > 8000)) {
+        wiz.paso++;
+        if (wiz.paso >= BTN_ORDEN_N) { wiz.fase = 3; wiz.t0 = now; }
+        else { wiz.fase = 1; wiz.t0 = now; wiz.estableDesde = now; }
+      }
+      break;
+
+    case 3:                                          // ---- calcular y guardar ----
+      // Cada boton recibe medio hueco hasta su vecino mas cercano (otro boton
+      // capturado o el propio reposo), con tope de 250 mV y minimo de 40 mV.
+      for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++) { KEYPAD_MAP[k].mvMin = 1; KEYPAD_MAP[k].mvMax = 0; }
+      wiz.aviso[0] = '\0';
+      for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++) {
+        const Button b = KEYPAD_MAP[k].id;
+        if (!wiz.hecho[b]) continue;
+        int16_t hueco = difAbs(wiz.centro[b], keypad.idleMv);
+        for (uint8_t j = 0; j < KEYPAD_MAP_SIZE; j++) {
+          const Button o = KEYPAD_MAP[j].id;
+          if (o == b || !wiz.hecho[o]) continue;
+          const int16_t d = difAbs(wiz.centro[b], wiz.centro[o]);
+          if (d < hueco) hueco = d;
+        }
+        int16_t medio = hueco / 2 - 25;
+        if (medio > 250) medio = 250;
+        if (medio < 40) {
+          snprintf(wiz.aviso, sizeof(wiz.aviso), "%s se confunde", buttonName(b));
+          Serial.printf("[ASISTENTE] %s descartado: solo %d mV hasta su vecino\n",
+                        buttonName(b), (int)hueco);
+          continue;                                  // se queda desactivado
+        }
+        KEYPAD_MAP[k].mvMin = wiz.centro[b] - medio;
+        KEYPAD_MAP[k].mvMax = wiz.centro[b] + medio;
+      }
+      if (keypadActiveCount() == 0) {
+        // Ningun boton utilizable: no se guarda nada y se vuelve a la tabla de
+        // fabrica, para no dejar el equipo sin teclado.
+        keypadRestoreDefaults();
+        snprintf(wiz.aviso, sizeof(wiz.aviso), "Fallo: revisa cableado");
+        Serial.println(F("[ASISTENTE] Ningun boton valido: no se guarda"));
+      } else {
+        keypadSaveCalibration();
+      }
+      keypad.idleOk = true;
+      wiz.fase = 4; wiz.t0 = now;
+      break;
+
+    default:
+      return (now - wiz.t0 > 3500);                  // resumen en pantalla
+  }
+  return false;
 }
 
 // =====================================================================
@@ -644,6 +820,105 @@ static bool tempSensorRead(float &skinC, float &ambientC) {
 }
 
 // ---------------------------------------------------------------------
+// 4.2b DETECTOR DE LATIDOS PROPIO
+// ---------------------------------------------------------------------
+//  POR QUE NO SE USA checkForBeat() DE LA LIBRERIA SPARKFUN:
+//  esa funcion pasa la muestra por
+//        averageDCEstimator(int32_t *p, uint16_t x)   <-- uint16_t
+//        lowPassFIRFilter(int16_t din)                <-- int16_t
+//  es decir, TRUNCA la muestra IR a 16 bits. Con el dedo puesto el MAX30102
+//  entrega entre 60.000 y 250.000 cuentas, muy por encima de 65.535: la linea
+//  de base "da la vuelta" y el detector dispara latidos falsos. Ademas cuenta
+//  la onda dicrota (el rebote que sigue a cada sistole) como un latido mas.
+//  Midiendo una PPG sintetica de 72 BPM, aquel camino devolvia ~150 BPM.
+//
+//  Este detector trabaja en coma flotante sobre la muestra completa:
+//    1) linea de base DC por media exponencial;
+//    2) senal AC = DC - IR  (la IR BAJA en la sistole) y filtro paso bajo;
+//    3) envolvente con decaimiento -> umbral ADAPTATIVO (no depende de la
+//       amplitud absoluta, que cambia con cada dedo y cada perfusion);
+//    4) disparo por cruce de umbral con histeresis + periodo refractario;
+//    5) BPM = MEDIANA de los ultimos intervalos, robusta a un latido perdido
+//       o a uno de mas (la media aritmetica no lo es).
+struct BeatDetector {
+  float    dc;
+  float    lp;
+  float    env;
+  bool     init;
+  bool     armed;
+  uint16_t warmup;
+  uint32_t lastBeatMs;
+  uint32_t intervals[BEAT_RING];
+  uint8_t  intervalCount;
+  uint8_t  intervalIndex;
+};
+
+#define BEAT_REFRACTORY_MS   (60000UL / HR_MAX_BPM)   // 333 ms a 180 BPM
+#define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN_BPM)   // 1500 ms a 40 BPM
+
+static void beatReset(BeatDetector &b) {
+  memset(&b, 0, sizeof(b));
+  b.armed = true;
+}
+
+// Devuelve true en la muestra exacta en la que se detecta un latido.
+static bool beatUpdate(BeatDetector &b, uint32_t ir, uint32_t now) {
+  const float x = (float)ir;
+  if (!b.init) { b.dc = x; b.lp = 0.0f; b.env = 0.0f; b.init = true; b.armed = true; }
+
+  b.dc += (x - b.dc) * BEAT_DC_ALPHA;
+  const float ac = b.dc - x;                 // positiva durante la sistole
+  b.lp += (ac - b.lp) * BEAT_LP_ALPHA;
+
+  b.env *= BEAT_ENV_DECAY;
+  if (b.lp > b.env) b.env = b.lp;
+
+  if (b.warmup < BEAT_WARMUP_SAMPLES) { b.warmup++; return false; }
+  if (b.env < BEAT_MIN_AMPLITUDE) { b.armed = true; return false; }   // solo ruido
+
+  const float thHigh = b.env * BEAT_TH_HIGH;
+  const float thLow  = b.env * BEAT_TH_LOW;
+
+  if (!b.armed) {
+    if (b.lp < thLow) b.armed = true;
+    return false;
+  }
+  if (b.lp < thHigh) return false;
+  if (b.lastBeatMs != 0 && (now - b.lastBeatMs) < BEAT_REFRACTORY_MS) return false;
+
+  if (b.lastBeatMs != 0) {
+    const uint32_t d = now - b.lastBeatMs;
+    if (d >= BEAT_REFRACTORY_MS && d <= BEAT_MAX_INTERVAL_MS) {
+      b.intervals[b.intervalIndex] = d;
+      b.intervalIndex = (b.intervalIndex + 1) % BEAT_RING;
+      if (b.intervalCount < BEAT_RING) b.intervalCount++;
+    } else {
+      b.intervalCount = 0;                   // intervalo imposible: se descarta
+      b.intervalIndex = 0;                   // la serie entera y se empieza de nuevo
+    }
+  }
+  b.lastBeatMs = now;
+  b.armed = false;
+  return true;
+}
+
+// Pulso en BPM a partir de la MEDIANA de los intervalos. 0 = aun no hay dato.
+static float beatBPM(const BeatDetector &b) {
+  if (b.intervalCount < BEAT_MIN_INTERVALS) return 0.0f;
+  uint32_t v[BEAT_RING];
+  memcpy(v, b.intervals, b.intervalCount * sizeof(uint32_t));
+  for (uint8_t i = 1; i < b.intervalCount; i++) {       // insertion sort
+    const uint32_t key = v[i];
+    int8_t j = (int8_t)i - 1;
+    while (j >= 0 && v[j] > key) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = key;
+  }
+  const uint8_t n = b.intervalCount;
+  const uint32_t med = (n & 1) ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+  return med ? (60000.0f / (float)med) : 0.0f;
+}
+
+// ---------------------------------------------------------------------
 // 4.3 Estado interno de la adquisicion PPG
 // ---------------------------------------------------------------------
 struct PpgState {
@@ -654,10 +929,7 @@ struct PpgState {
   bool     fingerRaw;
   bool     fingerStable;
   uint32_t fingerChangeMs;
-  uint32_t lastBeatMs;
-  float    bpmRing[8];
-  uint8_t  bpmCount;
-  uint8_t  bpmIndex;
+  BeatDetector beat;
   float    okBPM[PPG_MAX_READINGS];
   float    okSpO2[PPG_MAX_READINGS];
   uint8_t  okCount;
@@ -676,10 +948,8 @@ struct TempState {
 static void ppgResetBuffers() {
   ppg.fill = 0;
   ppg.decim = 0;
-  ppg.bpmCount = 0;
-  ppg.bpmIndex = 0;
   ppg.okCount = 0;
-  ppg.lastBeatMs = 0;
+  beatReset(ppg.beat);
 }
 
 static void ppgResetAll(uint32_t now) {
@@ -708,6 +978,10 @@ Vitals vitalsGet() {
   portEXIT_CRITICAL(&g_vitalsMux);
   return copy;
 }
+
+// true solo si lo que trae 'v' pertenece a la medida que se esta pidiendo
+// ahora mismo (ver el comentario del campo Vitals::epoch).
+bool vitalsVigentes(const Vitals &v) { return v.epoch == g_modeEpoch; }
 
 static void vitalsClear() {
   portENTER_CRITICAL(&g_vitalsMux);
@@ -787,20 +1061,8 @@ static void ppgProcessSample(uint32_t ir, uint32_t red, uint32_t now) {
   if (!ppg.fingerStable) return;
   ppg.lastFingerSeenMs = now;
 
-  // --- Latido a 100 Hz (checkForBeat espera ~100 muestras/s) ---
-  if (checkForBeat((int32_t)ir)) {
-    if (ppg.lastBeatMs != 0) {
-      uint32_t delta = now - ppg.lastBeatMs;
-      if (delta > 0) {
-        float bpm = 60000.0f / (float)delta;
-        if (bpm >= HR_MIN_BPM && bpm <= HR_MAX_BPM) {
-          ppg.bpmRing[ppg.bpmIndex] = bpm;
-          ppg.bpmIndex = (ppg.bpmIndex + 1) % 8;
-          if (ppg.bpmCount < 8) ppg.bpmCount++;
-        }
-      }
-    }
-    ppg.lastBeatMs = now;
+  // --- Latido (detector propio, bloque 4.2b) ---
+  if (beatUpdate(ppg.beat, ir, now)) {
     portENTER_CRITICAL(&g_vitalsMux);
     g_vitals.lastBeatMs = now;
     portEXIT_CRITICAL(&g_vitalsMux);
@@ -825,31 +1087,29 @@ static void ppgProcessSample(uint32_t ir, uint32_t red, uint32_t now) {
 
   const float pi = perfusionIndex(ppg.irBuf, SPO2_BUFFER_LEN);
 
-  float beatAvg = 0.0f;
-  if (ppg.bpmCount > 0) {
-    for (uint8_t i = 0; i < ppg.bpmCount; i++) beatAvg += ppg.bpmRing[i];
-    beatAvg /= ppg.bpmCount;
-  }
-  if (beatAvg < HR_MIN_BPM && hrValid == 1 && hrv >= HR_MIN_BPM && hrv <= HR_MAX_BPM)
-    beatAvg = (float)hrv;                       // respaldo: HR del algoritmo
+  // Pulso: mediana de los intervalos propios. Mientras no haya suficientes
+  // latidos se acepta el HR que devuelve el algoritmo de Maxim como respaldo.
+  float bpm = beatBPM(ppg.beat);
+  if (bpm < HR_MIN_BPM && hrValid == 1 && hrv >= HR_MIN_BPM && hrv <= HR_MAX_BPM)
+    bpm = (float)hrv;
 
   const int spo2Corrected = (int)spo2v + SPO2_OFFSET;
   const bool spo2Ok = (spo2Valid == 1 &&
                        spo2Corrected >= SPO2_MIN_VALID &&
                        spo2Corrected <= SPO2_MAX_VALID);
-  const bool hrOk   = (beatAvg >= HR_MIN_BPM && beatAvg <= HR_MAX_BPM);
+  const bool hrOk   = (bpm >= HR_MIN_BPM && bpm <= HR_MAX_BPM);
   const bool piOk   = (pi >= MIN_PERFUSION_INDEX);
   const bool reliable = spo2Ok && hrOk && piOk;
 
   if (reliable && ppg.okCount < PPG_MAX_READINGS) {
-    ppg.okBPM[ppg.okCount]  = beatAvg;
+    ppg.okBPM[ppg.okCount]  = bpm;
     ppg.okSpO2[ppg.okCount] = (float)spo2Corrected;
     ppg.okCount++;
   }
 
   portENTER_CRITICAL(&g_vitalsMux);
   g_vitals.perfusion      = pi;
-  g_vitals.liveBPM        = hrOk ? (int)(beatAvg + 0.5f) : 0;
+  g_vitals.liveBPM        = hrOk ? (int)(bpm + 0.5f) : 0;
   g_vitals.liveSpO2       = spo2Ok ? spo2Corrected : 0;
   g_vitals.liveSpO2Valid  = spo2Ok && piOk;
   g_vitals.signalReliable = reliable;
@@ -888,12 +1148,19 @@ static void ppgUpdate(uint32_t now) {
   }
 
   particleSensor.check();                     // no bloquea (a diferencia de getIR())
-  uint8_t guard = 0;
+  // Las muestras que esperan en el buffer se tomaron ANTES de "now", una cada
+  // 1000/PPG_EFFECTIVE_SPS ms. Fecharlas todas igual desplazaria los intervalos
+  // entre latidos y, con ellos, el pulso; se reconstruye el instante de cada una.
+  const uint8_t pendientes = particleSensor.available();
+  const uint32_t periodoMs = 1000UL / PPG_EFFECTIVE_SPS;
+  uint8_t idx = 0, guard = 0;
   while (particleSensor.available() && guard++ < 32) {
-    uint32_t ir  = particleSensor.getFIFOIR();
-    uint32_t red = particleSensor.getFIFORed();
+    const uint32_t ir  = particleSensor.getFIFOIR();
+    const uint32_t red = particleSensor.getFIFORed();
     particleSensor.nextSample();
-    ppgProcessSample(ir, red, now);
+    const uint32_t atraso = (idx < pendientes) ? (pendientes - 1 - idx) * periodoMs : 0;
+    idx++;
+    ppgProcessSample(ir, red, now - atraso);
     if (ppg.okCount >= PPG_TARGET_READINGS) return;   // medida completada
   }
 
@@ -987,9 +1254,12 @@ void sensorTaskCode(void *pv) {
       if (myMode == SENS_PPG) {
         i2cFast(true);
         if (hwMaxOk) {
-          particleSensor.clearFIFO();
+          // Primero los LED y DESPUES vaciar el FIFO: al reves, las muestras
+          // tomadas con los LED aun apagados se quedarian dentro y el firmware
+          // las leeria como "no hay dedo".
           particleSensor.setPulseAmplitudeRed(MAX_LED_BRIGHTNESS);
           particleSensor.setPulseAmplitudeIR(MAX_LED_BRIGHTNESS);
+          particleSensor.clearFIFO();
         }
       } else {
         i2cFast(false);
@@ -998,6 +1268,12 @@ void sensorTaskCode(void *pv) {
           particleSensor.setPulseAmplitudeIR(0x00);
         }
       }
+      // A partir de aqui lo que se publique ya pertenece a esta epoca. La UI
+      // descarta todo lo que llegue con una epoca distinta, de modo que un
+      // resultado (o un fallo) de la medida anterior nunca contamina la nueva.
+      portENTER_CRITICAL(&g_vitalsMux);
+      g_vitals.epoch = myEpoch;
+      portEXIT_CRITICAL(&g_vitalsMux);
     }
 
     switch (myMode) {
@@ -1193,7 +1469,7 @@ void drawBootScreen() {
   snprintf(buf, sizeof(buf), "Temp  : %s", hwTempOk ? "OK" : "NO DETECTADO");
   u8g2.drawStr(4, 37, buf);
 
-  snprintf(buf, sizeof(buf), "Teclado: %u botones", (unsigned)KEYPAD_MAP_SIZE);
+  snprintf(buf, sizeof(buf), "Teclado: %u botones", (unsigned)keypadActiveCount());
   u8g2.drawStr(4, 47, buf);
 
   uint32_t pct = (stateElapsed() * 100UL) / 2200UL;
@@ -1204,26 +1480,30 @@ void drawBootScreen() {
 void drawMenu() {
   u8g2.setFont(u8g2_font_helvB08_tr);
   drawCenteredStr(10, "MEDIBOT");
-  u8g2.drawHLine(0, 13, 128);
+  u8g2.drawHLine(0, 12, 128);
+
+  // Lista con scroll: caben MENU_VISIBLES entradas y la seleccion arrastra
+  // la ventana, de modo que anadir opciones no rompe la pantalla.
+  if (mainMenuSelection < mainMenuTop) mainMenuTop = mainMenuSelection;
+  if (mainMenuSelection >= mainMenuTop + MENU_VISIBLES)
+    mainMenuTop = mainMenuSelection - MENU_VISIBLES + 1;
 
   u8g2.setFont(u8g2_font_6x10_tr);
-  const char *items[3] = { "Auto-Chequeo", "Historial", "Sobre Medibot" };
-  const int cardX = 10, cardW = 108, cardH = 14;
-  for (int i = 0; i < 3; i++) {
-    const int y = 17 + i * 16;
-    if (mainMenuSelection == i) {
-      u8g2.drawRBox(cardX, y, cardW, cardH, 2);
+  for (int i = 0; i < MENU_VISIBLES && (mainMenuTop + i) < MENU_N; i++) {
+    const int idx = mainMenuTop + i;
+    const int y = 14 + i * 12;
+    if (idx == mainMenuSelection) {
+      u8g2.drawRBox(8, y, 112, 12, 2);
       u8g2.setDrawColor(0);
-      drawCenteredStr(y + 11, items[i]);
+      drawCenteredStr(y + 9, MENU_ITEMS[idx]);
       u8g2.setDrawColor(1);
-      // marcador animado
-      const int dx = ((animFrame / 5) % 2);
-      u8g2.drawTriangle(cardX - 8 + dx, y + 3, cardX - 8 + dx, y + 11, cardX - 2 + dx, y + 7);
     } else {
-      u8g2.drawRFrame(cardX, y, cardW, cardH, 2);
-      drawCenteredStr(y + 11, items[i]);
+      u8g2.drawRFrame(8, y, 112, 12, 2);
+      drawCenteredStr(y + 9, MENU_ITEMS[idx]);
     }
   }
+  if (mainMenuTop > 0)                      u8g2.drawTriangle(124, 18, 120, 22, 124, 22);
+  if (mainMenuTop + MENU_VISIBLES < MENU_N) u8g2.drawTriangle(124, 61, 120, 57, 124, 57);
 }
 
 void drawAbout() {
@@ -1314,24 +1594,48 @@ void drawSignalError() {
   drawCenteredStr(60, errorDetail[0] ? errorDetail : "Intentalo de nuevo");
 }
 
-void drawCalibScreen() {
+// El asistente se ve entero en pantalla: en cada paso dice que hacer y, abajo,
+// la lectura en vivo (ADC / mV / reposo), asi que si algo va mal se ve al momento.
+void drawWizardScreen() {
   u8g2.setFont(u8g2_font_helvB08_tr);
   drawCenteredStr(10, "CALIBRAR TECLADO");
   u8g2.drawHLine(0, 12, 128);
 
-  char buf[32];
+  char buf[36];
   u8g2.setFont(u8g2_font_6x10_tr);
-  snprintf(buf, sizeof(buf), "ADC : %u", (unsigned)keypad.lastRawCounts);
-  u8g2.drawStr(4, 26, buf);
-  snprintf(buf, sizeof(buf), "Pin : %.3f V", keypadLastMv() / 1000.0f);
-  u8g2.drawStr(4, 38, buf);
-  snprintf(buf, sizeof(buf), "Tecl: %.3f V", keypadLastVolts());
-  u8g2.drawStr(4, 50, buf);
-
-  u8g2.setFont(u8g2_font_helvB08_tr);
-  u8g2.drawStr(84, 32, buttonName(keypadHeld()));
+  switch (wiz.fase) {
+    case 0:
+      drawCenteredStr(28, "No toques nada");
+      drawCenteredStr(40, "midiendo reposo...");
+      drawProgressBar(14, 45, 100, 9,
+                      (uint8_t)((millis() - wiz.t0) * 100UL / WIZ_REPOSO_MS));
+      break;
+    case 1: {
+      drawCenteredStr(26, "Pulsa y manten:");
+      u8g2.setFont(u8g2_font_helvB08_tr);
+      drawCenteredStr(40, buttonName(BTN_ORDEN[wiz.paso]));
+      u8g2.setFont(u8g2_font_4x6_tr);
+      const uint32_t transcurrido = millis() - wiz.t0;
+      const unsigned resta = (transcurrido < WIZ_SALTO_MS)
+                             ? (unsigned)((WIZ_SALTO_MS - transcurrido) / 1000) : 0u;
+      snprintf(buf, sizeof(buf), "%u/%u  se omite en %us",
+               (unsigned)(wiz.paso + 1), (unsigned)BTN_ORDEN_N, resta);
+      drawCenteredStr(50, buf);
+      break;
+    }
+    case 2: drawCenteredStr(34, "Suelta el boton"); break;
+    case 3: drawCenteredStr(34, "Calculando...");   break;
+    default:
+      snprintf(buf, sizeof(buf), "%u de %u botones OK",
+               (unsigned)wiz.capturados, (unsigned)BTN_ORDEN_N);
+      drawCenteredStr(28, buf);
+      drawCenteredStr(40, wiz.aviso[0] ? wiz.aviso : "Guardado");
+      break;
+  }
   u8g2.setFont(u8g2_font_4x6_tr);
-  u8g2.drawStr(2, 62, "Serial 115200: 'c' para salir");
+  snprintf(buf, sizeof(buf), "ADC %u  %d mV  reposo %d",
+           (unsigned)keypadCounts(), (int)keypadLastMv(), (int)keypad.idleMv);
+  drawCenteredStr(62, buf);
 }
 
 void renderUI() {
@@ -1350,7 +1654,7 @@ void renderUI() {
     case STATE_MENU:    drawMenu();        break;
     case STATE_ABOUT:   drawAbout();       break;
     case STATE_HISTORY: drawHistoryUI();   break;
-    case STATE_KEYPAD_CALIB: drawCalibScreen(); break;
+    case STATE_KEYPAD_WIZARD: drawWizardScreen(); break;
     case STATE_SIGNAL_ERROR: drawSignalError(); break;
 
     case STATE_TRIAGE_FINGER_REQ:
@@ -1362,7 +1666,7 @@ void renderUI() {
 
     case STATE_TRIAGE_FINGER_READ: {
       const Vitals v = vitalsGet();
-      if (!v.fingerPresent) {
+      if (!v.fingerPresent || !vitalsVigentes(v)) {
         drawAvatar(EMOTION_LOOK_DOWN, animFrame, 48, 20, 0.55f);
         drawFingerIcon(108, 24, animFrame);
         u8g2.setFont(u8g2_font_6x10_tr);
@@ -1415,7 +1719,7 @@ void renderUI() {
       drawAvatar(EMOTION_LOADING, animFrame, 40, 18, 0.5f);
       drawSpinner(104, 18, 10, animFrame);
       u8g2.setFont(u8g2_font_6x10_tr);
-      if (!v.tempPresent) {
+      if (!v.tempPresent || !vitalsVigentes(v)) {
         drawCenteredStr(46, "Esperando muneca...");
       } else {
         char buf[24];
@@ -1512,19 +1816,20 @@ void processInputs(Button btn) {
       break;
 
     case STATE_MENU:
-      if (btn == BTN_UP)   mainMenuSelection = (mainMenuSelection == 0) ? 2 : mainMenuSelection - 1;
-      if (btn == BTN_DOWN) mainMenuSelection = (mainMenuSelection == 2) ? 0 : mainMenuSelection + 1;
+      if (btn == BTN_UP)   mainMenuSelection = (mainMenuSelection == 0) ? MENU_N - 1 : mainMenuSelection - 1;
+      if (btn == BTN_DOWN) mainMenuSelection = (mainMenuSelection == MENU_N - 1) ? 0 : mainMenuSelection + 1;
       if (btn == BTN_BACK) { currentEmotion = EMOTION_NORMAL; setState(STATE_IDLE_FACE); }
       if (btn == BTN_OK) {
-        if (mainMenuSelection == 0) {
-          if (!hwMaxOk) { snprintf(errorDetail, sizeof(errorDetail), "Sensor de pulso ausente");
-                          currentEmotion = EMOTION_SAD; setState(STATE_SIGNAL_ERROR); }
-          else { patientBPM = 0; patientSpO2 = 0; patientTempC = NAN;
-                 currentEmotion = EMOTION_LOOK_DOWN; setState(STATE_TRIAGE_FINGER_REQ); }
-        } else if (mainMenuSelection == 1) {
-          historyPage = 0; setState(STATE_HISTORY);
-        } else {
-          aboutPage = 0;   setState(STATE_ABOUT);
+        switch (mainMenuSelection) {
+          case 0:
+            if (!hwMaxOk) { snprintf(errorDetail, sizeof(errorDetail), "Sensor de pulso ausente");
+                            currentEmotion = EMOTION_SAD; setState(STATE_SIGNAL_ERROR); }
+            else { patientBPM = 0; patientSpO2 = 0; patientTempC = NAN;
+                   currentEmotion = EMOTION_LOOK_DOWN; setState(STATE_TRIAGE_FINGER_REQ); }
+            break;
+          case 1: historyPage = 0; setState(STATE_HISTORY); break;
+          case 2: keypadWizardStart(); setState(STATE_KEYPAD_WIZARD); break;
+          default: aboutPage = 0; setState(STATE_ABOUT); break;
         }
       }
       break;
@@ -1590,11 +1895,20 @@ void setup() {
   u8g2.enableUTF8Print();
   u8g2.setFontMode(0);
 
-  // --- ADC del teclado ---
+  // --- ADC y teclado ---
   analogReadResolution(ADC_BITS);
   analogSetPinAttenuation(KEYPAD_PIN, ADC_ATTENUATION);
   pinMode(KEYPAD_PIN, INPUT);
-  keypadValidateMap();
+
+  memcpy(KEYPAD_MAP_DEFECTO, KEYPAD_MAP, sizeof(KEYPAD_MAP));   // red de seguridad
+  prefs.begin(NVS_NS, false);
+  const bool hayCal = keypadHasCalibration();
+  if (hayCal) keypadLoadCalibration();
+  else        Serial.println(F("[TECLADO] Sin calibracion guardada: se abre el asistente"));
+  if (keypadActiveCount() == 0) keypadRestoreDefaults();
+  // Medir el reposo ANTES de nada: si coincide con un boton es que se esta
+  // manteniendo una tecla al encender -> se abre el asistente (via de escape).
+  const Button teclaMantenida = keypadMeasureIdle();
 
   // --- I2C ---
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
@@ -1640,7 +1954,13 @@ void setup() {
 
   xTaskCreatePinnedToCore(sensorTaskCode, "SensorTask", 8192, NULL, 1, &SensorTaskHandle, 0);
 
-  setState(calibMode ? STATE_KEYPAD_CALIB : STATE_BOOT);
+  // Sin calibracion guardada, o con un boton mantenido al encender -> asistente.
+  if (!hayCal || teclaMantenida != BTN_NONE) {
+    keypadWizardStart();
+    setState(STATE_KEYPAD_WIZARD);
+  } else {
+    setState(STATE_BOOT);
+  }
 }
 
 // =====================================================================
@@ -1649,27 +1969,31 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
-  // --- 9.1 Consola: 'c' entra/sale del modo calibracion del teclado ---
+  // --- 9.1 Consola: 'c' abre el asistente de calibracion del teclado ---
   while (Serial.available()) {
     const int c = Serial.read();
     if (c == 'c' || c == 'C') {
-      calibMode = !calibMode;
-      if (calibMode) { calibReturnState = currentState; setState(STATE_KEYPAD_CALIB); }
-      else           setState(calibReturnState == STATE_KEYPAD_CALIB ? STATE_MENU : calibReturnState);
-      Serial.println(calibMode ? F("[CALIB] ON  (pulsa cada boton)") : F("[CALIB] OFF"));
+      sensorRequest(SENS_IDLE);
+      keypadWizardStart();
+      setState(STATE_KEYPAD_WIZARD);
     }
   }
 
-  // --- 9.2 Teclado: muestreo periodico no bloqueante ---
+  // --- 9.2 Teclado (o asistente): muestreo periodico no bloqueante ---
   if (now - lastKeyPollMs >= KEY_POLL_MS) {
     lastKeyPollMs = now;
-    const Button ev = keypadPoll();
-    if (calibMode) {
-      keypadCalibrationService(now);
+    if (currentState == STATE_KEYPAD_WIZARD) {
+      if (keypadWizardStep(now)) {
+        currentEmotion = EMOTION_NORMAL;
+        mainMenuSelection = 0;
+        mainMenuTop = 0;
+        lastInteraction = now;
+        setState(STATE_MENU);
+      }
       needsRedraw = true;
-      if (ev != BTN_NONE) lastInteraction = now;
-    } else if (ev != BTN_NONE) {
-      processInputs(ev);
+    } else {
+      const Button ev = keypadPoll();
+      if (ev != BTN_NONE) processInputs(ev);
     }
   }
 
@@ -1691,6 +2015,11 @@ void loop() {
 
   // --- 9.4 Transiciones de la maquina de estados (siempre con millis()) ---
   const Vitals v = vitalsGet();
+  // Solo valen los datos de la medida EN CURSO: si el nucleo 0 todavia no ha
+  // adoptado el modo que se le acaba de pedir, lo que hay en 'v' es del modo
+  // anterior (por ejemplo el ppgFailed de un intento que caduco) y aceptarlo
+  // cancelaria la medida nueva nada mas empezar.
+  const bool vDeEstaMedida = vitalsVigentes(v);
 
   switch (currentState) {
     case STATE_BOOT:
@@ -1706,6 +2035,7 @@ void loop() {
       break;
 
     case STATE_TRIAGE_FINGER_READ:
+      if (!vDeEstaMedida) break;              // el nucleo 0 aun no ha arrancado
       if (v.ppgReady) {
         patientBPM  = v.finalBPM;
         patientSpO2 = v.finalSpO2;
@@ -1743,6 +2073,7 @@ void loop() {
       break;
 
     case STATE_TRIAGE_WRIST_READ:
+      if (!vDeEstaMedida) break;
       if (v.tempReady) {
         patientTempC = v.finalSkinC;
         sensorRequest(SENS_IDLE);
@@ -1781,7 +2112,7 @@ void loop() {
                        currentState == STATE_TRIAGE_WRIST_READ  ||
                        currentState == STATE_TRIAGE_WRIST_HOLD);
   if (!midida && currentState != STATE_IDLE_FACE && currentState != STATE_BOOT &&
-      currentState != STATE_KEYPAD_CALIB &&
+      currentState != STATE_KEYPAD_WIZARD &&
       (now - lastInteraction > INACTIVITY_TIMEOUT)) {
     currentEmotion = EMOTION_NORMAL;
     setState(STATE_IDLE_FACE);

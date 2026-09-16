@@ -39,3 +39,7 @@ credenciales*.json
 #  iniciada, asi que tampoco puede acabar en el repositorio.
 .wwebjs_auth/
 .wwebjs_cache/
+
+# Productos del banco de pruebas del firmware (no son codigo)
+pruebas/banco_firmware/.build/
+pruebas/banco_firmware/.libs/

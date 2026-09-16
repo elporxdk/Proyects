@@ -32,8 +32,9 @@
 #include <ArduinoJson.h>
 #include "qrcode.h"
 #include "MAX30105.h"
-#include "heartRate.h"
 #include "spo2_algorithm.h"
+//  NO se usa "heartRate.h" (checkForBeat): trunca la muestra IR a 16 bits y
+//  con el dedo puesto el sensor entrega muchas mas cuentas. Ver bloque 7.1.
 
 // =====================================================================
 // 1. CONFIGURACION   (todo lo ajustable esta aqui)
@@ -131,6 +132,20 @@ KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de segurid
 #define PPG_TIMEOUT_MS        45000UL
 #define NO_FINGER_TIMEOUT_MS  20000UL
 
+//  Detector de latidos (bloque 7.1). Umbral ADAPTATIVO sobre la envolvente de
+//  la propia senal: funciona igual con un dedo frio que con uno caliente, y
+//  BEAT_TH_HIGH evita contar la onda dicrota (el rebote que sigue a la
+//  sistole, de un 30-50 % del pico) como si fuera otro latido.
+#define BEAT_DC_ALPHA         0.01f    // linea de base (~1 s a 100 Hz)
+#define BEAT_LP_ALPHA         0.25f    // paso bajo (~4 Hz a 100 Hz)
+#define BEAT_ENV_DECAY        0.997f   // caida de la envolvente por muestra
+#define BEAT_TH_HIGH          0.55f    // fraccion de envolvente para disparar
+#define BEAT_TH_LOW           0.25f    // fraccion por debajo de la cual rearma
+#define BEAT_MIN_AMPLITUDE    25.0f    // cuentas; por debajo solo hay ruido
+#define BEAT_WARMUP_SAMPLES   80       // muestras hasta asentar la linea base
+#define BEAT_RING             8        // intervalos guardados para la mediana
+#define BEAT_MIN_INTERVALS    2        // intervalos minimos para dar un BPM
+
 // --- 1.5 CODIGO QR ----------------------------------------------------
 //  QR_INVERTIDO 1 en paneles AZULES con pixeles blancos (negativos).
 //  QR_INVERTIDO 0 en paneles verde/amarillo con pixeles negros (positivos).
@@ -168,6 +183,9 @@ enum WorkMode : uint8_t { WK_IDLE, WK_PPG, WK_NET };
 enum NetStage : uint8_t { NET_OFF, NET_WIFI, NET_MDNS, NET_SWEEP, NET_FOUND, NET_FAIL };
 
 struct Shared {
+  uint32_t epoca;            // epoca de medida adoptada por el nucleo 0: si no
+                             // coincide con g_epoca, lo que hay aqui es del
+                             // modo ANTERIOR y la UI lo ignora.
   // --- PPG ---
   bool     dedo;
   bool     senalOk;
@@ -616,14 +634,97 @@ void pedirModo(WorkMode m) {
 // =====================================================================
 // 7. SENSOR MAX30102 (unico sensor del equipo)
 // =====================================================================
+
+// ---------------------------------------------------------------------
+// 7.1 DETECTOR DE LATIDOS PROPIO
+// ---------------------------------------------------------------------
+//  POR QUE NO SE USA checkForBeat() DE LA LIBRERIA SPARKFUN: pasa la muestra
+//  por averageDCEstimator(int32_t*, uint16_t) y lowPassFIRFilter(int16_t), o
+//  sea que la TRUNCA a 16 bits. Con el dedo puesto el MAX30102 entrega entre
+//  60.000 y 250.000 cuentas, muy por encima de 65.535: la linea de base da la
+//  vuelta y salen latidos falsos. Ademas cuenta la onda dicrota como un latido
+//  mas. Con una PPG sintetica de 72 BPM aquel camino devolvia ~150 BPM.
+//
+//  Este detector trabaja en coma flotante sobre la muestra completa:
+//    1) linea de base DC por media exponencial;
+//    2) senal AC = DC - IR (la IR BAJA en la sistole) y filtro paso bajo;
+//    3) envolvente con decaimiento -> umbral ADAPTATIVO;
+//    4) disparo por cruce de umbral con histeresis + periodo refractario;
+//    5) BPM = MEDIANA de los ultimos intervalos (robusta a un latido perdido).
+struct BeatDetector {
+  float    dc, lp, env;
+  bool     init, armed;
+  uint16_t warmup;
+  uint32_t ultimoMs;
+  uint32_t intervalos[BEAT_RING];
+  uint8_t  n, idx;
+};
+
+#define BEAT_REFRACTARIO_MS  (60000UL / HR_MAX)   // 333 ms a 180 BPM
+#define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN)   // 1500 ms a 40 BPM
+
+static void beatReset(BeatDetector &b) { memset(&b, 0, sizeof(b)); b.armed = true; }
+
+static bool beatUpdate(BeatDetector &b, uint32_t ir, uint32_t ahora) {
+  const float x = (float)ir;
+  if (!b.init) { b.dc = x; b.lp = 0.0f; b.env = 0.0f; b.init = true; b.armed = true; }
+
+  b.dc += (x - b.dc) * BEAT_DC_ALPHA;
+  const float ac = b.dc - x;                    // positiva durante la sistole
+  b.lp += (ac - b.lp) * BEAT_LP_ALPHA;
+
+  b.env *= BEAT_ENV_DECAY;
+  if (b.lp > b.env) b.env = b.lp;
+
+  if (b.warmup < BEAT_WARMUP_SAMPLES) { b.warmup++; return false; }
+  if (b.env < BEAT_MIN_AMPLITUDE) { b.armed = true; return false; }
+
+  const float thAlto = b.env * BEAT_TH_HIGH;
+  const float thBajo = b.env * BEAT_TH_LOW;
+
+  if (!b.armed) { if (b.lp < thBajo) b.armed = true; return false; }
+  if (b.lp < thAlto) return false;
+  if (b.ultimoMs != 0 && (ahora - b.ultimoMs) < BEAT_REFRACTARIO_MS) return false;
+
+  if (b.ultimoMs != 0) {
+    const uint32_t d = ahora - b.ultimoMs;
+    if (d >= BEAT_REFRACTARIO_MS && d <= BEAT_MAX_INTERVAL_MS) {
+      b.intervalos[b.idx] = d;
+      b.idx = (b.idx + 1) % BEAT_RING;
+      if (b.n < BEAT_RING) b.n++;
+    } else {
+      b.n = 0; b.idx = 0;                       // intervalo imposible: se reinicia
+    }
+  }
+  b.ultimoMs = ahora;
+  b.armed = false;
+  return true;
+}
+
+static float beatBPM(const BeatDetector &b) {
+  if (b.n < BEAT_MIN_INTERVALS) return 0.0f;
+  uint32_t v[BEAT_RING];
+  memcpy(v, b.intervalos, b.n * sizeof(uint32_t));
+  for (uint8_t i = 1; i < b.n; i++) {
+    const uint32_t k = v[i];
+    int8_t j = (int8_t)i - 1;
+    while (j >= 0 && v[j] > k) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = k;
+  }
+  const uint32_t med = (b.n & 1) ? v[b.n / 2] : (v[b.n / 2 - 1] + v[b.n / 2]) / 2;
+  return med ? (60000.0f / (float)med) : 0.0f;
+}
+
+// ---------------------------------------------------------------------
+// 7.2 Adquisicion
+// ---------------------------------------------------------------------
 struct PpgRT {
   uint32_t ir[SPO2_BUF_LEN], red[SPO2_BUF_LEN];
   int16_t  llenado;
   uint8_t  decim;
   bool     dedoRaw, dedoEstable;
-  uint32_t dedoCambio, ultimoLatido, inicio, ultimoDedo;
-  float    bpmAnillo[8];
-  uint8_t  bpmN, bpmIdx;
+  uint32_t dedoCambio, inicio, ultimoDedo;
+  BeatDetector latido;
   float    okBPM[PPG_MAX_OK], okSpO2[PPG_MAX_OK];
   uint8_t  okN;
 } pg;
@@ -658,7 +759,8 @@ static float indicePerfusion(const uint32_t *b, int16_t n) {
 }
 
 static void ppgLimpiarBuffers() {
-  pg.llenado = 0; pg.decim = 0; pg.bpmN = 0; pg.bpmIdx = 0; pg.okN = 0; pg.ultimoLatido = 0;
+  pg.llenado = 0; pg.decim = 0; pg.okN = 0;
+  beatReset(pg.latido);
 }
 
 static void ppgReiniciar(uint32_t ahora) {
@@ -688,20 +790,8 @@ static void ppgMuestra(uint32_t ir, uint32_t red, uint32_t ahora) {
   if (!pg.dedoEstable) return;
   pg.ultimoDedo = ahora;
 
-  // --- latido a 100 Hz ---
-  if (checkForBeat((int32_t)ir)) {
-    if (pg.ultimoLatido != 0) {
-      const uint32_t delta = ahora - pg.ultimoLatido;
-      if (delta > 0) {
-        const float bpm = 60000.0f / (float)delta;
-        if (bpm >= HR_MIN && bpm <= HR_MAX) {
-          pg.bpmAnillo[pg.bpmIdx] = bpm;
-          pg.bpmIdx = (pg.bpmIdx + 1) % 8;
-          if (pg.bpmN < 8) pg.bpmN++;
-        }
-      }
-    }
-    pg.ultimoLatido = ahora;
+  // --- latido (detector propio, bloque 7.1) ---
+  if (beatUpdate(pg.latido, ir, ahora)) {
     portENTER_CRITICAL(&g_mux);
     g_sh.ultimoLatido = ahora;
     portEXIT_CRITICAL(&g_mux);
@@ -724,11 +814,9 @@ static void ppgMuestra(uint32_t ir, uint32_t red, uint32_t ahora) {
                                          &spo2v, &spo2Val, &hrv, &hrVal);
   const float pi = indicePerfusion(pg.ir, SPO2_BUF_LEN);
 
-  float bpmMedia = 0.0f;
-  if (pg.bpmN > 0) {
-    for (uint8_t i = 0; i < pg.bpmN; i++) bpmMedia += pg.bpmAnillo[i];
-    bpmMedia /= pg.bpmN;
-  }
+  // Pulso: mediana de los intervalos propios. Mientras no haya suficientes
+  // latidos vale como respaldo el HR que devuelve el algoritmo de Maxim.
+  float bpmMedia = beatBPM(pg.latido);
   if (bpmMedia < HR_MIN && hrVal == 1 && hrv >= HR_MIN && hrv <= HR_MAX) bpmMedia = (float)hrv;
 
   const int  spo2c   = (int)spo2v + SPO2_OFFSET;
@@ -775,12 +863,19 @@ static void ppgTrabajo(uint32_t ahora) {
     return;
   }
   max3010x.check();                              // no bloqueante
-  uint8_t guardia = 0;
+  // Las muestras que esperan en el buffer se tomaron ANTES de "ahora", una
+  // cada 1000/PPG_SPS ms. Fecharlas todas igual desplazaria los intervalos
+  // entre latidos y con ellos el pulso; se reconstruye el instante de cada una.
+  const uint8_t pendientes = max3010x.available();
+  const uint32_t periodoMs = 1000UL / PPG_SPS;
+  uint8_t idx = 0, guardia = 0;
   while (max3010x.available() && guardia++ < 32) {
     const uint32_t ir  = max3010x.getFIFOIR();
     const uint32_t red = max3010x.getFIFORed();
     max3010x.nextSample();
-    ppgMuestra(ir, red, ahora);
+    const uint32_t atraso = (idx < pendientes) ? (pendientes - 1 - idx) * periodoMs : 0;
+    idx++;
+    ppgMuestra(ir, red, ahora - atraso);
     if (pg.okN >= PPG_TARGET) return;
   }
   const bool sinDedo = !pg.dedoEstable && (ahora - pg.ultimoDedo > NO_FINGER_TIMEOUT_MS);
@@ -997,9 +1092,12 @@ void tareaTrabajo(void *pv) {
       if (miModo == WK_PPG) {
         ppgReiniciar(ahora);
         if (hwMaxOk) {
-          max3010x.clearFIFO();
+          // Primero los LED y DESPUES vaciar el FIFO: al reves, las muestras
+          // tomadas con los LED apagados se quedarian dentro y se leerian
+          // como "no hay dedo".
           max3010x.setPulseAmplitudeRed(MAX_LED_BRIGHTNESS);
           max3010x.setPulseAmplitudeIR(MAX_LED_BRIGHTNESS);
+          max3010x.clearFIFO();
         }
       } else {
         if (hwMaxOk) {                            // LED apagados fuera de medida
@@ -1009,6 +1107,10 @@ void tareaTrabajo(void *pv) {
         if (miModo == WK_NET) netArrancar(ahora);
         else netEtapa(nt.etapa == NET_FOUND ? NET_FOUND : NET_OFF);
       }
+      // Desde aqui, lo que se publique pertenece a esta epoca.
+      portENTER_CRITICAL(&g_mux);
+      g_sh.epoca = miEpoca;
+      portEXIT_CRITICAL(&g_mux);
     }
 
     switch (miModo) {
@@ -1622,8 +1724,8 @@ void setup() {
   prefs.begin(NVS_NS, false);
   const bool hayCal = tecladoHayCal();
   if (hayCal) tecladoCargarCal();
+  else        Serial.println(F("[TECLADO] Sin calibracion guardada: se abre el asistente"));
   if (tecladoActivos() == 0) tecladoRestaurarDefecto();
-  else Serial.println(F("[TECLADO] Sin calibracion guardada: se abre el asistente"));
   const Button mantenido = tecladoMedirReposo();
   histCargar();
   Serial.printf("[MEMORIA] %u lecturas guardadas\n", (unsigned)histN);
@@ -1713,6 +1815,7 @@ void loop() {
       break;
 
     case ST_CHK_READ:
+      if (v.epoca != g_epoca) break;         // el nucleo 0 aun no ha arrancado
       if (v.ppgListo) {
         pacienteBPM  = v.finalBPM;
         pacienteSpO2 = v.finalSpO2;
