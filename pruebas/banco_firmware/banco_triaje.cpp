@@ -1,10 +1,9 @@
 // Banco de pruebas del firmware de triaje MEDIBOT.
-// Ejecuta el sketch en el PC con un MAX30102 y un MLX90614 simulados y
-// recorre la interfaz como lo haria una persona con los botones.
+// Ejecuta el sketch en el PC con un MAX30102 simulado y recorre la interfaz
+// como lo haria una persona con los botones.
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <MAX30105.h>
-#include <Adafruit_MLX90614.h>
 #include <string>
 #include <vector>
 
@@ -53,6 +52,11 @@ static int numeroTras(const char *prefijo) {          // "Latidos: 72 x min" -> 
   }
   return -1;
 }
+static int numeroAntes(const char *sufijo) {         // "72 bpm" -> 72
+  for (auto &s : pantallaUltimoFrame())
+    if (s.find(sufijo) != std::string::npos) return atoi(s.c_str());
+  return -1;
+}
 
 
 // --- Asistente de calibracion: hace de "usuario" pulsando lo que pide ---
@@ -72,7 +76,7 @@ static std::string botonPedido() {
 }
 // Recorre el asistente entero. Devuelve false si no estaba abierto.
 static bool atenderAsistente(uint32_t msMax = 90000) {
-  if (!esperarTexto("CALIBRAR TECLADO", 3000)) return false;
+  if (!esperarTexto("CALIBRAR TECLADO", 1500)) return false;
   printf("   [asistente] abierto; se calibran los botones\n");
   const uint32_t t0 = millis();
   std::string ultimo;
@@ -100,28 +104,24 @@ static bool atenderAsistente(uint32_t msMax = 90000) {
 // Lleva la interfaz desde la cara de reposo hasta el menu y lanza el chequeo.
 static void lanzarChequeo() {
   atenderAsistente();
-  esperarTexto("MEDIBOT", 5000);
-  esperar(3000);
-  OK();
+  esperar(3500);                                 // deja pasar el autodiagnostico
+  if (!pantallaContiene("Auto-Chequeo")) OK();   // cara de reposo -> menu
   esperarTexto("Auto-Chequeo", 3000);
   OK();
 }
 
 int main(int argc, char **argv) {
   const std::string caso = argc > 1 ? argv[1] : "normal";
-  const int  bpmReal  = argc > 2 ? atoi(argv[2]) : 72;
-  const int  spo2Real = argc > 3 ? atoi(argv[3]) : 98;
-  const float tempReal = argc > 4 ? (float)atof(argv[4]) : 36.4f;
+  const int bpmReal  = argc > 2 ? atoi(argv[2]) : 72;
+  const int spo2Real = argc > 3 ? atoi(argv[3]) : 98;
 
   sensorSim.bpm = bpmReal;
   sensorSim.spo2 = spo2Real;
   sensorSim.dedo = false;
-  g_mlxObjetoMiliC = 22000;
   if (caso == "sinsensor") sensorSim.presente = false;
   if (caso == "max30100")  sensorSim.partId = 0x11;
-  if (caso == "sintemp")   g_mlxPresente = false;
 
-  printf("== CASO %s (BPM=%d SpO2=%d Temp=%.1f) ==\n", caso.c_str(), bpmReal, spo2Real, tempReal);
+  printf("== CASO %s (BPM=%d SpO2=%d) ==\n", caso.c_str(), bpmReal, spo2Real);
   setup();
   std::thread(hiloUI).detach();
 
@@ -151,9 +151,9 @@ int main(int argc, char **argv) {
     sensorSim.dedo = true;
     comprobar(!esperarTexto("Senal no fiable", 6000),
               "el reintento NO se cancela por el fallo anterior");
-    comprobar(esperarTexto("SpO2:", 45000), "el reintento completa la medida");
+    comprobar(esperarTexto("TUS RESULTADOS", 45000), "el reintento completa la medida");
     volcar("reintento");
-    comprobar(numeroTras("BPM: ") == bpmReal, "el pulso del reintento es correcto");
+    comprobar(numeroAntes(" bpm") == bpmReal, "el pulso del reintento es correcto");
   } else if (caso == "dedofuera") {
     lanzarChequeo();
     esperarTexto("Coloque su dedo", 4000);
@@ -167,19 +167,9 @@ int main(int argc, char **argv) {
     esperar(2000);
     printf("   [usuario] vuelve a ponerlo\n");
     sensorSim.dedo = true;
-    comprobar(esperarTexto("SpO2:", 45000), "termina la medida tras recolocar el dedo");
+    comprobar(esperarTexto("TUS RESULTADOS", 45000), "termina la medida tras recolocar el dedo");
     volcar("resultado");
-    comprobar(abs(numeroTras("BPM: ") - bpmReal) <= 2, "el pulso sigue siendo correcto");
-  } else if (caso == "sintemp") {
-    lanzarChequeo();
-    esperarTexto("Coloque su dedo", 4000);
-    esperar(2500);
-    sensorSim.dedo = true;
-    comprobar(esperarTexto("SpO2:", 45000), "mide el pulso");
-    comprobar(esperarTexto("TUS RESULTADOS", 12000),
-              "sin termometro salta la fase de muneca y da resultados");
-    volcar("resultados");
-    comprobar(esperarTexto("Temp: no medida", 2000), "dice que la temperatura no se midio");
+    comprobar(abs(numeroAntes(" bpm") - bpmReal) <= 2, "el pulso sigue siendo correcto");
   } else if (caso == "calibrar") {
     comprobar(atenderAsistente(), "sin calibracion guardada, el asistente se abre solo");
     comprobar(pantallaContiene("4 de 5 botones OK"),
@@ -211,15 +201,11 @@ int main(int argc, char **argv) {
     esperar(2500);
     sensorSim.dedo = true;
     comprobar(esperarTexto("BPM", 12000), "muestra el pulso en vivo");
-    comprobar(esperarTexto("SpO2:", 45000), "completa la medida de pulso");
-    volcar("resultado dedo");
-    const int bpmVisto = numeroTras("BPM: ");
-    comprobar(abs(bpmVisto - bpmReal) <= 2, "el pulso medido coincide con el real");
-    comprobar(esperarTexto("Coloque su muneca", 12000), "pide la muneca");
-    esperar(2500);
-    g_mlxObjetoMiliC = (int)(tempReal * 1000);
-    comprobar(esperarTexto("TUS RESULTADOS", 30000), "llega a los resultados");
+    comprobar(esperarTexto("TUS RESULTADOS", 45000),
+              "al terminar la medida pasa directo a los resultados");
     volcar("resultados");
+    comprobar(abs(numeroAntes(" bpm") - bpmReal) <= 2, "el pulso medido coincide con el real");
+    comprobar(numeroTras("SpO2 ") > 0, "muestra la SpO2");
     UP(); esperar(400);
     volcar("posibles causas");
     comprobar(pantallaContiene("Pulso"), "la segunda pagina explica el resultado");

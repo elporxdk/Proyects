@@ -39,7 +39,6 @@ class MAX30105 {
   uint32_t getFIFOIR();
   uint32_t getFIFORed();
   void     clearFIFO();
-  float    readTemperature();
   uint8_t  readPartID()    { return (uint8_t)sensorSim.partId.load(); }
   uint8_t  getRevisionID() { return 0x03; }
 

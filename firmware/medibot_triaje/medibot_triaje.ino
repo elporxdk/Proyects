@@ -1,7 +1,7 @@
 /* =====================================================================
- *  MEDIBOT v6.0  |  ESP32 + ST7920 128x64 (U8g2) + MAX3010x + MLX90614
+ *  MEDIBOT v6.0  |  ESP32 + ST7920 128x64 (U8g2) + MAX30102
  * =====================================================================
- *  Core 0 : adquisicion de sensores (PPG y temperatura), no bloqueante.
+ *  Core 0 : adquisicion de la senal PPG (pulso y SpO2), no bloqueante.
  *  Core 1 : teclado analogico, maquina de estados, animaciones y UI.
  *
  *  TODO LO QUE HAY QUE CALIBRAR ESTA EN EL BLOQUE "1. CONFIGURACION".
@@ -16,10 +16,9 @@
 #include <stdlib.h>
 #include "MAX30105.h"          // Libreria SparkFun MAX3010x (MAX30102 / MAX30105)
 #include "spo2_algorithm.h"
-//  NO se usa "heartRate.h" (checkForBeat): ver el bloque 4.2b. Esa funcion
+//  NO se usa "heartRate.h" (checkForBeat): ver el bloque 4.2. Esa funcion
 //  trunca la muestra IR a 16 bits y con el dedo puesto el sensor entrega
 //  muchas mas cuentas, por lo que devuelve un pulso erroneo.
-#include <Adafruit_MLX90614.h>
 #include <Preferences.h>       // memoria no volatil: calibracion del teclado
 
 // =====================================================================
@@ -185,58 +184,12 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define BEAT_MIN_INTERVALS   2       // intervalos minimos para dar un BPM
 
 // ---------------------------------------------------------------------
-// 1.6 TEMPERATURA  --> SELECCION DE SENSOR Y CORRECCIONES
-// ---------------------------------------------------------------------
-//  IMPORTANTE (limitacion real, no se puede rodear por software):
-//  la senal PPG del MAX3010x (rojo/IR), el pulso y la SpO2 NO contienen
-//  informacion de temperatura corporal. Cualquier "temperatura" derivada de
-//  ellos seria inventada. La temperatura corporal exige un sensor termico.
-//
-//  El MAX3010x SI tiene un termometro interno (readTemperature()), pero mide
-//  la temperatura del SILICIO del chip (para compensar la deriva de los LED).
-//  Aqui se usa solo como diagnostico, nunca como temperatura del paciente.
-#define TEMP_SOURCE_NONE      0
-#define TEMP_SOURCE_MLX90614  1      // IR sin contacto (el del diseno original)
-#define TEMP_SOURCE_MAX30205  2      // contacto, +-0.1 C (driver I2C incluido)
-#define TEMP_SOURCE_DS18B20   3      // contacto, requiere OneWire + DallasTemperature
-#define TEMP_SOURCE           TEMP_SOURCE_MLX90614
-
-#define MLX_I2C_ADDR          0x5A
-#define MAX30205_I2C_ADDR     0x48
-#define DS18B20_PIN           4      // solo si TEMP_SOURCE = TEMP_SOURCE_DS18B20
-
-//  Correccion del sensor de piel: se suma a la lectura. Calibrar contra un
-//  termometro clinico de referencia (ver CALIBRACION.md).
-#define TEMP_SKIN_OFFSET_C    0.0f
-//  Offset piel->nucleo. Se deja en 0.0 a proposito: un offset fijo NO es
-//  clinicamente valido (depende de zona, ambiente, perfusion). Si se activa,
-//  la pantalla marca el valor como estimado.
-#define TEMP_SKIN_TO_CORE_C   0.0f
-//  Correccion del termometro interno del MAX3010x (solo temperatura de chip).
-#define MAX_CHIP_TEMP_OFFSET_C 0.0f
-
-//  Rangos fisicamente posibles: fuera de esto la lectura se descarta.
-#define TEMP_SKIN_MIN_C       28.0f
-#define TEMP_SKIN_MAX_C       43.0f
-#define TEMP_AMBIENT_MIN_C    0.0f
-#define TEMP_AMBIENT_MAX_C    50.0f
-#define TEMP_TARGET_READINGS  15     // ~2-3 s de promediado
-#define TEMP_MAX_READINGS     24
-#define TEMP_PERIOD_MS        120    // el MLX90614 refresca cada ~0.15 s
-#define TEMP_TIMEOUT_MS       30000UL
-
-//  Umbrales clinicos de referencia (orientativos)
-#define TEMP_FEVER_C          37.6f
-#define TEMP_LOW_C            35.5f
-
-// ---------------------------------------------------------------------
-// 1.7 INTERFAZ Y TIEMPOS
+// 1.6 INTERFAZ Y TIEMPOS
 // ---------------------------------------------------------------------
 #define UI_FRAME_MS           40      // 25 fps
 #define LCD_BUS_CLOCK         600000UL// ST7920: 100 kHz daba ~80 ms por frame
 #define INACTIVITY_TIMEOUT    30000UL
-#define REQ_SCREEN_MS         2200UL  // duracion de las pantallas "coloque..."
-#define HOLD_SCREEN_MS        5000UL  // duracion de las pantallas de resultado parcial
+#define REQ_SCREEN_MS         2200UL  // duracion de la pantalla "coloque el dedo"
 #define ERROR_SCREEN_MS       6000UL
 
 // =====================================================================
@@ -248,10 +201,6 @@ enum AppState : uint8_t {
   STATE_MENU,
   STATE_TRIAGE_FINGER_REQ,
   STATE_TRIAGE_FINGER_READ,
-  STATE_TRIAGE_FINGER_HOLD,
-  STATE_TRIAGE_WRIST_REQ,
-  STATE_TRIAGE_WRIST_READ,
-  STATE_TRIAGE_WRIST_HOLD,
   STATE_TRIAGE_RESULT,
   STATE_SIGNAL_ERROR,
   STATE_HISTORY,
@@ -260,12 +209,12 @@ enum AppState : uint8_t {
 };
 
 enum Emotion : uint8_t {
-  EMOTION_NORMAL, EMOTION_LOOK_DOWN, EMOTION_LOOK_UP,
-  EMOTION_HAPPY,  EMOTION_SAD,       EMOTION_LOADING
+  EMOTION_NORMAL, EMOTION_LOOK_DOWN,
+  EMOTION_HAPPY,  EMOTION_SAD,    EMOTION_LOADING
 };
 
 // Modo que el nucleo 1 (UI) pide al nucleo 0 (sensores)
-enum SensorMode : uint8_t { SENS_IDLE, SENS_PPG, SENS_TEMP };
+enum SensorMode : uint8_t { SENS_IDLE, SENS_PPG };
 
 // Datos que el nucleo 0 publica y el nucleo 1 consume. Se copian SIEMPRE
 // dentro de una seccion critica (spinlock) para que la UI nunca lea una
@@ -285,23 +234,12 @@ struct Vitals {
   bool     ppgFailed;
   int      finalBPM;
   int      finalSpO2;
-
-  bool     tempPresent;
-  float    liveSkinC;
-  float    ambientC;
-  uint8_t  tempProgress;
-  bool     tempReady;
-  bool     tempFailed;
-  float    finalSkinC;
-
-  float    chipTempC;        // temperatura del silicio del MAX3010x (diagnostico)
   uint32_t lastBeatMs;
 };
 
 struct Report {
   int   bpm;
   int   spo2;
-  float skinC;
   bool  recorded;
 };
 
@@ -309,9 +247,6 @@ struct Report {
 U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R0, OLED_CS_PIN, OLED_RESET_PIN);
 MAX30105 particleSensor;
 Preferences prefs;
-#if TEMP_SOURCE == TEMP_SOURCE_MLX90614
-Adafruit_MLX90614 mlx = Adafruit_MLX90614();
-#endif
 
 // --- Estado de la aplicacion (propiedad EXCLUSIVA del nucleo 1) ---
 AppState  currentState   = STATE_BOOT;
@@ -338,19 +273,16 @@ int  historyPage  = 0;
 
 int   patientBPM  = 0;
 int   patientSpO2 = 0;
-float patientTempC = 0.0f;
 
-Report historyReports[3] = {{0,0,0.0f,false},{0,0,0.0f,false},{0,0,0.0f,false}};
+Report historyReports[3] = {{0,0,false},{0,0,false},{0,0,false}};
 int    historyCount = 0;
 
 char diagnosis1[40];
 char diagnosis2[40];
-char diagnosis3[40];
 char errorDetail[32] = "";
 
 // --- Resultado del autotest de arranque ---
 bool  hwMaxOk     = false;
-bool  hwTempOk    = false;
 bool  hwMaxWrong  = false;      // se detecto un chip que no es MAX3010x
 uint8_t hwMaxPartId = 0;
 uint8_t hwMaxRevId  = 0;
@@ -385,7 +317,6 @@ void     saveReport();
 void     drawAvatar(Emotion emo, int frame, int cx, int cy, float s);
 void     drawCenteredStr(int y, const char *text);
 void     drawProgressBar(int x, int y, int w, int h, uint8_t pct);
-void     drawSpinner(int cx, int cy, int r, int frame);
 void     drawHeart(int cx, int cy, int r);
 void     drawFingerIcon(int cx, int cy, int frame);
 void     drawBootScreen();
@@ -717,18 +648,12 @@ bool keypadWizardStep(uint32_t now) {
 }
 
 // =====================================================================
-// 4. SENSORES (SE EJECUTAN EN EL NUCLEO 0)
+// 4. SENSOR MAX30102 (SE EJECUTA EN EL NUCLEO 0)
 // =====================================================================
 // Tras setup(), el bus I2C lo usa EXCLUSIVAMENTE el nucleo 0 (la pantalla va
 // por SPI), asi que no hace falta un mutex de bus. Lo unico compartido entre
 // nucleos es la estructura g_vitals, protegida con spinlock.
 // =====================================================================
-
-// El MLX90614 es SMBus y NO admite mas de 100 kHz; el MAX3010x agradece
-// 400 kHz. Como nunca se miden PPG y temperatura a la vez, se conmuta la
-// velocidad del bus al cambiar de modo (en el original, los 400 kHz fijos
-// hacian que el MLX devolviese NaN o basura de forma intermitente).
-static inline void i2cFast(bool fast) { Wire.setClock(fast ? 400000UL : 100000UL); }
 
 // ---------------------------------------------------------------------
 // 4.1 Media recortada (descarta el minimo y el maximo) -> robusta a outliers
@@ -755,72 +680,7 @@ static float trimmedMean(const float *src, uint8_t n) {
 }
 
 // ---------------------------------------------------------------------
-// 4.2 INTERFAZ DE TEMPERATURA (un solo punto donde anadir otro sensor)
-// ---------------------------------------------------------------------
-//  Para cambiar de sensor basta con tocar TEMP_SOURCE en la configuracion.
-//  Cualquier driver nuevo solo tiene que implementar estas dos funciones:
-//     bool tempSensorBegin();
-//     bool tempSensorRead(float &skinC, float &ambientC);
-//  skinC    -> temperatura de la superficie medida (piel), en grados Celsius
-//  ambientC -> temperatura ambiente (NAN si el sensor no la da)
-static bool tempSensorBegin() {
-#if TEMP_SOURCE == TEMP_SOURCE_MLX90614
-  // Requiere Adafruit_MLX90614 >= 2.0. Con la 1.x, sustituir por: return mlx.begin();
-  return mlx.begin(MLX_I2C_ADDR, &Wire);
-#elif TEMP_SOURCE == TEMP_SOURCE_MAX30205
-  Wire.beginTransmission(MAX30205_I2C_ADDR);
-  if (Wire.endTransmission() != 0) return false;
-  Wire.beginTransmission(MAX30205_I2C_ADDR);   // configuracion: modo continuo
-  Wire.write(0x01); Wire.write(0x00);
-  return (Wire.endTransmission() == 0);
-#elif TEMP_SOURCE == TEMP_SOURCE_DS18B20
-  // Requiere las librerias OneWire y DallasTemperature:
-  //   #include <OneWire.h>
-  //   #include <DallasTemperature.h>
-  //   OneWire oneWire(DS18B20_PIN);
-  //   DallasTemperature ds(&oneWire);
-  //   ds.begin(); ds.setResolution(12); return ds.getDeviceCount() > 0;
-  return false;
-#else
-  return false;
-#endif
-}
-
-static bool tempSensorRead(float &skinC, float &ambientC) {
-  ambientC = NAN;
-#if TEMP_SOURCE == TEMP_SOURCE_MLX90614
-  // El MLX90614 mide temperatura RADIANTE de la superficie enfocada.
-  // Emisividad de fabrica = 1.0, correcta para piel (~0.98).
-  float obj = mlx.readObjectTempC();
-  float amb = mlx.readAmbientTempC();
-  if (isnan(obj) || isnan(amb)) return false;
-  if (amb < TEMP_AMBIENT_MIN_C || amb > TEMP_AMBIENT_MAX_C) return false;
-  skinC = obj + TEMP_SKIN_OFFSET_C;
-  ambientC = amb;
-  return true;
-#elif TEMP_SOURCE == TEMP_SOURCE_MAX30205
-  Wire.beginTransmission(MAX30205_I2C_ADDR);
-  Wire.write(0x00);                                   // registro de temperatura
-  if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom((uint8_t)MAX30205_I2C_ADDR, (uint8_t)2) != 2) return false;
-  int16_t raw = ((int16_t)Wire.read() << 8) | Wire.read();
-  skinC = raw * 0.00390625f + TEMP_SKIN_OFFSET_C;     // 1 LSB = 1/256 C
-  return true;
-#elif TEMP_SOURCE == TEMP_SOURCE_DS18B20
-  //   ds.requestTemperatures();
-  //   float t = ds.getTempCByIndex(0);
-  //   if (t == DEVICE_DISCONNECTED_C) return false;
-  //   skinC = t + TEMP_SKIN_OFFSET_C; return true;
-  (void)skinC;
-  return false;
-#else
-  (void)skinC;
-  return false;
-#endif
-}
-
-// ---------------------------------------------------------------------
-// 4.2b DETECTOR DE LATIDOS PROPIO
+// 4.2 DETECTOR DE LATIDOS PROPIO
 // ---------------------------------------------------------------------
 //  POR QUE NO SE USA checkForBeat() DE LA LIBRERIA SPARKFUN:
 //  esa funcion pasa la muestra por
@@ -937,14 +797,6 @@ struct PpgState {
   uint32_t lastFingerSeenMs;
 } ppg;
 
-struct TempState {
-  float    samples[TEMP_MAX_READINGS];
-  uint8_t  count;
-  uint32_t startMs;
-  uint32_t lastReadMs;
-  uint32_t lastValidMs;
-} tmp;
-
 static void ppgResetBuffers() {
   ppg.fill = 0;
   ppg.decim = 0;
@@ -959,13 +811,6 @@ static void ppgResetAll(uint32_t now) {
   ppg.fingerChangeMs = now;
   ppg.startMs = now;
   ppg.lastFingerSeenMs = now;
-}
-
-static void tempResetAll(uint32_t now) {
-  tmp.count = 0;
-  tmp.startMs = now;
-  tmp.lastReadMs = 0;
-  tmp.lastValidMs = now;
 }
 
 // ---------------------------------------------------------------------
@@ -986,9 +831,6 @@ bool vitalsVigentes(const Vitals &v) { return v.epoch == g_modeEpoch; }
 static void vitalsClear() {
   portENTER_CRITICAL(&g_vitalsMux);
   memset((void *)&g_vitals, 0, sizeof(g_vitals));
-  g_vitals.liveSkinC = NAN;
-  g_vitals.ambientC  = NAN;
-  g_vitals.finalSkinC = NAN;
   portEXIT_CRITICAL(&g_vitalsMux);
 }
 
@@ -998,9 +840,6 @@ static void vitalsClear() {
 void sensorRequest(SensorMode m) {
   portENTER_CRITICAL(&g_vitalsMux);
   memset((void *)&g_vitals, 0, sizeof(g_vitals));
-  g_vitals.liveSkinC  = NAN;
-  g_vitals.ambientC   = NAN;
-  g_vitals.finalSkinC = NAN;
   g_sensorMode = m;
   g_modeEpoch++;
   portEXIT_CRITICAL(&g_vitalsMux);
@@ -1061,7 +900,7 @@ static void ppgProcessSample(uint32_t ir, uint32_t red, uint32_t now) {
   if (!ppg.fingerStable) return;
   ppg.lastFingerSeenMs = now;
 
-  // --- Latido (detector propio, bloque 4.2b) ---
+  // --- Latido (detector propio, bloque 4.2) ---
   if (beatUpdate(ppg.beat, ir, now)) {
     portENTER_CRITICAL(&g_vitalsMux);
     g_vitals.lastBeatMs = now;
@@ -1177,71 +1016,12 @@ static void ppgUpdate(uint32_t now) {
 }
 
 // ---------------------------------------------------------------------
-// 4.8 Adquisicion de temperatura
-// ---------------------------------------------------------------------
-static void tempUpdate(uint32_t now) {
-  if (!hwTempOk) {
-    portENTER_CRITICAL(&g_vitalsMux);
-    g_vitals.tempFailed = true;
-    portEXIT_CRITICAL(&g_vitalsMux);
-    return;
-  }
-  if (now - tmp.lastReadMs < TEMP_PERIOD_MS) return;
-  tmp.lastReadMs = now;
-
-  float skin = NAN, amb = NAN;
-  const bool ok = tempSensorRead(skin, amb);
-  const bool inRange = ok && skin >= TEMP_SKIN_MIN_C && skin <= TEMP_SKIN_MAX_C;
-
-  if (!inRange) {                    // sin muneca delante o lectura imposible
-    tmp.count = 0;
-    portENTER_CRITICAL(&g_vitalsMux);
-    g_vitals.tempPresent  = false;
-    g_vitals.liveSkinC    = ok ? skin : NAN;
-    g_vitals.ambientC     = amb;
-    g_vitals.tempProgress = 0;
-    portEXIT_CRITICAL(&g_vitalsMux);
-    if (now - tmp.lastValidMs > NO_FINGER_TIMEOUT_MS ||
-        now - tmp.startMs > TEMP_TIMEOUT_MS) {
-      portENTER_CRITICAL(&g_vitalsMux);
-      g_vitals.tempFailed = true;
-      portEXIT_CRITICAL(&g_vitalsMux);
-    }
-    return;
-  }
-
-  tmp.lastValidMs = now;
-  if (tmp.count < TEMP_MAX_READINGS) tmp.samples[tmp.count++] = skin;
-
-  portENTER_CRITICAL(&g_vitalsMux);
-  g_vitals.tempPresent  = true;
-  g_vitals.liveSkinC    = skin;
-  g_vitals.ambientC     = amb;
-  g_vitals.tempProgress = (uint8_t)((tmp.count * 100UL) / TEMP_TARGET_READINGS);
-  portEXIT_CRITICAL(&g_vitalsMux);
-
-  if (tmp.count >= TEMP_TARGET_READINGS) {
-    const float mean = trimmedMean(tmp.samples, tmp.count);
-    portENTER_CRITICAL(&g_vitalsMux);
-    g_vitals.finalSkinC   = mean;
-    g_vitals.tempProgress = 100;
-    g_vitals.tempReady    = true;
-    portEXIT_CRITICAL(&g_vitalsMux);
-  } else if (now - tmp.startMs > TEMP_TIMEOUT_MS) {
-    portENTER_CRITICAL(&g_vitalsMux);
-    g_vitals.tempFailed = true;
-    portEXIT_CRITICAL(&g_vitalsMux);
-  }
-}
-
-// ---------------------------------------------------------------------
-// 4.9 Tarea del nucleo 0
+// 4.8 Tarea del nucleo 0
 // ---------------------------------------------------------------------
 void sensorTaskCode(void *pv) {
   (void)pv;
   uint32_t myEpoch = 0xFFFFFFFF;
   SensorMode myMode = SENS_IDLE;
-  uint32_t lastChipTempMs = 0;
 
   for (;;) {
     const uint32_t now = millis();
@@ -1250,20 +1030,15 @@ void sensorTaskCode(void *pv) {
       myEpoch = g_modeEpoch;
       myMode  = g_sensorMode;
       ppgResetAll(now);
-      tempResetAll(now);
-      if (myMode == SENS_PPG) {
-        i2cFast(true);
-        if (hwMaxOk) {
+      if (hwMaxOk) {
+        if (myMode == SENS_PPG) {
           // Primero los LED y DESPUES vaciar el FIFO: al reves, las muestras
           // tomadas con los LED aun apagados se quedarian dentro y el firmware
           // las leeria como "no hay dedo".
           particleSensor.setPulseAmplitudeRed(MAX_LED_BRIGHTNESS);
           particleSensor.setPulseAmplitudeIR(MAX_LED_BRIGHTNESS);
           particleSensor.clearFIFO();
-        }
-      } else {
-        i2cFast(false);
-        if (hwMaxOk && myMode == SENS_IDLE) {     // apaga los LED en reposo
+        } else {                                  // en reposo, LED apagados
           particleSensor.setPulseAmplitudeRed(0x00);
           particleSensor.setPulseAmplitudeIR(0x00);
         }
@@ -1276,31 +1051,11 @@ void sensorTaskCode(void *pv) {
       portEXIT_CRITICAL(&g_vitalsMux);
     }
 
-    switch (myMode) {
-      case SENS_PPG:
-        ppgUpdate(now);
-        vTaskDelay(2 / portTICK_PERIOD_MS);
-        break;
-
-      case SENS_TEMP:
-        tempUpdate(now);
-        vTaskDelay(20 / portTICK_PERIOD_MS);
-        break;
-
-      default:
-        // Temperatura del SILICIO del MAX3010x: solo diagnostico del chip,
-        // NUNCA temperatura del paciente.
-        if (hwMaxOk && now - lastChipTempMs > 5000) {
-          lastChipTempMs = now;
-          i2cFast(true);
-          float t = particleSensor.readTemperature() + MAX_CHIP_TEMP_OFFSET_C;
-          i2cFast(false);
-          portENTER_CRITICAL(&g_vitalsMux);
-          g_vitals.chipTempC = t;
-          portEXIT_CRITICAL(&g_vitalsMux);
-        }
-        vTaskDelay(50 / portTICK_PERIOD_MS);
-        break;
+    if (myMode == SENS_PPG) {
+      ppgUpdate(now);
+      vTaskDelay(2 / portTICK_PERIOD_MS);
+    } else {
+      vTaskDelay(50 / portTICK_PERIOD_MS);
     }
   }
 }
@@ -1319,15 +1074,8 @@ static inline uint32_t stateElapsed() { return millis() - stateEnteredMs; }
 
 // Pantallas sin animacion: no necesitan refresco continuo
 static bool screenIsAnimated() {
-  return !(currentState == STATE_ABOUT ||
-           currentState == STATE_HISTORY ||
-           currentState == STATE_TRIAGE_RESULT);
+  return !(currentState == STATE_ABOUT || currentState == STATE_HISTORY);
 }
-
-// Temperatura mostrada al usuario. Por defecto es la de PIEL medida; solo se
-// convierte a "estimacion corporal" si el instalador define TEMP_SKIN_TO_CORE_C.
-static inline float displayTempC(float skinC) { return skinC + TEMP_SKIN_TO_CORE_C; }
-static inline bool  tempIsEstimate() { return fabsf(TEMP_SKIN_TO_CORE_C) > 0.001f; }
 
 void drawCenteredStr(int y, const char *text) {
   u8g2.drawStr((128 - u8g2.getStrWidth(text)) / 2, y, text);
@@ -1338,18 +1086,6 @@ void drawProgressBar(int x, int y, int w, int h, uint8_t pct) {
   u8g2.drawRFrame(x, y, w, h, 2);
   int inner = ((w - 4) * pct) / 100;
   if (inner > 0) u8g2.drawBox(x + 2, y + 2, inner, h - 4);
-}
-
-void drawSpinner(int cx, int cy, int r, int frame) {
-  const int active = (frame / 2) % 8;
-  for (int i = 0; i < 8; i++) {
-    const float a = i * (PI / 4.0f);
-    const int px = cx + (int)(cos(a) * r);
-    const int py = cy + (int)(sin(a) * r);
-    if (i == active)      u8g2.drawDisc(px, py, 2);
-    else if (i == (active + 7) % 8) u8g2.drawDisc(px, py, 1);
-    else                  u8g2.drawPixel(px, py);
-  }
 }
 
 void drawHeart(int cx, int cy, int r) {
@@ -1420,8 +1156,7 @@ void drawAvatar(Emotion emo, int frame, int cx, int cy, float s) {
       if (ciclo == 1)      lookX = -(int)(3 * s);
       else if (ciclo == 5) lookX =  (int)(3 * s);
     }
-    if (emo == EMOTION_LOOK_DOWN)    pyOff = eH - pW - (int)(2 * s);
-    else if (emo == EMOTION_LOOK_UP) pyOff = (int)(2 * s);
+    if (emo == EMOTION_LOOK_DOWN) pyOff = eH - pW - (int)(2 * s);
 
     if (emo == EMOTION_LOADING) {
       const int animOff = (int)(((frame % 20) - 10) * s);
@@ -1443,7 +1178,7 @@ void drawAvatar(Emotion emo, int frame, int cx, int cy, float s) {
     u8g2.drawDisc(mx, my + (int)(3 * s), mRad);
     u8g2.setDrawColor(0);
     u8g2.drawBox(mx - mRad - 1, my + (int)(3 * s), (mRad * 2) + 2, mRad + 1);
-  } else if (emo == EMOTION_LOOK_DOWN || emo == EMOTION_LOOK_UP || emo == EMOTION_LOADING) {
+  } else if (emo == EMOTION_LOOK_DOWN || emo == EMOTION_LOADING) {
     u8g2.drawCircle(mx, my + (int)(2 * s), max(1, (int)(3 * s)));
   } else {
     u8g2.drawDisc(mx, my, max(1, (int)(5 * s)));
@@ -1461,16 +1196,13 @@ void drawBootScreen() {
 
   u8g2.setFont(u8g2_font_5x7_tr);
   char buf[32];
-  if (hwMaxWrong)      snprintf(buf, sizeof(buf), "Pulso : CHIP NO COMPAT.");
-  else if (hwMaxOk)    snprintf(buf, sizeof(buf), "Pulso : OK (ID 0x%02X)", hwMaxPartId);
-  else                 snprintf(buf, sizeof(buf), "Pulso : NO DETECTADO");
-  u8g2.drawStr(4, 27, buf);
-
-  snprintf(buf, sizeof(buf), "Temp  : %s", hwTempOk ? "OK" : "NO DETECTADO");
-  u8g2.drawStr(4, 37, buf);
+  if (hwMaxWrong)      snprintf(buf, sizeof(buf), "Sensor : CHIP NO COMPAT.");
+  else if (hwMaxOk)    snprintf(buf, sizeof(buf), "Sensor : OK (ID 0x%02X)", hwMaxPartId);
+  else                 snprintf(buf, sizeof(buf), "Sensor : NO DETECTADO");
+  u8g2.drawStr(4, 29, buf);
 
   snprintf(buf, sizeof(buf), "Teclado: %u botones", (unsigned)keypadActiveCount());
-  u8g2.drawStr(4, 47, buf);
+  u8g2.drawStr(4, 41, buf);
 
   uint32_t pct = (stateElapsed() * 100UL) / 2200UL;
   if (pct > 100) pct = 100;
@@ -1542,13 +1274,9 @@ void drawHistoryUI() {
   } else {
     const Report &r = historyReports[historyPage];
     snprintf(buf, sizeof(buf), "Latidos: %d x min", r.bpm);
-    u8g2.drawStr(4, 28, buf);
+    u8g2.drawStr(4, 32, buf);
     snprintf(buf, sizeof(buf), "Oxigeno: %d%%", r.spo2);
-    u8g2.drawStr(4, 42, buf);
-    if (isnan(r.skinC)) snprintf(buf, sizeof(buf), "Temp: --");
-    else snprintf(buf, sizeof(buf), "Temp%s: %.1f C", tempIsEstimate() ? "~" : " piel",
-                  displayTempC(r.skinC));
-    u8g2.drawStr(4, 56, buf);
+    u8g2.drawStr(4, 48, buf);
   }
   u8g2.setFont(u8g2_font_4x6_tr);
   u8g2.drawStr(20, 63, "[UP/DWN] Ver  [BACK] Salir");
@@ -1561,28 +1289,28 @@ void drawTriageResult() {
     drawCenteredStr(10, "TUS RESULTADOS");
     u8g2.drawHLine(0, 12, 128);
 
+    // La cara va aqui: es la unica pantalla de resultado que queda, asi que
+    // es donde el robot reacciona (contento o preocupado) a lo medido.
+    drawAvatar(currentEmotion, animFrame, 26, 36, 0.45f);
+
     u8g2.setFont(u8g2_font_6x10_tr);
-    snprintf(buf, sizeof(buf), "Latidos: %d x min", patientBPM);
-    u8g2.drawStr(4, 26, buf);
-    snprintf(buf, sizeof(buf), "Oxigeno: %d%%", patientSpO2);
-    u8g2.drawStr(4, 40, buf);
-    if (isnan(patientTempC)) snprintf(buf, sizeof(buf), "Temp: no medida");
-    else snprintf(buf, sizeof(buf), "Temp%s: %.1f C", tempIsEstimate() ? "~" : " piel",
-                  displayTempC(patientTempC));
-    u8g2.drawStr(4, 54, buf);
+    u8g2.drawStr(56, 26, "Pulso");
+    snprintf(buf, sizeof(buf), "%d bpm", patientBPM);
+    u8g2.drawStr(56, 37, buf);
+    snprintf(buf, sizeof(buf), "SpO2 %d%%", patientSpO2);
+    u8g2.drawStr(56, 52, buf);
 
     u8g2.setFont(u8g2_font_4x6_tr);
-    u8g2.drawStr(24, 63, "[UP/DWN] Posibles causas");
+    drawCenteredStr(63, "[UP/DWN] Posibles causas");
   } else {
     drawCenteredStr(10, "POSIBLES CAUSAS");
     u8g2.drawHLine(0, 12, 128);
     u8g2.setFont(u8g2_font_5x7_tr);
-    u8g2.drawStr(2, 24, diagnosis1);
-    u8g2.drawStr(2, 36, diagnosis2);
-    u8g2.drawStr(2, 48, diagnosis3);
+    u8g2.drawStr(2, 27, diagnosis1);
+    u8g2.drawStr(2, 41, diagnosis2);
     u8g2.setFont(u8g2_font_4x6_tr);
-    u8g2.drawStr(2, 57, "Orientativo, no diagnostico");
-    u8g2.drawStr(24, 63, "[OK] Inicio  [UP/DWN] Valores");
+    drawCenteredStr(55, "Orientativo, no es un diagnostico");
+    drawCenteredStr(63, "[OK] Inicio  [UP/DWN] Valores");
   }
 }
 
@@ -1696,52 +1424,6 @@ void renderUI() {
       break;
     }
 
-    case STATE_TRIAGE_FINGER_HOLD: {
-      drawAvatar(EMOTION_HAPPY, animFrame, 64, 18, 0.60f);
-      u8g2.setFont(u8g2_font_6x10_tr);
-      char buf[24];
-      snprintf(buf, sizeof(buf), "BPM: %d", patientBPM);
-      drawCenteredStr(46, buf);
-      snprintf(buf, sizeof(buf), "SpO2: %d%%", patientSpO2);
-      drawCenteredStr(58, buf);
-      break;
-    }
-
-    case STATE_TRIAGE_WRIST_REQ:
-      drawAvatar(EMOTION_LOOK_UP, animFrame, 64, 20, 0.65f);
-      u8g2.setFont(u8g2_font_6x10_tr);
-      drawCenteredStr(50, "Coloque su muneca");
-      drawCenteredStr(62, "en el sensor");
-      break;
-
-    case STATE_TRIAGE_WRIST_READ: {
-      const Vitals v = vitalsGet();
-      drawAvatar(EMOTION_LOADING, animFrame, 40, 18, 0.5f);
-      drawSpinner(104, 18, 10, animFrame);
-      u8g2.setFont(u8g2_font_6x10_tr);
-      if (!v.tempPresent || !vitalsVigentes(v)) {
-        drawCenteredStr(46, "Esperando muneca...");
-      } else {
-        char buf[24];
-        snprintf(buf, sizeof(buf), "%.1f C", displayTempC(v.liveSkinC));
-        drawCenteredStr(46, buf);
-      }
-      drawProgressBar(4, 50, 120, 9, v.tempProgress);
-      u8g2.setFont(u8g2_font_4x6_tr);
-      drawCenteredStr(63, "[BACK] Cancelar");
-      break;
-    }
-
-    case STATE_TRIAGE_WRIST_HOLD: {
-      drawAvatar(EMOTION_HAPPY, animFrame, 64, 18, 0.60f);
-      u8g2.setFont(u8g2_font_6x10_tr);
-      char buf[28];
-      snprintf(buf, sizeof(buf), "Temp%s: %.1f C",
-               tempIsEstimate() ? "~" : " piel", displayTempC(patientTempC));
-      drawCenteredStr(52, buf);
-      break;
-    }
-
     case STATE_TRIAGE_RESULT:
       drawTriageResult();
       break;
@@ -1759,19 +1441,9 @@ void evaluateDiagnoses() {
   else if (patientBPM < 60)  snprintf(diagnosis1, sizeof(diagnosis1), "1. Pulso lento (%d)", patientBPM);
   else                       snprintf(diagnosis1, sizeof(diagnosis1), "1. Pulso normal (%d)", patientBPM);
 
-  if (patientSpO2 < 92)       snprintf(diagnosis2, sizeof(diagnosis2), "2. Oxigeno bajo: alerta");
-  else if (patientSpO2 <= 94) snprintf(diagnosis2, sizeof(diagnosis2), "2. Oxigeno algo bajo");
-  else                        snprintf(diagnosis2, sizeof(diagnosis2), "2. Oxigeno normal");
-
-  if (isnan(patientTempC)) {
-    snprintf(diagnosis3, sizeof(diagnosis3), "3. Temp no disponible");
-  } else {
-    const float t = displayTempC(patientTempC);
-    const char *etq = tempIsEstimate() ? "estim" : "piel";
-    if (t >= TEMP_FEVER_C)     snprintf(diagnosis3, sizeof(diagnosis3), "3. Temp %s %.1fC alta", etq, t);
-    else if (t <= TEMP_LOW_C)  snprintf(diagnosis3, sizeof(diagnosis3), "3. Temp %s %.1fC baja", etq, t);
-    else                       snprintf(diagnosis3, sizeof(diagnosis3), "3. Temp %s %.1fC normal", etq, t);
-  }
+  if (patientSpO2 < 92)       snprintf(diagnosis2, sizeof(diagnosis2), "2. Oxigeno bajo: alerta (%d%%)", patientSpO2);
+  else if (patientSpO2 <= 94) snprintf(diagnosis2, sizeof(diagnosis2), "2. Oxigeno algo bajo (%d%%)", patientSpO2);
+  else                        snprintf(diagnosis2, sizeof(diagnosis2), "2. Oxigeno normal (%d%%)", patientSpO2);
 }
 
 void saveReport() {
@@ -1779,7 +1451,6 @@ void saveReport() {
   historyReports[1] = historyReports[0];
   historyReports[0].bpm      = patientBPM;
   historyReports[0].spo2     = patientSpO2;
-  historyReports[0].skinC    = patientTempC;
   historyReports[0].recorded = true;
   if (historyCount < 3) historyCount++;
 }
@@ -1824,7 +1495,7 @@ void processInputs(Button btn) {
           case 0:
             if (!hwMaxOk) { snprintf(errorDetail, sizeof(errorDetail), "Sensor de pulso ausente");
                             currentEmotion = EMOTION_SAD; setState(STATE_SIGNAL_ERROR); }
-            else { patientBPM = 0; patientSpO2 = 0; patientTempC = NAN;
+            else { patientBPM = 0; patientSpO2 = 0;
                    currentEmotion = EMOTION_LOOK_DOWN; setState(STATE_TRIAGE_FINGER_REQ); }
             break;
           case 1: historyPage = 0; setState(STATE_HISTORY); break;
@@ -1859,8 +1530,6 @@ void processInputs(Button btn) {
     // Durante la medida solo se permite cancelar
     case STATE_TRIAGE_FINGER_REQ:
     case STATE_TRIAGE_FINGER_READ:
-    case STATE_TRIAGE_WRIST_REQ:
-    case STATE_TRIAGE_WRIST_READ:
       if (btn == BTN_BACK) {
         sensorRequest(SENS_IDLE);
         currentEmotion = EMOTION_NORMAL;
@@ -1910,12 +1579,11 @@ void setup() {
   // manteniendo una tecla al encender -> se abre el asistente (via de escape).
   const Button teclaMantenida = keypadMeasureIdle();
 
-  // --- I2C ---
+  // --- I2C: el MAX3010x es el unico dispositivo del bus y admite 400 kHz ---
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  i2cFast(false);
+  Wire.setClock(400000UL);
 
   // --- Identificacion del sensor MAX ---
-  i2cFast(true);
   if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     hwMaxPartId = particleSensor.readPartID();
     hwMaxRevId  = particleSensor.getRevisionID();
@@ -1940,13 +1608,6 @@ void setup() {
       Serial.println(F("[MAX] Sensor de pulso NO detectado (revisa I2C 0x57)"));
     }
   }
-  i2cFast(false);
-
-  // --- Sensor de temperatura ---
-  hwTempOk = tempSensorBegin();
-  Serial.printf("[TEMP] fuente=%d -> %s\n", TEMP_SOURCE, hwTempOk ? "OK" : "NO DETECTADO");
-  if (!hwTempOk) Serial.println(F("[TEMP] Sin sensor termico no hay temperatura corporal:"
-                                  " la PPG/SpO2 NO permite deducirla."));
 
   vitalsClear();
   lastInteraction = millis();
@@ -2040,59 +1701,14 @@ void loop() {
         patientBPM  = v.finalBPM;
         patientSpO2 = v.finalSpO2;
         sensorRequest(SENS_IDLE);
-        currentEmotion = EMOTION_HAPPY;
-        setState(STATE_TRIAGE_FINGER_HOLD);
-      } else if (v.ppgFailed) {
-        abortMeasurement(v.fingerPresent ? "Senal debil o movimiento" : "No se detecto el dedo");
-      }
-      break;
-
-    case STATE_TRIAGE_FINGER_HOLD:
-      if (stateElapsed() >= HOLD_SCREEN_MS) {
-        if (!hwTempOk) {                       // sin sensor termico se salta la fase
-          patientTempC = NAN;
-          evaluateDiagnoses();
-          saveReport();
-          resultPage = 0;
-          currentEmotion = (patientBPM > 100 || patientBPM < 60 || patientSpO2 < 92)
-                           ? EMOTION_SAD : EMOTION_HAPPY;
-          setState(STATE_TRIAGE_RESULT);
-        } else {
-          currentEmotion = EMOTION_LOOK_UP;
-          setState(STATE_TRIAGE_WRIST_REQ);
-        }
-      }
-      break;
-
-    case STATE_TRIAGE_WRIST_REQ:
-      if (stateElapsed() > REQ_SCREEN_MS) {
-        sensorRequest(SENS_TEMP);
-        currentEmotion = EMOTION_LOADING;
-        setState(STATE_TRIAGE_WRIST_READ);
-      }
-      break;
-
-    case STATE_TRIAGE_WRIST_READ:
-      if (!vDeEstaMedida) break;
-      if (v.tempReady) {
-        patientTempC = v.finalSkinC;
-        sensorRequest(SENS_IDLE);
-        currentEmotion = EMOTION_HAPPY;
-        setState(STATE_TRIAGE_WRIST_HOLD);
-      } else if (v.tempFailed) {
-        abortMeasurement("Sin lectura de temperatura");
-      }
-      break;
-
-    case STATE_TRIAGE_WRIST_HOLD:
-      if (stateElapsed() >= HOLD_SCREEN_MS) {
         evaluateDiagnoses();
         saveReport();
         resultPage = 0;
-        currentEmotion = (patientBPM > 100 || patientBPM < 60 || patientSpO2 < 92 ||
-                          (!isnan(patientTempC) && displayTempC(patientTempC) >= TEMP_FEVER_C))
+        currentEmotion = (patientBPM > 100 || patientBPM < 60 || patientSpO2 < 92)
                          ? EMOTION_SAD : EMOTION_HAPPY;
         setState(STATE_TRIAGE_RESULT);
+      } else if (v.ppgFailed) {
+        abortMeasurement(v.fingerPresent ? "Senal debil o movimiento" : "No se detecto el dedo");
       }
       break;
 
@@ -2105,12 +1721,8 @@ void loop() {
   }
 
   // --- 9.5 Vuelta a reposo por inactividad (nunca durante una medida) ---
-  const bool midida = (currentState == STATE_TRIAGE_FINGER_REQ  ||
-                       currentState == STATE_TRIAGE_FINGER_READ ||
-                       currentState == STATE_TRIAGE_FINGER_HOLD ||
-                       currentState == STATE_TRIAGE_WRIST_REQ   ||
-                       currentState == STATE_TRIAGE_WRIST_READ  ||
-                       currentState == STATE_TRIAGE_WRIST_HOLD);
+  const bool midida = (currentState == STATE_TRIAGE_FINGER_REQ ||
+                       currentState == STATE_TRIAGE_FINGER_READ);
   if (!midida && currentState != STATE_IDLE_FACE && currentState != STATE_BOOT &&
       currentState != STATE_KEYPAD_WIZARD &&
       (now - lastInteraction > INACTIVITY_TIMEOUT)) {

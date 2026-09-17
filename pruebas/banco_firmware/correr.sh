@@ -3,10 +3,10 @@
 #  Banco de pruebas del firmware MEDIBOT (se ejecuta en el PC, sin placa)
 # =====================================================================
 #  Compila los sketches de firmware/ como un programa de PC contra unos
-#  sustitutos de Arduino, U8g2, Wire y Preferences, y con un MAX30102 y un
-#  MLX90614 SIMULADOS: el sensor falso genera una PPG sintetica con un pulso
-#  y una SpO2 conocidos, y el banco pulsa los botones y lee el texto de la
-#  pantalla como lo haria una persona.
+#  sustitutos de Arduino, U8g2, Wire y Preferences, y con un MAX30102
+#  SIMULADO: el sensor falso genera una PPG sintetica con un pulso y una SpO2
+#  conocidos, y el banco pulsa los botones y lee el texto de la pantalla como
+#  lo haria una persona.
 #
 #  El algoritmo de SpO2 que se prueba es el REAL (spo2_algorithm.cpp de la
 #  libreria SparkFun), no una copia.
@@ -68,12 +68,12 @@ $CXX $COMUN $JSONDEF -Ishim_panel -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar yacalibrado normal sindedo dedofuera sintemp sinsensor"}
+CASOS=${1:-"calibrar yacalibrado normal sindedo dedofuera sinsensor"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0
 for caso in $CASOS; do
-  if ./.build/banco_triaje "$caso" 72 98 36.4 > ".build/salida_$caso.txt" 2>&1; then
+  if ./.build/banco_triaje "$caso" 72 98 > ".build/salida_$caso.txt" 2>&1; then
     echo "  OK    triaje/$caso"
   else
     echo "  FALLO triaje/$caso   (ver .build/salida_$caso.txt)"

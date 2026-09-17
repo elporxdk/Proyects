@@ -2,7 +2,6 @@
 #include <Wire.h>
 #include <U8g2lib.h>
 #include <MAX30105.h>
-#include <Adafruit_MLX90614.h>
 
 // ===================== reloj virtual =====================
 double g_speedup = 8.0;     // 8 s simulados por cada segundo real
@@ -68,19 +67,6 @@ bool pantallaContiene(const char *frag) {
   for (const auto &s : frameActual)
     if (s.find(frag) != std::string::npos) return true;
   return false;
-}
-
-// ===================== MLX90614 =====================
-std::atomic<int>  g_mlxObjetoMiliC{22000};
-std::atomic<int>  g_mlxAmbienteMiliC{23000};
-std::atomic<bool> g_mlxPresente{true};
-double Adafruit_MLX90614::readObjectTempC() {
-  if (!g_mlxPresente.load()) return NAN;
-  return g_mlxObjetoMiliC.load() / 1000.0;
-}
-double Adafruit_MLX90614::readAmbientTempC() {
-  if (!g_mlxPresente.load()) return NAN;
-  return g_mlxAmbienteMiliC.load() / 1000.0;
 }
 
 // ===================== MAX30102 simulado =====================
@@ -169,7 +155,6 @@ void     MAX30105::nextSample() { if (available()) { sense.tail = (byte)((sense.
 uint32_t MAX30105::getFIFOIR()  { return sense.IR[sense.tail]; }
 uint32_t MAX30105::getFIFORed() { return sense.red[sense.tail]; }
 void     MAX30105::clearFIFO()  { fifoN = 0; sense.head = sense.tail = 0; proximaMuestraMs = millis(); }
-float    MAX30105::readTemperature() { delay(30); return 28.5f; }
 
 // ===================== Preferences (NVS simulada) =====================
 #include <Preferences.h>

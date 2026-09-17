@@ -1,9 +1,8 @@
 # Banco de pruebas del firmware (sin placa)
 
-Ejecuta los sketches de `firmware/` **en el PC**, con el MAX30102 y el
-MLX90614 simulados, y comprueba el recorrido completo de la interfaz: menú,
-auto-chequeo, temperatura, resultados, historial y asistente de calibración
-del teclado.
+Ejecuta los sketches de `firmware/` **en el PC**, con el MAX30102 simulado, y
+comprueba el recorrido completo de la interfaz: menú, auto-chequeo, resultados,
+historial y asistente de calibración del teclado.
 
 ```sh
 ./correr.sh              # todos los casos
@@ -22,7 +21,6 @@ Con `MEDIBOT_LIBS=/ruta/a/libraries` se le puede indicar otra carpeta.
 | `spo2_algorithm.cpp` (Maxim/SparkFun) | **el de verdad**, de la librería instalada |
 | Arduino, U8g2, Wire, Preferences, WiFi… | sustitutos mínimos en `shim/` y `shim_panel/` |
 | MAX30102 | simulado: genera una PPG sintética con BPM y SpO2 elegidos |
-| MLX90614 | simulado: devuelve la temperatura que fije la prueba |
 | Pantalla | no dibuja, pero **anota el texto** de cada frame, y eso es lo que se comprueba |
 | Teclado | la prueba fija la tensión del pin, como si pulsara de verdad |
 
@@ -35,10 +33,9 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 |---|---|
 | `calibrar` | sin calibración guardada, el asistente se abre solo, mide los 4 botones útiles, descarta MENU (a 5 V satura el ADC) y deja el menú navegable |
 | `yacalibrado` | con la calibración guardada no se repite el asistente y los botones siguen funcionando |
-| `normal` | chequeo completo: el pulso y la SpO2 mostrados coinciden con los simulados, se mide la temperatura y queda en el historial |
+| `normal` | chequeo completo: el pulso y la SpO2 mostrados coinciden con los simulados y quedan en el historial |
 | `sindedo` | sin dedo cancela con un motivo claro, y el **reintento inmediato** no hereda el fallo anterior |
 | `dedofuera` | si se levanta el dedo a mitad, lo detecta, se recupera y termina bien |
-| `sintemp` | sin termómetro salta la fase de muñeca y lo dice en los resultados |
 | `sinsensor` | sin MAX30102 lo avisa al arrancar y no deja empezar una medida |
 | `panel` | el mismo auto-chequeo en el firmware del panel |
 

@@ -1,7 +1,14 @@
 # MEDIBOT v6.0 — Guía de calibración
 
-Todo lo ajustable está en el bloque **`1. CONFIGURACION`** del sketch
-`medibot_triaje.ino`. Este documento explica qué medir y dónde ponerlo.
+Triaje con **un solo sensor**: el MAX30102 (pulso y SpO₂). Todo lo ajustable
+está en el bloque **`1. CONFIGURACION`** del sketch `medibot_triaje.ino`. Este
+documento explica qué medir y dónde ponerlo.
+
+> El equipo **no mide temperatura**. Ni la señal PPG (rojo/IR), ni el pulso, ni
+> la SpO₂ contienen información de temperatura corporal: cualquier valor
+> derivado de ellas sería inventado. Si algún día se añade un termómetro de
+> verdad (MLX90614, MAX30205, DS18B20…), será con su propio sensor y su propia
+> fase de medida.
 
 ## Librerías necesarias
 
@@ -9,7 +16,8 @@ Todo lo ajustable está en el bloque **`1. CONFIGURACION`** del sketch
 |---|---|
 | `U8g2` (olikraus) | pantalla ST7920 128x64 por SPI hardware |
 | `SparkFun MAX3010x Pulse and Proximity Sensor Library` | MAX30102 / MAX30105 |
-| `Adafruit MLX90614` | termómetro IR sin contacto |
+
+`Preferences` viene con el core de ESP32 (guarda la calibración del teclado).
 
 El MAX30100 **no** funciona con la librería MAX3010x (es otro chip, PART ID
 `0x11`); el firmware lo detecta y lo avisa por Serial y en la pantalla de
@@ -88,38 +96,7 @@ los botones tal y como llegan al ESP32.
 Para otra placa (AVR de 5 V, RP2040, STM32): `USE_ESP_ADC_CAL 0`,
 `ADC_BITS 10` y `ADC_FULLSCALE_MV 5000` (AVR), y repetir la calibración.
 
-## 3. Corrección de temperatura
-
-**Limitación real:** ni la señal PPG (rojo/IR), ni el pulso, ni la SpO₂
-contienen información de temperatura corporal. Cualquier “temperatura”
-derivada de ellas sería inventada. Hace falta un sensor térmico.
-
-El MAX3010x **sí** tiene termómetro interno, pero mide la temperatura del
-**silicio del chip** (sirve para compensar la deriva de los LED). Aquí se lee
-sólo como diagnóstico (`chipTempC`, corrección `MAX_CHIP_TEMP_OFFSET_C`) y
-nunca se presenta como temperatura del paciente.
-
-| Constante | Qué es |
-|---|---|
-| `TEMP_SOURCE` | `TEMP_SOURCE_MLX90614` (actual), `TEMP_SOURCE_MAX30205`, `TEMP_SOURCE_DS18B20`, `TEMP_SOURCE_NONE` |
-| `TEMP_SKIN_OFFSET_C` | corrección del sensor de piel; se suma a la lectura |
-| `TEMP_SKIN_TO_CORE_C` | offset piel → núcleo. **Se deja en 0.0 a propósito**: un offset fijo no es clínicamente válido. Si se activa, la pantalla marca el valor con `~` (estimado) |
-| `TEMP_SKIN_MIN_C` / `TEMP_SKIN_MAX_C` | 28..43 °C, rango físicamente posible; fuera de él la lectura se descarta |
-| `TEMP_TARGET_READINGS` | muestras promediadas (media recortada) |
-| `TEMP_FEVER_C` / `TEMP_LOW_C` | umbrales del texto de resultado |
-
-Procedimiento para `TEMP_SKIN_OFFSET_C`: medir la muñeca 5 veces con el
-MEDIBOT y 5 veces con un termómetro clínico de referencia en el mismo punto y
-a la misma distancia; `offset = media_referencia − media_medibot`. Repetirlo a
-la distancia real de uso: el MLX90614 tiene un campo de visión de ~90°, así que
-si está lejos promedia piel + ropa + fondo y lee bajo.
-
-**Añadir otro sensor**: sólo hay que implementar dos funciones,
-`tempSensorBegin()` y `tempSensorRead(float &skinC, float &ambientC)`
-(sección 4.2). El driver del MAX30205 ya está escrito (I2C directo) y el del
-DS18B20 está dejado como plantilla comentada con las líneas exactas.
-
-## 4. Parámetros del sensor MAX
+## 3. Parámetros del sensor MAX
 
 | Constante | Por defecto | Cuándo tocarla |
 |---|---|---|
@@ -133,7 +110,7 @@ DS18B20 está dejado como plantilla comentada con las líneas exactas.
 | `SPO2_OFFSET` | 0 | **en el código original había un `-3` fijo**. Es una corrección arbitraria: sólo debe usarse si se ha comparado contra un pulsioxímetro certificado |
 | `HR_MIN_BPM` / `HR_MAX_BPM` | 40 / 180 | rango de pulso aceptado |
 
-### 4.1 El pulso NO se mide con `checkForBeat()`
+### 3.1 El pulso NO se mide con `checkForBeat()`
 
 `heartRate.h` (de la misma librería SparkFun) trae `checkForBeat()`, que es lo
 que usaban las versiones anteriores y casi todos los ejemplos. **No se usa
@@ -165,7 +142,7 @@ muestra completa: línea de base exponencial, señal AC invertida y filtrada,
 | `BEAT_MIN_AMPLITUDE` | 25 cuentas | por debajo se considera ruido y no dispara |
 | `BEAT_RING` | 8 | intervalos que entran en la mediana |
 
-## 5. Pantalla
+## 4. Pantalla
 
 `LCD_BUS_CLOCK` = 600 kHz. El original usaba 100 kHz **y además llamaba a
 `setBusClock()` después de `begin()`**, donde ya no surte efecto. A 100 kHz un
@@ -175,5 +152,4 @@ hasta ~1 MHz; si la pantalla se ve con basura, bajar a 400 kHz.
 ## Aviso
 
 Este dispositivo es orientativo y de uso educativo. No es un producto sanitario
-y no sustituye a un pulsioxímetro ni a un termómetro clínico certificados, ni a
-una valoración médica.
+y no sustituye a un pulsioxímetro certificado ni a una valoración médica.
