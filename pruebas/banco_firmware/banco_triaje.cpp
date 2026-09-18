@@ -19,10 +19,14 @@ static void comprobar(bool cond, const char *que) {
   printf("   %s %s\n", cond ? "OK  " : "FALLO", que);
   if (!cond) fallos++;
 }
+// Una pulsacion tarda en registrarse: el EMA del teclado necesita ~5 muestras
+// (50 ms) para llegar al rango del boton y luego hay 40 ms de antirrebote. Se
+// mantiene bastante mas de ese minimo para que el banco no dependa de como
+// reparta el sistema operativo los dos hilos.
 static void pulsar(int mv, const char *nombre) {
   printf("   [tecla] %s\n", nombre);
-  g_adcMv = mv; esperar(180);
-  g_adcMv = 3200; esperar(180);
+  g_adcMv = mv; esperar(300);
+  g_adcMv = 3200; esperar(220);
 }
 #define OK()   pulsar(1500, "OK")
 #define UP()   pulsar(2500, "UP")

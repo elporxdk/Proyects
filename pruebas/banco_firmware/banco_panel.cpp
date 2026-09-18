@@ -13,7 +13,8 @@ static void hiloUI() { while (corriendo.load()) loop(); }
 static void esperar(uint32_t ms) { delay(ms); }
 static int fallos = 0;
 static void comprobar(bool c, const char *q) { printf("   %s %s\n", c ? "OK  " : "FALLO", q); if (!c) fallos++; }
-static void pulsar(int mv, const char *n) { printf("   [tecla] %s\n", n); g_adcMv = mv; esperar(180); g_adcMv = 3200; esperar(180); }
+// Holgura de sobra sobre el minimo real (EMA ~50 ms + 40 ms de antirrebote)
+static void pulsar(int mv, const char *n) { printf("   [tecla] %s\n", n); g_adcMv = mv; esperar(300); g_adcMv = 3200; esperar(220); }
 #define OK()   pulsar(1500, "OK")
 #define DOWN() pulsar(10, "ABAJO")
 static std::string pantalla() { std::string l; for (auto &s : pantallaUltimoFrame()) { l += "\""; l += s; l += "\" "; } return l; }

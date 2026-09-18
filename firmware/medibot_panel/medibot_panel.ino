@@ -145,6 +145,8 @@ KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de segurid
 #define BEAT_WARMUP_SAMPLES   80       // muestras hasta asentar la linea base
 #define BEAT_RING             8        // intervalos guardados para la mediana
 #define BEAT_MIN_INTERVALS    2        // intervalos minimos para dar un BPM
+#define BEAT_REFRACTARIO_MS  (60000UL / HR_MAX)   // 333 ms a 180 BPM
+#define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN)   // 1500 ms a 40 BPM
 
 // --- 1.5 CODIGO QR ----------------------------------------------------
 //  QR_INVERTIDO 1 en paneles AZULES con pixeles blancos (negativos).
@@ -178,6 +180,20 @@ enum Emotion : uint8_t { EMO_NORMAL, EMO_DOWN, EMO_UP, EMO_HAPPY, EMO_SAD, EMO_L
 
 // Modos que la UI (nucleo 1) pide al trabajador (nucleo 0)
 enum WorkMode : uint8_t { WK_IDLE, WK_PPG, WK_NET };
+
+// Estado del detector de latidos. El algoritmo esta en el bloque 7.1; el tipo
+// tiene que declararse AQUI, antes de la primera funcion del fichero, porque
+// el IDE de Arduino genera solo los prototipos de todas las funciones y los
+// inserta justo ahi: si el tipo llega despues, el prototipo de beatUpdate() lo
+// usaria sin conocerlo ("'BeatDetector' was not declared in this scope").
+struct BeatDetector {
+  float    dc, lp, env;
+  bool     init, armed;
+  uint16_t warmup;
+  uint32_t ultimoMs;
+  uint32_t intervalos[BEAT_RING];
+  uint8_t  n, idx;
+};
 
 // Etapas de la conexion con MEDIBOT
 enum NetStage : uint8_t { NET_OFF, NET_WIFI, NET_MDNS, NET_SWEEP, NET_FOUND, NET_FAIL };
@@ -651,18 +667,6 @@ void pedirModo(WorkMode m) {
 //    3) envolvente con decaimiento -> umbral ADAPTATIVO;
 //    4) disparo por cruce de umbral con histeresis + periodo refractario;
 //    5) BPM = MEDIANA de los ultimos intervalos (robusta a un latido perdido).
-struct BeatDetector {
-  float    dc, lp, env;
-  bool     init, armed;
-  uint16_t warmup;
-  uint32_t ultimoMs;
-  uint32_t intervalos[BEAT_RING];
-  uint8_t  n, idx;
-};
-
-#define BEAT_REFRACTARIO_MS  (60000UL / HR_MAX)   // 333 ms a 180 BPM
-#define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN)   // 1500 ms a 40 BPM
-
 static void beatReset(BeatDetector &b) { memset(&b, 0, sizeof(b)); b.armed = true; }
 
 static bool beatUpdate(BeatDetector &b, uint32_t ir, uint32_t ahora) {

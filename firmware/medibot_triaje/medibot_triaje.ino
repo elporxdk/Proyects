@@ -182,6 +182,8 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define BEAT_WARMUP_SAMPLES  80      // muestras hasta asentar la linea de base
 #define BEAT_RING            8       // intervalos guardados para la mediana
 #define BEAT_MIN_INTERVALS   2       // intervalos minimos para dar un BPM
+#define BEAT_REFRACTORY_MS   (60000UL / HR_MAX_BPM)   // 333 ms a 180 BPM
+#define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN_BPM)   // 1500 ms a 40 BPM
 
 // ---------------------------------------------------------------------
 // 1.6 INTERFAZ Y TIEMPOS
@@ -215,6 +217,24 @@ enum Emotion : uint8_t {
 
 // Modo que el nucleo 1 (UI) pide al nucleo 0 (sensores)
 enum SensorMode : uint8_t { SENS_IDLE, SENS_PPG };
+
+// Estado del detector de latidos. El algoritmo esta en el bloque 4.2; el tipo
+// tiene que declararse AQUI, antes de la primera funcion del fichero, porque
+// el IDE de Arduino genera solo los prototipos de todas las funciones y los
+// inserta justo ahi: si el tipo llega despues, el prototipo de beatUpdate() lo
+// usaria sin conocerlo ("'BeatDetector' was not declared in this scope").
+struct BeatDetector {
+  float    dc;
+  float    lp;
+  float    env;
+  bool     init;
+  bool     armed;
+  uint16_t warmup;
+  uint32_t lastBeatMs;
+  uint32_t intervals[BEAT_RING];
+  uint8_t  intervalCount;
+  uint8_t  intervalIndex;
+};
 
 // Datos que el nucleo 0 publica y el nucleo 1 consume. Se copian SIEMPRE
 // dentro de una seccion critica (spinlock) para que la UI nunca lea una
@@ -700,22 +720,6 @@ static float trimmedMean(const float *src, uint8_t n) {
 //    4) disparo por cruce de umbral con histeresis + periodo refractario;
 //    5) BPM = MEDIANA de los ultimos intervalos, robusta a un latido perdido
 //       o a uno de mas (la media aritmetica no lo es).
-struct BeatDetector {
-  float    dc;
-  float    lp;
-  float    env;
-  bool     init;
-  bool     armed;
-  uint16_t warmup;
-  uint32_t lastBeatMs;
-  uint32_t intervals[BEAT_RING];
-  uint8_t  intervalCount;
-  uint8_t  intervalIndex;
-};
-
-#define BEAT_REFRACTORY_MS   (60000UL / HR_MAX_BPM)   // 333 ms a 180 BPM
-#define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN_BPM)   // 1500 ms a 40 BPM
-
 static void beatReset(BeatDetector &b) {
   memset(&b, 0, sizeof(b));
   b.armed = true;

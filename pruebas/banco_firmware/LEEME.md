@@ -13,6 +13,29 @@ Necesita `g++` y las librerías `SparkFun MAX3010x` y `ArduinoJson`. Usa las
 del IDE (`~/Arduino/libraries`); si no las encuentra, las clona en `.libs/`.
 Con `MEDIBOT_LIBS=/ruta/a/libraries` se le puede indicar otra carpeta.
 
+## Antes de compilar: los prototipos del IDE
+
+`correr.sh` empieza pasando `comprobar_prototipos.py` por los dos sketches.
+
+El IDE de Arduino **no compila el `.ino` tal cual**: genera un prototipo de
+cada función del fichero y los inserta todos juntos justo antes de la primera
+función. Si un tipo propio (`struct`, `enum`) se declara *después* de ese punto
+y aparece en la firma de alguna función, el prototipo generado lo usa antes de
+que exista:
+
+```
+error: variable or field 'beatReset' declared void
+error: 'BeatDetector' was not declared in this scope
+```
+
+...y encima señala la línea de la **definición**, que es adonde apunta el
+`#line` generado, así que el mensaje despista. Compilando el `.ino` como C++
+normal —que es lo que hace este banco— el fallo **no aparece**: sólo sale en el
+IDE. De ahí el comprobador.
+
+Regla: **todo tipo que se use en la firma de una función va declarado antes de
+la primera función del fichero** (en MEDIBOT, en el bloque de tipos).
+
 ## Qué es real y qué está simulado
 
 | Pieza | Qué se usa aquí |

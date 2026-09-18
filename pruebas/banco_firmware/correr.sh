@@ -57,6 +57,10 @@ JSONDEF="-DARDUINOJSON_ENABLE_ARDUINO_STRING=0 -DARDUINOJSON_ENABLE_ARDUINO_STRE
          -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -DARDUINOJSON_ENABLE_PROGMEM=0 \
          -DARDUINOJSON_ENABLE_STD_STRING=1"
 
+# ---- el .ino tiene que sobrevivir al preprocesador del IDE de Arduino -------
+echo "Comprobando los prototipos que genera el IDE..."
+python3 comprobar_prototipos.py "$TRIAJE" "$PANEL"
+
 mkdir -p .build
 echo "Compilando el banco del triaje..."
 $CXX $COMUN -x c++ "$TRIAJE" banco_triaje.cpp shim/shim.cpp \
