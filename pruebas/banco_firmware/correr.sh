@@ -72,7 +72,7 @@ $CXX $COMUN $JSONDEF -Ishim_panel -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar yacalibrado normal sindedo dedofuera sinsensor"}
+CASOS=${1:-"calibrar yacalibrado normal diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0
@@ -88,13 +88,16 @@ done
 
 if [ -z "$1" ]; then
   rm -f .build/nvs.medibot
-  if ./.build/banco_panel 72 > .build/salida_panel.txt 2>&1; then
-    echo "  OK    panel/auto-chequeo"
-  else
-    echo "  FALLO panel/auto-chequeo   (ver .build/salida_panel.txt)"
-    grep -E "^   FALLO" .build/salida_panel.txt | sed 's/^/       /'
-    fallos=$((fallos + 1))
-  fi
+  for pcaso in normal botonpulsado; do
+    rm -f .build/nvs.medibot
+    if ./.build/banco_panel 72 "$pcaso" > ".build/salida_panel_$pcaso.txt" 2>&1; then
+      echo "  OK    panel/$pcaso"
+    else
+      echo "  FALLO panel/$pcaso   (ver .build/salida_panel_$pcaso.txt)"
+      grep -E "^   FALLO" ".build/salida_panel_$pcaso.txt" | sed 's/^/       /'
+      fallos=$((fallos + 1))
+    fi
+  done
 fi
 
 echo "---"

@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <MAX30105.h>
+#include <nvs_flash.h>
 #include <string>
 #include <vector>
 
@@ -105,6 +106,14 @@ static bool atenderAsistente(uint32_t msMax = 90000) {
   return true;
 }
 
+// Llega al menu y deja la seleccion en la primera entrada (sin pulsar OK).
+static void lanzarChequeoNo() {
+  atenderAsistente();
+  esperar(3500);
+  if (!pantallaContiene("Auto-Chequeo")) OK();
+  esperarTexto("Auto-Chequeo", 3000);
+}
+
 // Lleva la interfaz desde la cara de reposo hasta el menu y lanza el chequeo.
 static void lanzarChequeo() {
   atenderAsistente();
@@ -122,8 +131,10 @@ int main(int argc, char **argv) {
   sensorSim.bpm = bpmReal;
   sensorSim.spo2 = spo2Real;
   sensorSim.dedo = false;
-  if (caso == "sinsensor") sensorSim.presente = false;
+  if (caso == "sinsensor" || caso == "sensorlento") sensorSim.presente = false;
   if (caso == "max30100")  sensorSim.partId = 0x11;
+  if (caso == "sinmemoria") { g_nvsRota = true; g_nvsReparable = false; }
+  if (caso == "botonpulsado") g_adcMv = 2500;      // ARRIBA mantenido al encender
 
   printf("== CASO %s (BPM=%d SpO2=%d) ==\n", caso.c_str(), bpmReal, spo2Real);
   setup();
@@ -180,11 +191,9 @@ int main(int argc, char **argv) {
               "calibra los 4 botones utiles y descarta MENU (a 5 V satura el ADC)");
     comprobar(esperarTexto("Auto-Chequeo", 8000), "al terminar deja el menu listo");
     DOWN(); esperar(300);
-    comprobar(pantallaContiene("Historial"), "ABAJO mueve la seleccion");
-    DOWN(); esperar(300); DOWN(); esperar(300);
     volcar("menu");
-    comprobar(pantallaContiene("Sobre Medibot"), "el menu tiene la entrada de calibracion y llega al final");
-    UP(); esperar(300); UP(); esperar(300);
+    comprobar(pantallaContiene("Diagnostico") && pantallaContiene("Calibrar teclado"),
+              "el menu llega a Diagnostico y a Calibrar teclado");
     OK();
     comprobar(esperarTexto("HISTORIAL", 3000), "OK entra en la opcion elegida");
     BACK();
@@ -196,9 +205,86 @@ int main(int argc, char **argv) {
     esperar(3000);
     OK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "los botones guardados funcionan");
-    DOWN(); esperar(300); DOWN(); esperar(300); OK();
+    DOWN(); DOWN(); DOWN(); OK();
     comprobar(esperarTexto("CALIBRAR TECLADO", 3000),
               "desde el menu se puede repetir la calibracion");
+  } else if (caso == "diagnostico") {
+    lanzarChequeoNo();
+    DOWN(); DOWN(); OK();
+    comprobar(esperarTexto("DIAGNOSTICO", 4000), "el menu abre la pantalla de diagnostico");
+    esperar(1500);
+    volcar("diagnostico sin dedo");
+    comprobar(pantallaContiene("Sensor: OK"), "dice que el sensor responde");
+    comprobar(pantallaContiene("sin dedo"), "con el sensor libre indica que no hay dedo");
+    sensorSim.dedo = true;
+    esperar(3000);
+    volcar("diagnostico con dedo");
+    comprobar(pantallaContiene("DEDO"), "al poner el dedo lo refleja en vivo");
+    BACK();
+    comprobar(esperarTexto("Auto-Chequeo", 3000), "se sale al menu");
+  } else if (caso == "sensorlento") {
+    // El sensor no responde al arrancar y aparece despues (mal contacto que se
+    // asienta, modulo que tarda en dar tension...): tiene que recuperarse solo.
+    comprobar(esperarTexto("NO DETECTADO", 5000), "avisa de que no hay sensor al arrancar");
+    printf("   [hardware] se conecta el sensor 4 s despues\n");
+    esperar(4000);
+    sensorSim.presente = true;
+    esperar(5000);
+    lanzarChequeoNo();
+    OK();
+    comprobar(esperarTexto("Coloque su dedo", 6000),
+              "sin reiniciar, el equipo ya deja medir");
+    esperar(2500);
+    sensorSim.dedo = true;
+    comprobar(esperarTexto("TUS RESULTADOS", 45000), "y la medida se completa");
+    comprobar(abs(numeroAntes(" bpm") - bpmReal) <= 2, "con el pulso correcto");
+  } else if (caso == "sensorcuelga") {
+    lanzarChequeo();
+    esperarTexto("Coloque su dedo", 4000);
+    esperar(2500);
+    sensorSim.dedo = true;
+    esperarTexto("BPM", 12000);
+    esperar(2000);
+    printf("   [hardware] el sensor deja de entregar muestras\n");
+    sensorSim.colgado = true;
+    comprobar(esperarTexto("TUS RESULTADOS", 60000),
+              "el firmware reinicia el sensor y termina la medida");
+    volcar("resultado");
+    comprobar(!sensorSim.colgado.load(), "el sensor ha quedado desatascado");
+  } else if (caso == "sinmemoria") {
+    comprobar(atenderAsistente(), "sin calibracion el asistente se abre igual");
+    comprobar(pantallaContiene("NO se pudo guardar") || pantallaContiene("Sin guardar"),
+              "avisa de que la calibracion NO se ha guardado");
+    comprobar(pantallaContiene("Se repetira al encender"), "explica que se repetira");
+    comprobar(esperarTexto("Auto-Chequeo", 10000), "aun asi deja usar el menu");
+  } else if (caso == "botonpulsado") {
+    // Al asistente se entra MANTENIENDO un boton al encender. Si el reposo se
+    // midiera con el boton pulsado, ninguna pulsacion pareceria distinta del
+    // reposo y no se capturaria (ni guardaria) nada.
+    comprobar(esperarTexto("CALIBRAR TECLADO", 4000),
+              "mantener un boton al encender abre el asistente");
+    // Se mantiene mas de WIZ_REPOSO_MS: es lo que hace cualquiera al encender
+    // con el boton pulsado. Si el reposo se midiera aqui, saldria 2500 mV.
+    esperar(2500);
+    printf("   [usuario] suelta el boton\n");
+    g_adcMv = 3200;
+    comprobar(atenderAsistente(), "el asistente sigue su curso");
+    comprobar(pantallaContiene("4 de 5 botones OK"),
+              "mide el reposo DESPUES de soltar y captura los 4 botones");
+    comprobar(pantallaContiene("Guardado en memoria"), "y los guarda");
+    comprobar(esperarTexto("Auto-Chequeo", 8000), "el menu queda operativo");
+    // Prueba de fuego: ARRIBA desde la primera entrada da la vuelta a la
+    // ultima. Si el reposo se hubiera guardado como si fuera un boton, ARRIBA
+    // no existiria (se confundio con el reposo) y ademas el teclado creeria
+    // que hay una tecla pulsada todo el rato.
+    UP();
+    OK();
+    comprobar(esperarTexto("INFO MEDIBOT", 4000),
+              "ARRIBA y OK navegan: la calibracion guardada es la buena");
+    BACK();
+    // Vuelve al menu con la seleccion en la ultima entrada, asi que la ventana
+    // visible empieza en "Historial": "Auto-Chequeo" queda fuera de pantalla.
+    comprobar(esperarTexto("Calibrar teclado", 4000), "y se vuelve al menu");
   } else {                                   // normal
     lanzarChequeo();
     comprobar(esperarTexto("Coloque su dedo", 4000), "pide el dedo");

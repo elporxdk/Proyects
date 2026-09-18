@@ -4,7 +4,11 @@
 #include <MAX30105.h>
 
 // ===================== reloj virtual =====================
-double g_speedup = 8.0;     // 8 s simulados por cada segundo real
+// Aceleracion del reloj. Cuanto mas alto, antes acaban las pruebas, pero mas
+// probable es que el reparto de hilos del PC retrase la tarea del sensor y se
+// pierdan muestras del FIFO (en la placa de verdad el nucleo 0 va solo). A 5x
+// una medida de 12 s tarda 2,4 s reales y no se pierde ninguna.
+double g_speedup = 5.0;
 static std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 
 static uint64_t realUs() {
@@ -48,6 +52,26 @@ int xTaskCreatePinnedToCore(void (*fn)(void *), const char *, uint32_t, void *p,
 
 // ===================== I2C =====================
 TwoWire Wire;
+uint8_t maxSimRegs[256] = {0};
+
+uint8_t TwoWire::endTransmission(bool) {
+  if (addr != MAXSIM_I2C_ADDR || !maxSimPresente()) return 2;   // nadie contesta
+  if (nEscrito >= 1) puntero = escrito[0];
+  if (nEscrito >= 2) maxSimRegs[puntero] = escrito[1];           // escritura real
+  return 0;
+}
+uint8_t TwoWire::requestFrom(uint8_t a, uint8_t n) {
+  if (a != MAXSIM_I2C_ADDR || !maxSimPresente()) { pendiente = 0; return 0; }
+  pendiente = n;
+  return n;
+}
+int TwoWire::read() {
+  if (!pendiente) return 0;
+  pendiente--;
+  if (puntero == 0xFF) return (uint8_t)sensorSim.partId.load();   // PART ID
+  if (puntero == 0xFE) return 0x03;                               // REVISION
+  return maxSimRegs[puntero];
+}
 
 // ===================== U8g2 =====================
 u8g2_font_t u8g2_font_4x6_tr = "4x6", u8g2_font_5x7_tr = "5x7",
@@ -72,16 +96,26 @@ bool pantallaContiene(const char *frag) {
 // ===================== MAX30102 simulado =====================
 SensorSim sensorSim;
 
-bool MAX30105::begin(TwoWire &, uint32_t) {
+bool maxSimPresente() { return sensorSim.presente.load(); }
+
+bool MAX30105::begin(TwoWire &, uint32_t, uint8_t) {
+  maxSimRegs[0xFF] = (uint8_t)sensorSim.partId.load();
+  maxSimRegs[0xFE] = 0x03;
   iniciado = sensorSim.presente.load() && sensorSim.partId.load() == 0x15;
   return iniciado;
 }
 
-void MAX30105::setup(byte powerLevel, byte sampleAverage, byte, int sampleRate, int, int) {
+void MAX30105::setup(byte powerLevel, byte sampleAverage, byte ledMode, int sampleRate, int, int) {
   ampRed = ampIr = powerLevel;
   const int ef = sampleRate / (sampleAverage ? sampleAverage : 1);
   periodoMs = ef > 0 ? 1000 / ef : 10;
   proximaMuestraMs = millis();
+  sensorSim.colgado = false;            // reconfigurar lo desatasca, como el chip real
+  // El chip de verdad deja esto en sus registros; el firmware lo relee para
+  // comprobar que la configuracion ha entrado.
+  maxSimRegs[0x09] = (ledMode == 3) ? 0x07 : (ledMode == 2 ? 0x03 : 0x02);
+  maxSimRegs[0x0C] = powerLevel;
+  maxSimRegs[0x0D] = powerLevel;
 }
 
 // Forma de onda PPG: pico sistolico + onda dicrota.
@@ -93,7 +127,7 @@ static double ondaPPG(double f) {
 }
 
 void MAX30105::generar(uint32_t ahora) {
-  if (!iniciado) return;
+  if (!iniciado || sensorSim.colgado.load()) return;   // chip mudo
   while ((int32_t)(ahora - proximaMuestraMs) >= 0) {
     proximaMuestraMs += periodoMs;
     const bool luz = (ampIr > 0);
@@ -158,6 +192,7 @@ void     MAX30105::clearFIFO()  { fifoN = 0; sense.head = sense.tail = 0; proxim
 
 // ===================== Preferences (NVS simulada) =====================
 #include <Preferences.h>
+#include <nvs_flash.h>
 #include <fstream>
 
 static std::string rutaNVS() {
@@ -189,7 +224,17 @@ void Preferences::guardar() {
     f.write((char *)kv.second.data(), vl);
   }
 }
-bool Preferences::begin(const char *ns, bool) { fichero = rutaNVS() + "." + ns; cargar(); return true; }
+bool g_nvsRota = false;
+bool g_nvsReparable = false;            // si borrar la particion la arregla
+int nvs_flash_erase() { if (g_nvsReparable) g_nvsRota = false; return 0; }
+int nvs_flash_init()  { return 0; }
+
+bool Preferences::begin(const char *ns, bool) {
+  if (g_nvsRota) return false;
+  fichero = rutaNVS() + "." + ns;
+  cargar();
+  return true;
+}
 size_t Preferences::getBytesLength(const char *key) {
   auto it = datos.find(key);
   return it == datos.end() ? 0 : it->second.size();

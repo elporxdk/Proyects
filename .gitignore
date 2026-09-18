@@ -43,3 +43,4 @@ credenciales*.json
 # Productos del banco de pruebas del firmware (no son codigo)
 pruebas/banco_firmware/.build/
 pruebas/banco_firmware/.libs/
+pruebas/banco_firmware/nvs*.dat*

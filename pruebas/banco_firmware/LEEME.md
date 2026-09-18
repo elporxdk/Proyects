@@ -43,7 +43,9 @@ la primera función del fichero** (en MEDIBOT, en el bloque de tipos).
 | `medibot_triaje.ino`, `medibot_panel.ino` | **el código de verdad**, sin tocar |
 | `spo2_algorithm.cpp` (Maxim/SparkFun) | **el de verdad**, de la librería instalada |
 | Arduino, U8g2, Wire, Preferences, WiFi… | sustitutos mínimos en `shim/` y `shim_panel/` |
-| MAX30102 | simulado: genera una PPG sintética con BPM y SpO2 elegidos |
+| MAX30102 | simulado: genera una PPG sintética con BPM y SpO2 elegidos, y puede "colgarse" o desaparecer del bus |
+| Bus I2C | simulado con su banco de registros: el escaneo y la verificación por relectura son reales |
+| NVS (Preferences) | simulada en un fichero, y se puede romper para probar el aviso |
 | Pantalla | no dibuja, pero **anota el texto** de cada frame, y eso es lo que se comprueba |
 | Teclado | la prueba fija la tensión del pin, como si pulsara de verdad |
 
@@ -60,7 +62,12 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 | `sindedo` | sin dedo cancela con un motivo claro, y el **reintento inmediato** no hereda el fallo anterior |
 | `dedofuera` | si se levanta el dedo a mitad, lo detecta, se recupera y termina bien |
 | `sinsensor` | sin MAX30102 lo avisa al arrancar y no deja empezar una medida |
-| `panel` | el mismo auto-chequeo en el firmware del panel |
+| `sensorlento` | el sensor aparece 4 s después de arrancar: se detecta solo y se puede medir **sin reiniciar** |
+| `sensorcuelga` | el sensor deja de dar muestras a mitad de la medida: se reinicia solo y la medida termina |
+| `diagnostico` | la pantalla de Diagnostico enseña el sensor, el bus I2C y el IR en vivo, y refleja el dedo al ponerlo |
+| `sinmemoria` | con la NVS rota, el asistente avisa de que **no** se ha guardado en vez de repetirse sin explicar nada |
+| `botonpulsado` | se entra al asistente **manteniendo un botón**: el reposo se mide al soltar y la tabla guardada es la buena |
+| `panel/normal`, `panel/botonpulsado` | lo mismo en el firmware del panel |
 
 ## Por qué existe
 

@@ -55,13 +55,30 @@ static void atenderAsistente() {
 
 int main(int argc, char **argv) {
   const int bpmReal = argc > 1 ? atoi(argv[1]) : 72;
+  const bool botonPulsado = (argc > 2 && std::string(argv[2]) == "botonpulsado");
   sensorSim.bpm = bpmReal;
   sensorSim.dedo = false;
-  printf("== PANEL: auto-chequeo con pulso simulado de %d BPM ==\n", bpmReal);
+  if (botonPulsado) g_adcMv = 2500;          // ARRIBA mantenido al encender
+  printf("== PANEL: auto-chequeo con pulso simulado de %d BPM%s ==\n", bpmReal,
+         botonPulsado ? " (boton mantenido al encender)" : "");
   setup();
   std::thread(hiloUI).detach();
 
+  if (botonPulsado) {
+    // Se mantiene mas de WIZ_REPOSO_MS: si el reposo se midiera aqui, saldria
+    // 2500 mV y la tabla guardada dejaria el teclado inservible.
+    comprobar(esperarTexto("CALIBRAR TECLADO", 5000),
+              "mantener un boton al encender abre el asistente");
+    esperar(2500);
+    printf("   [usuario] suelta el boton\n");
+    g_adcMv = 3200;
+  }
   atenderAsistente();
+  if (botonPulsado) {
+    comprobar(pantallaContiene("4 de 5 botones OK"),
+              "mide el reposo DESPUES de soltar y captura los 4 botones");
+    comprobar(pantallaContiene("Guardado en memoria"), "y los guarda");
+  }
   esperar(3000);
   if (!pantallaContiene("Auto-Chequeo")) OK();          // cara de reposo -> menu
   comprobar(esperarTexto("Auto-Chequeo", 12000), "el menu queda operativo");

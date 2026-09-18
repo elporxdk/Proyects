@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <Preferences.h>
+#include <nvs_flash.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
@@ -111,6 +112,16 @@ KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de segurid
 #define MAX_SAMPLE_RATE       400        // 400/4 = 100 Hz efectivos
 #define MAX_PULSE_WIDTH       411
 #define MAX_ADC_RANGE         4096
+#define MAX_I2C_ADDR          0x57
+//  Con cables largos el bus a 400 kHz falla a ratos y algunos modulos tardan
+//  en arrancar: se reintenta y, si no, se baja a 100 kHz (a 100 Hz de muestreo
+//  hacen falta 600 bytes/s, asi que sobra).
+#define MAX_I2C_HZ_FAST       400000UL
+#define MAX_I2C_HZ_SAFE       100000UL
+#define MAX_INIT_RETRIES      5
+#define SENSOR_RETRY_MS       3000UL     // redeteccion en segundo plano
+#define PPG_STALL_MS          2500UL     // sin muestras -> reiniciar el sensor
+#define MAX_LEDS_ALWAYS_ON    1          // LED encendidos desde el arranque
 
 #define PPG_SPS               (MAX_SAMPLE_RATE / MAX_SAMPLE_AVERAGE)  // 100
 #define SPO2_FS               25         // FS que asume spo2_algorithm.h
@@ -118,8 +129,10 @@ KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de segurid
 #define SPO2_BUF_LEN          100        // 4 s de ventana
 #define SPO2_SHIFT            25         // recalculo cada segundo
 
-#define FINGER_IR_ON          60000UL
-#define FINGER_IR_OFF         40000UL
+//  No todos los modulos dan lo mismo con el dedo puesto (de 35.000 a 150.000
+//  cuentas): estos umbrales son prudentes. Sin dedo suele quedarse < 10.000.
+#define FINGER_IR_ON          30000UL
+#define FINGER_IR_OFF         18000UL
 #define FINGER_STABLE_MS      400
 #define MIN_PERFUSION         0.15f
 #define HR_MIN                40
@@ -253,9 +266,12 @@ char  diag1[40], diag2[40], errMsg[32] = "";
 Lectura historial[HISTORIAL_N];
 uint8_t histN = 0;
 
-bool  hwMaxOk = false, hwMaxRaro = false;
-uint8_t hwMaxId = 0;
+volatile bool hwMaxOk = false, hwMaxRaro = false;
+volatile uint8_t hwMaxId = 0;
+volatile uint32_t hwMaxBusHz = MAX_I2C_HZ_FAST;
+volatile uint8_t  hwI2cCount = 0;
 bool  horaOk = false;
+bool  nvsOk  = false;                  // la memoria no volatil responde
 
 // --- Compartido entre nucleos ---
 static Shared        g_sh;
@@ -276,7 +292,7 @@ Shared shGet();
 void  pedirModo(WorkMode m);
 Button tecladoLeer();
 void  tecladoCargarCal();
-void  tecladoGuardarCal();
+bool  tecladoGuardarCal();
 bool  tecladoHayCal();
 void  histCargar();
 void  histGuardar(int bpm, int spo2);
@@ -301,6 +317,7 @@ struct CalBlob {
 };
 
 bool tecladoHayCal() {
+  if (!nvsOk) return false;
   CalBlob b;
   if (prefs.getBytesLength("keycal") != sizeof(b)) return false;
   prefs.getBytes("keycal", &b, sizeof(b));
@@ -310,6 +327,7 @@ bool tecladoHayCal() {
 void tecladoCargarCal();   // definida tras el estado del teclado
 
 void histCargar() {
+  if (!nvsOk) { memset(historial, 0, sizeof(historial)); histN = 0; return; }
   size_t n = prefs.getBytesLength("hist");
   if (n == sizeof(historial)) {
     prefs.getBytes("hist", historial, sizeof(historial));
@@ -328,7 +346,7 @@ void histGuardar(int bpm, int spo2) {
   historial[0].spo2  = (uint8_t)spo2;
   historial[0].usado = 1;
   if (histN < HISTORIAL_N) histN++;
-  prefs.putBytes("hist", historial, sizeof(historial));
+  if (nvsOk) prefs.putBytes("hist", historial, sizeof(historial));
 }
 
 // =====================================================================
@@ -434,6 +452,7 @@ static void tecladoRestaurarDefecto() {
 }
 
 void tecladoCargarCal() {
+  if (!nvsOk) return;
   CalBlob b;
   if (prefs.getBytesLength("keycal") != sizeof(b)) return;
   prefs.getBytes("keycal", &b, sizeof(b));
@@ -453,7 +472,11 @@ void tecladoCargarCal() {
       Serial.printf("   %-7s %d..%d mV\n", BTN_NOMBRE[keyMap[k].id], (int)keyMap[k].mvMin, (int)keyMap[k].mvMax);
 }
 
-void tecladoGuardarCal() {
+bool tecladoGuardarCal() {
+  if (!nvsOk) {
+    Serial.println(F("[TECLADO] NO se guarda: la memoria no volatil no responde"));
+    return false;
+  }
   CalBlob b;
   memset(&b, 0, sizeof(b));
   b.magic = CAL_MAGIC;
@@ -467,8 +490,17 @@ void tecladoGuardarCal() {
       b.n++;
     }
   }
-  prefs.putBytes("keycal", &b, sizeof(b));
-  Serial.printf("[TECLADO] Calibracion guardada (%u botones)\n", (unsigned)b.n);
+  const size_t escritos = prefs.putBytes("keycal", &b, sizeof(b));
+  CalBlob v;
+  memset(&v, 0, sizeof(v));
+  const bool ok = (escritos == sizeof(b)) &&
+                  (prefs.getBytesLength("keycal") == sizeof(b)) &&
+                  (prefs.getBytes("keycal", &v, sizeof(v)) == sizeof(v)) &&
+                  (memcmp(&v, &b, sizeof(b)) == 0);
+  if (ok) Serial.printf("[TECLADO] Calibracion guardada y releida (%u botones)\n", (unsigned)b.n);
+  else    Serial.printf("[TECLADO] FALLO al guardar (escritos %u de %u bytes)\n",
+                        (unsigned)escritos, (unsigned)sizeof(b));
+  return ok;
 }
 
 // Al encender: mide el nivel de reposo. Si resulta que coincide con un boton
@@ -512,6 +544,8 @@ struct Asistente {
   int16_t  centro[BTN_COUNT];
   bool     hecho[BTN_COUNT];
   uint8_t  capturados;
+  bool     guardado;
+  bool     esperandoSoltar;
   char     aviso[30];
 } wiz;
 
@@ -520,11 +554,13 @@ struct Asistente {
 #define WIZ_SALTO_MS     12000
 #define WIZ_UMBRAL_MV    150     // diferencia minima con el reposo
 #define WIZ_TOLER_MV     45      // cuanto puede moverse y seguir siendo "estable"
+#define WIZ_SOLTAR_MS    12000   // gracia esperando a que se suelte el teclado
 
 void wizIniciar() {
   memset(&wiz, 0, sizeof(wiz));
   wiz.fase = 0;
   wiz.t0 = millis();
+  wiz.estableDesde = wiz.t0;     // sin esto la fase 0 terminaria al instante
   wiz.ultimo = kb.mv;
   kb.reposoOk = false;           // durante el asistente no se filtra por reposo
   Serial.println(F("\n[ASISTENTE] Calibracion del teclado. No toques nada..."));
@@ -539,8 +575,16 @@ bool wizPaso(uint32_t ahora) {
   if (difAbs(kb.mv, wiz.ultimo) > WIZ_TOLER_MV) { wiz.ultimo = kb.mv; wiz.estableDesde = ahora; }
 
   switch (wiz.fase) {
-    case 0:                                     // ---- medir reposo ----
-      if (ahora - wiz.t0 >= WIZ_REPOSO_MS) {
+    case 0: {                                   // ---- medir reposo ----
+      // Al asistente se entra MANTENIENDO un boton al encender, o pulsando OK
+      // en el menu: al empezar siempre hay una tecla pulsada. Si se midiera el
+      // reposo ahi, se tomaria el nivel del BOTON como reposo y despues
+      // ninguna pulsacion pareceria distinta de el: la tabla guardada dejaria
+      // el teclado inservible. Se espera a que la lectura no encaje con ningun
+      // boton y lleve quieta WIZ_REPOSO_MS (con WIZ_SOLTAR_MS de gracia).
+      const bool pareceBoton = (clasificar(kb.mv, BTN_NONE) != BTN_NONE);
+      wiz.esperandoSoltar = pareceBoton && (ahora - wiz.t0 < WIZ_SOLTAR_MS);
+      if (!wiz.esperandoSoltar && ahora - wiz.estableDesde >= WIZ_REPOSO_MS) {
         kb.reposoMv = kb.mv;
         wiz.fase = 1;
         wiz.paso = 0;
@@ -549,6 +593,7 @@ bool wizPaso(uint32_t ahora) {
         Serial.printf("[ASISTENTE] Reposo = %d mV\n", (int)kb.reposoMv);
       }
       break;
+    }
 
     case 1: {                                   // ---- capturar un boton ----
       const bool pulsado = difAbs(kb.mv, kb.reposoMv) >= WIZ_UMBRAL_MV;
@@ -606,10 +651,12 @@ bool wizPaso(uint32_t ahora) {
         // Ningun boton utilizable: no se guarda nada y se vuelve a la tabla de
         // fabrica, para no dejar el equipo sin teclado.
         tecladoRestaurarDefecto();
-        snprintf(wiz.aviso, sizeof(wiz.aviso), "Fallo: revisa cableado");
-        Serial.println(F("[ASISTENTE] Ningun boton valido: no se guarda"));
+        snprintf(wiz.aviso, sizeof(wiz.aviso), "Revisa el cableado");
+        wiz.guardado = false;
+        Serial.println(F("[ASISTENTE] Ningun boton valido: no hay nada que guardar"));
       } else {
-        tecladoGuardarCal();
+        wiz.guardado = tecladoGuardarCal();
+        if (!wiz.guardado) snprintf(wiz.aviso, sizeof(wiz.aviso), "NO se pudo guardar");
       }
       kb.reposoOk = true;
       wiz.fase = 4;
@@ -650,6 +697,100 @@ void pedirModo(WorkMode m) {
 // =====================================================================
 // 7. SENSOR MAX30102 (unico sensor del equipo)
 // =====================================================================
+
+// ---------------------------------------------------------------------
+// 7.0 ARRANQUE, VERIFICACION Y RECUPERACION
+// ---------------------------------------------------------------------
+static bool regLeer(uint8_t dir, uint8_t reg, uint8_t &valor) {
+  Wire.beginTransmission(dir);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(dir, (uint8_t)1) != 1) return false;
+  valor = Wire.read();
+  return true;
+}
+
+// Escaneo del bus: 0 dispositivos = cableado o alimentacion, no software.
+static void i2cScan() {
+  uint8_t n = 0;
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) { n++; Serial.printf("[I2C] dispositivo en 0x%02X\n", a); }
+  }
+  hwI2cCount = n;
+  if (n == 0) Serial.println(F("[I2C] NADIE contesta: revisa VIN, GND, SDA(21) y SCL(22)"));
+}
+
+// Configura y COMPRUEBA releyendo los registros: una escritura perdida deja
+// el sensor mudo o a oscuras sin que el firmware se entere.
+static bool sensorConfigurar(bool ledsOn) {
+  max3010x.setup(MAX_LED_BRIGHTNESS, MAX_SAMPLE_AVERAGE, MAX_LED_MODE,
+                 MAX_SAMPLE_RATE, MAX_PULSE_WIDTH, MAX_ADC_RANGE);
+  const uint8_t amp = ledsOn ? MAX_LED_BRIGHTNESS : 0x00;
+  max3010x.setPulseAmplitudeRed(amp);
+  max3010x.setPulseAmplitudeIR(amp);
+  max3010x.setPulseAmplitudeGreen(0x00);
+  max3010x.clearFIFO();
+
+  uint8_t modo = 0, led1 = 0, led2 = 0;
+  if (!(regLeer(MAX_I2C_ADDR, 0x09, modo) && regLeer(MAX_I2C_ADDR, 0x0C, led1) &&
+        regLeer(MAX_I2C_ADDR, 0x0D, led2))) {
+    Serial.println(F("[MAX] No se pueden releer los registros"));
+    return false;
+  }
+  const uint8_t modoEsperado = (MAX_LED_MODE == 3) ? 0x07 : (MAX_LED_MODE == 2 ? 0x03 : 0x02);
+  if ((modo & 0x07) != modoEsperado || led1 != amp || led2 != amp) {
+    Serial.printf("[MAX] La configuracion NO se aplico (modo 0x%02X, LED 0x%02X/0x%02X)\n",
+                  modo & 0x07, led1, led2);
+    return false;
+  }
+  Serial.printf("[MAX] Configurado y verificado: modo 0x%02X, LED 0x%02X, %d Hz\n",
+                modoEsperado, amp, PPG_SPS);
+  return true;
+}
+
+static bool sensorArrancar(bool conEscaneo) {
+  hwMaxRaro = false;
+  if (conEscaneo) i2cScan();
+  const uint32_t velocidades[2] = { MAX_I2C_HZ_FAST, MAX_I2C_HZ_SAFE };
+  for (uint8_t v = 0; v < 2; v++) {
+    Wire.setClock(velocidades[v]);
+    for (uint8_t i = 0; i < MAX_INIT_RETRIES; i++) {
+      uint8_t id = 0;
+      if (regLeer(MAX_I2C_ADDR, 0xFF, id)) {
+        if (id == 0x11) {
+          hwMaxRaro = true; hwMaxId = id;
+          Serial.println(F("[MAX] Es un MAX30100: incompatible con esta libreria"));
+          return false;
+        }
+        if (id == 0x15 && max3010x.begin(Wire, velocidades[v], MAX_I2C_ADDR)) {
+          hwMaxId = id;
+          hwMaxBusHz = velocidades[v];
+          Wire.setClock(velocidades[v]);
+          if (sensorConfigurar(MAX_LEDS_ALWAYS_ON != 0)) {
+            hwMaxOk = true;
+            Serial.printf("[MAX] Sensor OK (ID 0x%02X) a %lu kHz, intento %u\n", id,
+                          (unsigned long)(velocidades[v] / 1000), (unsigned)(i + 1));
+            return true;
+          }
+        }
+      }
+      delay(80);
+    }
+    if (v == 0) Serial.println(F("[MAX] Sin respuesta a 400 kHz: se prueba a 100 kHz"));
+  }
+  hwMaxOk = false;
+  Serial.println(F("[MAX] Sensor de pulso NO detectado en 0x57"));
+  return false;
+}
+
+static bool sensorRecuperar() {
+  Serial.println(F("[MAX] El sensor ha dejado de dar muestras: reiniciandolo"));
+  Wire.setClock(hwMaxBusHz);
+  if (max3010x.begin(Wire, hwMaxBusHz, MAX_I2C_ADDR) && sensorConfigurar(true)) return true;
+  hwMaxOk = false;
+  return false;
+}
 
 // ---------------------------------------------------------------------
 // 7.1 DETECTOR DE LATIDOS PROPIO
@@ -861,6 +1002,8 @@ static void ppgMuestra(uint32_t ir, uint32_t red, uint32_t ahora) {
   pg.llenado = SPO2_BUF_LEN - SPO2_SHIFT;
 }
 
+static uint32_t ppgUltimaMuestraMs = 0;
+
 static void ppgTrabajo(uint32_t ahora) {
   if (!hwMaxOk) {
     portENTER_CRITICAL(&g_mux); g_sh.ppgFallo = true; portEXIT_CRITICAL(&g_mux);
@@ -879,9 +1022,20 @@ static void ppgTrabajo(uint32_t ahora) {
     max3010x.nextSample();
     const uint32_t atraso = (idx < pendientes) ? (pendientes - 1 - idx) * periodoMs : 0;
     idx++;
+    ppgUltimaMuestraMs = ahora;
     ppgMuestra(ir, red, ahora - atraso);
     if (pg.okN >= PPG_TARGET) return;
   }
+
+  // El sensor ha dejado de entregar muestras: se reinicia en vez de quedarse
+  // esperando un dedo que nunca llega.
+  if (ahora - ppgUltimaMuestraMs > PPG_STALL_MS) {
+    ppgUltimaMuestraMs = ahora;
+    if (sensorRecuperar()) ppgReiniciar(ahora);
+    else { portENTER_CRITICAL(&g_mux); g_sh.ppgFallo = true; portEXIT_CRITICAL(&g_mux); }
+    return;
+  }
+
   const bool sinDedo = !pg.dedoEstable && (ahora - pg.ultimoDedo > NO_FINGER_TIMEOUT_MS);
   if (sinDedo || (ahora - pg.inicio > PPG_TIMEOUT_MS)) {
     portENTER_CRITICAL(&g_mux); g_sh.ppgFallo = true; portEXIT_CRITICAL(&g_mux);
@@ -1086,6 +1240,7 @@ void tareaTrabajo(void *pv) {
   (void)pv;
   uint32_t miEpoca = 0xFFFFFFFF;
   WorkMode miModo = WK_IDLE;
+  uint32_t ultimoReintentoSensor = 0;
 
   for (;;) {
     const uint32_t ahora = millis();
@@ -1095,19 +1250,27 @@ void tareaTrabajo(void *pv) {
       miModo  = g_modo;
       if (miModo == WK_PPG) {
         ppgReiniciar(ahora);
+        ppgUltimaMuestraMs = ahora;
         if (hwMaxOk) {
-          // Primero los LED y DESPUES vaciar el FIFO: al reves, las muestras
-          // tomadas con los LED apagados se quedarian dentro y se leerian
-          // como "no hay dedo".
+          // Encender los LED y comprobar que la escritura ha entrado: si no,
+          // se reconfigura el sensor entero. Sin esto, una escritura perdida
+          // deja el sensor a oscuras toda la medida.
           max3010x.setPulseAmplitudeRed(MAX_LED_BRIGHTNESS);
           max3010x.setPulseAmplitudeIR(MAX_LED_BRIGHTNESS);
-          max3010x.clearFIFO();
+          uint8_t l1 = 0, l2 = 0;
+          const bool encendidos = regLeer(MAX_I2C_ADDR, 0x0C, l1) &&
+                                  regLeer(MAX_I2C_ADDR, 0x0D, l2) &&
+                                  l1 == MAX_LED_BRIGHTNESS && l2 == MAX_LED_BRIGHTNESS;
+          if (!encendidos) sensorRecuperar();
+          else             max3010x.clearFIFO();
         }
       } else {
+#if !MAX_LEDS_ALWAYS_ON
         if (hwMaxOk) {                            // LED apagados fuera de medida
           max3010x.setPulseAmplitudeRed(0x00);
           max3010x.setPulseAmplitudeIR(0x00);
         }
+#endif
         if (miModo == WK_NET) netArrancar(ahora);
         else netEtapa(nt.etapa == NET_FOUND ? NET_FOUND : NET_OFF);
       }
@@ -1115,6 +1278,17 @@ void tareaTrabajo(void *pv) {
       portENTER_CRITICAL(&g_mux);
       g_sh.epoca = miEpoca;
       portEXIT_CRITICAL(&g_mux);
+    }
+
+    // Sin sensor se reintenta la deteccion en segundo plano: si estaba mal
+    // conectado o tardo en arrancar, el equipo se recupera sin reiniciarlo.
+    if (!hwMaxOk && ahora - ultimoReintentoSensor >= SENSOR_RETRY_MS) {
+      ultimoReintentoSensor = ahora;
+      if (sensorArrancar(true)) {
+        Serial.println(F("[MAX] Sensor recuperado: ya se puede medir"));
+        ppgReiniciar(ahora);
+        ppgUltimaMuestraMs = ahora;
+      }
     }
 
     switch (miModo) {
@@ -1388,7 +1562,7 @@ static void pantResultado() {
     u8g2.drawStr(2, 26, diag1);
     u8g2.drawStr(2, 40, diag2);
     u8g2.setFont(u8g2_font_4x6_tr);
-    txtCentrado(54, "Orientativo, no es un diagnostico");
+    txtCentrado(54, "Orientativo, no es diagnostico");
     txtCentrado(62, "[ARR/ABA] Valores  [OK] Salir");
   }
 }
@@ -1504,9 +1678,15 @@ static void pantCalibracion() {
   u8g2.setFont(u8g2_font_6x10_tr);
   switch (wiz.fase) {
     case 0:
-      txtCentrado(28, "No toques nada");
-      txtCentrado(40, "midiendo reposo...");
-      barra(14, 46, 100, 8, (uint8_t)((millis() - wiz.t0) * 100 / WIZ_REPOSO_MS));
+      if (wiz.esperandoSoltar) {
+        txtCentrado(30, "Suelta los botones");
+        txtCentrado(42, "y espera...");
+      } else {
+        txtCentrado(28, "No toques nada");
+        txtCentrado(40, "midiendo reposo...");
+        barra(14, 46, 100, 8,
+              (uint8_t)((millis() - wiz.estableDesde) * 100 / WIZ_REPOSO_MS));
+      }
       break;
     case 1: {
       txtCentrado(26, "Pulsa y manten:");
@@ -1529,7 +1709,9 @@ static void pantCalibracion() {
     default:
       snprintf(b, sizeof(b), "%u de %u botones OK", (unsigned)wiz.capturados, (unsigned)BTN_ORDEN_N);
       txtCentrado(28, b);
-      txtCentrado(40, wiz.aviso[0] ? wiz.aviso : "Guardado");
+      if (wiz.guardado)      txtCentrado(40, "Guardado en memoria");
+      else if (wiz.aviso[0]) txtCentrado(40, wiz.aviso);
+      else                   txtCentrado(40, "Sin guardar");
       break;
   }
   // Lectura en vivo siempre visible: si algo va mal, se ve aqui
@@ -1699,14 +1881,6 @@ void entradaUsuario(Button b) {
 // =====================================================================
 // 15. SETUP (NUCLEO 1)
 // =====================================================================
-static uint8_t leerRegI2C(uint8_t dir, uint8_t reg) {
-  Wire.beginTransmission(dir);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0) return 0x00;
-  if (Wire.requestFrom(dir, (uint8_t)1) != 1) return 0x00;
-  return Wire.read();
-}
-
 void setup() {
   Serial.begin(115200);
   delay(80);
@@ -1725,7 +1899,15 @@ void setup() {
 
   // --- Memoria: calibracion e historial ---
   memcpy(keyMapDefecto, keyMap, sizeof(keyMap));   // red de seguridad
-  prefs.begin(NVS_NS, false);
+  nvsOk = prefs.begin(NVS_NS, false);
+  if (!nvsOk) {
+    Serial.println(F("[MEMORIA] La NVS no abre: se reinicia la particion"));
+    nvs_flash_erase();
+    nvs_flash_init();
+    nvsOk = prefs.begin(NVS_NS, false);
+  }
+  Serial.printf("[MEMORIA] %s\n", nvsOk ? "OK (se guardan calibracion e historial)"
+                                         : "FALLO: no se guardara nada");
   const bool hayCal = tecladoHayCal();
   if (hayCal) tecladoCargarCal();
   else        Serial.println(F("[TECLADO] Sin calibracion guardada: se abre el asistente"));
@@ -1734,25 +1916,10 @@ void setup() {
   histCargar();
   Serial.printf("[MEMORIA] %u lecturas guardadas\n", (unsigned)histN);
 
-  // --- Sensor MAX30102 ---
+  // --- Sensor MAX30102 (con escaneo del bus y reintentos, bloque 7.0) ---
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setClock(400000);
-  if (max3010x.begin(Wire, I2C_SPEED_FAST)) {
-    hwMaxId = max3010x.readPartID();
-    max3010x.setup(MAX_LED_BRIGHTNESS, MAX_SAMPLE_AVERAGE, MAX_LED_MODE,
-                   MAX_SAMPLE_RATE, MAX_PULSE_WIDTH, MAX_ADC_RANGE);
-    max3010x.setPulseAmplitudeRed(0x00);
-    max3010x.setPulseAmplitudeIR(0x00);
-    max3010x.setPulseAmplitudeGreen(0x00);
-    hwMaxOk = true;
-    Serial.printf("[MAX] PART ID 0x%02X -> MAX30102/MAX30105, %d Hz, diezmado a %d Hz\n",
-                  hwMaxId, PPG_SPS, SPO2_FS);
-  } else {
-    hwMaxId = leerRegI2C(0x57, 0xFF);
-    hwMaxRaro = (hwMaxId == 0x11);
-    Serial.printf("[MAX] No responde. ID leido 0x%02X %s\n", hwMaxId,
-                  hwMaxRaro ? "= MAX30100, incompatible con esta libreria" : "");
-  }
+  if (!sensorArrancar(true))
+    Serial.println(F("[MAX] Se seguira reintentando en segundo plano cada 3 s"));
 
   memset((void *)&g_sh, 0, sizeof(g_sh));
   ultimaTecla = millis();

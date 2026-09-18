@@ -10,6 +10,51 @@ documento explica qué medir y dónde ponerlo.
 > verdad (MLX90614, MAX30205, DS18B20…), será con su propio sensor y su propia
 > fase de medida.
 
+## Si algo no funciona, empieza por aquí
+
+El firmware se autodiagnostica. Tienes tres sitios donde mirar, de menos a más
+detalle:
+
+**1. La pantalla de arranque** dice si el sensor responde, cuántos botones
+tiene el teclado y si la memoria funciona.
+
+**2. Menú → `Diagnostico`.** Es la pantalla clave:
+
+```
+DIAGNOSTICO
+Sensor: OK 0x15 a 400kHz      <- el chip responde y a qué velocidad
+I2C: 1 disp. (1o 0x57)        <- cuántos dispositivos hay en el bus
+IR: 74321  DEDO               <- la señal EN VIVO
+Tecla: 3200 mV (reposo 3200)
+Memoria: OK  Reinicios: 0     <- veces que hubo que reiniciar el sensor
+```
+
+Con el dedo fuera el IR baja de 10.000 y al apoyarlo sube por encima de
+30.000. Si el IR **no se mueve**, el problema es el sensor o el cableado, no tu
+dedo. Si dice `IR: --` o `esperando muestras`, el sensor no está entregando
+datos.
+
+**3. El Monitor Serie a 115200.** Al arrancar imprime el escaneo del bus, el
+identificador del chip, a qué velocidad ha enganchado y si la configuración se
+ha podido releer.
+
+### Los fallos típicos y qué significan
+
+| Lo que ves | Qué pasa |
+|---|---|
+| `I2C: nadie responde` / `[I2C] NADIE contesta` | El módulo no está alimentado o SDA/SCL no llegan. Revisa VIN, GND, SDA→21, SCL→22 |
+| `Sensor: MAX30100 no vale` | Es el chip antiguo (ID `0x11`). La librería MAX3010x no lo soporta: hace falta un MAX30102 o MAX30105 |
+| `Sensor: NO DETECTADO` con `I2C: 1 disp.` | Hay algo en el bus pero no contesta como MAX30102: mal contacto o módulo defectuoso |
+| `[MAX] Sin respuesta a 400 kHz` | Cables largos o sin pull-ups. El firmware baja solo a 100 kHz y sigue |
+| `[MAX] La configuracion NO se aplico` | La escritura se perdió; el firmware lo reintenta solo |
+| `Reinicios: N` con N creciendo | El sensor se cuelga: cable flojo o alimentación justa |
+| `Memoria: FALLO` | La NVS no admite escrituras: la calibración del teclado no se guardará |
+
+El equipo **no se queda colgado** en ninguno de esos casos: si el sensor no
+aparece al arrancar se sigue buscando cada 3 s (conectarlo con el equipo
+encendido basta, no hace falta reiniciar), y si deja de dar muestras a mitad de
+una medida se reinicia solo y continúa.
+
 ## Librerías necesarias
 
 | Librería | Para qué |
@@ -37,13 +82,23 @@ Se abre de cuatro formas, y siempre hay una disponible:
 3. Menú → **Calibrar teclado**.
 4. Enviando `c` por el Monitor Serie a 115200.
 
-El proceso: no toques nada 1,5 s (mide el reposo) → pulsa y mantén cada botón
-cuando te lo pida. Si un botón no se puede usar, a los 12 s lo omite y sigue.
-En pantalla siempre se ve la lectura en vivo (`ADC / mV / reposo`), así que si
-algo va mal se ve al instante.
+El proceso: **suelta todos los botones** (el asistente espera a que lo hagas y
+mide el reposo 1,5 s después) → pulsa y mantén cada botón cuando te lo pida. Si
+un botón no se puede usar, a los 12 s lo omite y sigue. En pantalla siempre se
+ve la lectura en vivo (`ADC / mV / reposo`), así que si algo va mal se ve al
+instante.
 
-Al terminar guarda y muestra cuántos botones quedaron activos. Si ninguno
-sirve, restaura la tabla de fábrica en vez de dejarte sin teclado.
+Al terminar **guarda y lo relee para confirmarlo**: verás `Guardado en memoria`
+o, si la NVS no admite la escritura, `NO se pudo guardar` y el aviso de que se
+repetirá al encender. Si ningún botón sirve, restaura la tabla de fábrica en
+vez de dejarte sin teclado.
+
+> **Por qué espera a que sueltes.** Al asistente se entra manteniendo un botón
+> al encender, o pulsando OK en el menú: al empezar siempre hay una tecla
+> pulsada. Si midiera el reposo en ese momento tomaría el nivel del *botón*
+> como reposo, y después ninguna pulsación parecería distinta de él: acabaría
+> guardando una tabla en la que el reposo real cuenta como tecla pulsada, o sea
+> un teclado inservible.
 
 ### Por qué antes no funcionaban
 
@@ -109,6 +164,16 @@ Para otra placa (AVR de 5 V, RP2040, STM32): `USE_ESP_ADC_CAL 0`,
 | `PPG_TARGET_READINGS` | 8 | cada lectura válida es 1 s ⇒ ~8–12 s de medida |
 | `SPO2_OFFSET` | 0 | **en el código original había un `-3` fijo**. Es una corrección arbitraria: sólo debe usarse si se ha comparado contra un pulsioxímetro certificado |
 | `HR_MIN_BPM` / `HR_MAX_BPM` | 40 / 180 | rango de pulso aceptado |
+
+### 3.2 Arranque y vigilancia del sensor
+
+| Constante | Por defecto | Qué hace |
+|---|---|---|
+| `MAX_I2C_HZ_FAST` / `MAX_I2C_HZ_SAFE` | 400k / 100k | Se intenta a 400 kHz y, si no contesta, a 100 kHz. A 100 Hz de muestreo hacen falta 600 bytes/s, así que 100 kHz sobra: si tienes cables largos, puedes poner las dos a 100000 |
+| `MAX_INIT_RETRIES` | 5 | Intentos de detección por velocidad |
+| `SENSOR_RETRY_MS` | 3000 | Cada cuánto se reintenta si no hay sensor |
+| `PPG_STALL_MS` | 2500 | Sin muestras durante este tiempo → reiniciar el sensor |
+| `MAX_LEDS_ALWAYS_ON` | 1 | LED encendidos desde el arranque. Con 0 se apagan fuera de la medida (ahorra corriente) y el encendido se verifica leyendo el registro |
 
 ### 3.1 El pulso NO se mide con `checkForBeat()`
 

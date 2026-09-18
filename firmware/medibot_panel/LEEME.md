@@ -39,13 +39,16 @@ Se abre de tres formas, y siempre hay una disponible:
    funciona aunque la calibración guardada haya quedado mal y no puedas navegar.
 3. Menú → **Calibrar teclado**, o enviando `c` por el Monitor Serie a 115200.
 
-El proceso: no toques nada 1,5 s (mide el reposo) → pulsa y mantén cada botón
-cuando te lo pida. Si un botón no se puede usar, a los 12 s lo omite y sigue.
+El proceso: **suelta todos los botones** (el asistente espera a que lo hagas y
+mide el reposo 1,5 s después; si midiera con una tecla pulsada tomaría su nivel
+como reposo y la tabla guardada dejaría el teclado inservible) → pulsa y mantén
+cada botón cuando te lo pida. Si un botón no se puede usar, a los 12 s lo omite y sigue.
 En pantalla siempre se ve la lectura en vivo (`ADC / mV / reposo`), así que si
 algo va mal se ve al instante.
 
-Al terminar guarda y muestra cuántos botones quedaron activos. Si ninguno
-sirve, restaura la tabla de fábrica en vez de dejarte sin teclado.
+Al terminar **guarda y lo relee para confirmarlo**: verás `Guardado en memoria`
+o, si la NVS no admite escrituras, `NO se pudo guardar`. Si ningún botón sirve,
+restaura la tabla de fábrica en vez de dejarte sin teclado.
 
 ### Por qué antes no funcionaban
 
@@ -114,6 +117,20 @@ Para que mDNS sea instantáneo, opcionalmente en la Pi:
   <service><type>_medibot._tcp</type><port>5000</port></service>
 </service-group>
 ```
+
+## Si el sensor no responde
+
+El firmware se autodiagnostica y lo cuenta por el Monitor Serie a 115200: al
+arrancar escanea el bus I2C, identifica el chip, prueba a 400 kHz y baja a
+100 kHz si no contesta, y **relee los registros** para confirmar que la
+configuración ha entrado.
+
+- `[I2C] NADIE contesta` → cableado o alimentación (VIN, GND, SDA→21, SCL→22).
+- `Es un MAX30100` → chip antiguo (ID `0x11`), incompatible con esta librería.
+- Si no aparece al arrancar, **se sigue buscando cada 3 s**: conectarlo con el
+  equipo encendido basta, no hace falta reiniciar.
+- Si deja de dar muestras a mitad de una medida, el sensor se reinicia solo y
+  la medida continúa.
 
 ## Qué calibrar del MAX30102
 

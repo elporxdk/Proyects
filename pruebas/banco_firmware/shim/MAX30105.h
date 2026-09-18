@@ -20,6 +20,7 @@ struct SensorSim {
   std::atomic<long>  generadas{0};       // muestras producidas por el chip
   std::atomic<long>  entregadas{0};      // muestras que ha leido el firmware
   std::atomic<long>  perdidas{0};        // muestras perdidas en el buffer local
+  std::atomic<bool>  colgado{false};     // el chip deja de entregar muestras
 };
 extern SensorSim sensorSim;
 
@@ -27,12 +28,12 @@ extern SensorSim sensorSim;
 
 class MAX30105 {
  public:
-  bool begin(TwoWire &w, uint32_t speed = I2C_SPEED_STANDARD);
+  bool begin(TwoWire &w = Wire, uint32_t speed = I2C_SPEED_STANDARD, uint8_t addr = 0x57);
   void setup(byte powerLevel = 0x1F, byte sampleAverage = 4, byte ledMode = 3,
              int sampleRate = 400, int pulseWidth = 411, int adcRange = 4096);
-  void setPulseAmplitudeRed(uint8_t v)   { ampRed = v; }
-  void setPulseAmplitudeIR(uint8_t v)    { ampIr  = v; }
-  void setPulseAmplitudeGreen(uint8_t v) { (void)v; }
+  void setPulseAmplitudeRed(uint8_t v)   { ampRed = v; maxSimRegs[0x0C] = v; }
+  void setPulseAmplitudeIR(uint8_t v)    { ampIr  = v; maxSimRegs[0x0D] = v; }
+  void setPulseAmplitudeGreen(uint8_t v) { maxSimRegs[0x0E] = v; }
   uint16_t check();
   uint8_t  available();
   void     nextSample();
