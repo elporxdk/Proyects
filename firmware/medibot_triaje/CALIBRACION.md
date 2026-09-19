@@ -68,7 +68,31 @@ El MAX30100 **no** funciona con la librería MAX3010x (es otro chip, PART ID
 `0x11`); el firmware lo detecta y lo avisa por Serial y en la pantalla de
 arranque.
 
-## 1. Los botones: se calibran solos
+## 1. El teclado: 4 botones que se calibran solos
+
+El equipo se maneja con **cuatro botones**: `ARRIBA` y `ABAJO` mueven, `OK`
+entra y `ATRAS` sale.
+
+El módulo ADKeyboard trae cinco, pero el quinto (el de 3,70 V) **no se puede
+usar con un ESP32**, y no es cuestión de software: su ADC satura hacia 3,15 V,
+así que ese botón y el reposo (que es VCC) leen los dos 4095 y son
+indistinguibles. Antes se dejaba declarado y el asistente lo descartaba, lo que
+sólo servía para hacerte perder 12 s en cada calibración y para que el resumen
+dijera «4 de 5» como si algo hubiera fallado. Ahora no existe: el asistente
+pide cuatro y termina con **`4 de 4 botones OK`**.
+
+### Aliméntalo a 3V3, no a 5 V
+
+En reposo la salida del módulo es VCC, así que **a 5 V le estás metiendo 5 V a
+GPIO34**, fuera de especificación del ESP32. A 3V3 la escalera es ratiométrica
+y los cuatro botones quedan en `0,00 / 0,46 / 0,99 / 1,65 V`, con el reposo en
+3,3 V: perfectamente distinguibles.
+
+Funciona de las dos formas —el asistente mide lo que haya y no hay que tocar el
+código—, pero a 3V3 no maltratas el pin. Si cambias la alimentación, repite la
+calibración.
+
+### Se calibran solos
 
 **No hay que adivinar ningún umbral ni copiar números al código.** El asistente
 mide tus botones reales, calcula los rangos y los guarda en la memoria del
@@ -83,8 +107,8 @@ Se abre de cuatro formas, y siempre hay una disponible:
 4. Enviando `c` por el Monitor Serie a 115200.
 
 El proceso: **suelta todos los botones** (el asistente espera a que lo hagas y
-mide el reposo 1,5 s después) → pulsa y mantén cada botón cuando te lo pida. Si
-un botón no se puede usar, a los 12 s lo omite y sigue. En pantalla siempre se
+mide el reposo 1,5 s después) → pulsa y mantén cada uno de los cuatro cuando te
+lo pida. Si un botón no responde, a los 12 s lo omite y sigue. En pantalla siempre se
 ve la lectura en vivo (`ADC / mV / reposo`), así que si algo va mal se ve al
 instante.
 
@@ -109,20 +133,6 @@ genera ni un evento. Y si alimentas el módulo a 3V3 con la tabla de 5 V, las
 teclas salen cambiadas (el botón de ARRIBA se lee como OK, etc.). Ahora el
 reposo se mide al arrancar y se declara zona prohibida (`KEY_IDLE_GUARD_MV`),
 y los rangos salen de una medida real, no de una suposición.
-
-### Aviso de hardware: el botón de 3,7 V
-
-Alimentado a **5 V**, el botón de 3,70 V y el reposo (5 V) leen los dos 4095
-en el ESP32 (el ADC satura hacia 3,15 V) y **son indistinguibles**; además
-metes sobretensión en GPIO34. El asistente lo detecta y lo deja
-`DESACTIVADO` en vez de provocar pulsaciones erráticas.
-
-Para recuperar ese quinto botón, alimenta el módulo con **3V3**: la escalera
-es ratiométrica y todas las tensiones se multiplican por 0,66
-(`0,00 / 0,46 / 0,99 / 1,65 / 2,44 V`). Luego repite la calibración. No hace
-falta tocar el código: el asistente mide lo que haya.
-
-Ninguna función imprescindible depende de ese botón: es sólo un atajo al menú.
 
 ### Otros parámetros del teclado
 

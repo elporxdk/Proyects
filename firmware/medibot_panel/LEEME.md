@@ -26,7 +26,20 @@ Ya **no** hace falta Adafruit_MLX90614.
 
 Si el binario no cabe: *Herramientas → Partition Scheme → Huge APP (3MB No OTA)*.
 
-## Los botones: se calibran solos
+## El teclado: 4 botones que se calibran solos
+
+Se maneja con **cuatro botones**: `ARRIBA`, `ABAJO`, `OK` y `ATRAS`. El módulo
+ADKeyboard trae cinco, pero el de 3,70 V no se puede usar con un ESP32: su ADC
+satura hacia 3,15 V, así que ese botón y el reposo (que es VCC) leen los dos
+4095 y son indistinguibles. El asistente pide cuatro y termina con
+`4 de 4 botones OK`.
+
+**Aliméntalo a 3V3, no a 5 V:** en reposo la salida es VCC, así que a 5 V le
+metes 5 V a GPIO34, fuera de especificación. A 3V3 los cuatro botones quedan en
+`0,00 / 0,46 / 0,99 / 1,65 V` y el reposo en 3,3 V. Funciona de las dos formas
+—el asistente mide lo que haya— pero a 3V3 no maltratas el pin.
+
+### Se calibran solos
 
 **No hay que adivinar ningún umbral.** El asistente mide tus botones reales,
 calcula los rangos y los guarda en la memoria del ESP32 (sobreviven al
@@ -57,19 +70,6 @@ código supone para que todo deje de responder: si el reposo cae dentro del
 rango de un botón, el firmware cree que está pulsado permanentemente y no
 genera ni un evento. Ahora el reposo se mide al arrancar y se declara zona
 prohibida (`KEY_IDLE_GUARD_MV`).
-
-## Aviso de hardware: el botón de 3,7 V
-
-Alimentado a **5 V**, el botón de 3,70 V y el reposo (5 V) leen los dos 4095
-en el ESP32 (el ADC satura hacia 3,15 V) y **son indistinguibles**; además
-metes sobretensión en GPIO34. El asistente lo detecta y lo deja
-`DESACTIVADO` en vez de provocar pulsaciones erráticas.
-
-Para recuperar ese quinto botón, alimenta el módulo con **3V3**: la escalera
-es ratiométrica y todas las tensiones se multiplican por 0,66
-(`0,00 / 0,46 / 0,99 / 1,65 / 2,44 V`). Luego repite la calibración.
-
-Ninguna función imprescindible depende de ese botón: es sólo un atajo al menú.
 
 ## Código QR
 

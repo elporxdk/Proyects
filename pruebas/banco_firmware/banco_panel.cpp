@@ -34,7 +34,6 @@ static int mvDeBoton(const std::string &n) {
   if (n == "ABAJO")  return 10;
   if (n == "OK")     return 1500;
   if (n == "ATRAS")  return 700;
-  if (n == "MENU")   return 3700;
   return -1;
 }
 static void atenderAsistente() {
@@ -75,7 +74,7 @@ int main(int argc, char **argv) {
   }
   atenderAsistente();
   if (botonPulsado) {
-    comprobar(pantallaContiene("4 de 5 botones OK"),
+    comprobar(pantallaContiene("4 de 4 botones OK"),
               "mide el reposo DESPUES de soltar y captura los 4 botones");
     comprobar(pantallaContiene("Guardado en memoria"), "y los guarda");
   }

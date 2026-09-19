@@ -85,22 +85,28 @@
 #define KEY_REPEAT_DELAY_MS   600
 #define KEY_REPEAT_RATE_MS    180
 
-enum Button : uint8_t { BTN_NONE = 0, BTN_OK, BTN_UP, BTN_DOWN, BTN_BACK, BTN_MENU, BTN_COUNT };
+//  *** EL TECLADO SON 4 BOTONES: ARRIBA, ABAJO, OK y ATRAS ***
+//  El ADKeyboard trae cinco, pero el de 3.70 V no se puede usar con un ESP32:
+//  su ADC satura hacia 3.15 V, asi que ese boton y el reposo (que es VCC) dan
+//  los dos 4095 y son indistinguibles. Con cuatro se navega todo.
+//  ALIMENTACION: mejor 3V3 que 5 V. En reposo la salida es VCC, o sea que a
+//  5 V se le meten 5 V a GPIO34, fuera de especificacion. A 3V3 los cuatro
+//  botones quedan en 0.00 / 0.46 / 0.99 / 1.65 V y el reposo en 3.3 V.
+enum Button : uint8_t { BTN_NONE = 0, BTN_OK, BTN_UP, BTN_DOWN, BTN_BACK, BTN_COUNT };
 
 //  Orden en el que el asistente pide los botones y nombre en pantalla
-const char *BTN_NOMBRE[BTN_COUNT] = { "----", "OK", "ARRIBA", "ABAJO", "ATRAS", "MENU" };
-const Button BTN_ORDEN[] = { BTN_UP, BTN_DOWN, BTN_OK, BTN_BACK, BTN_MENU };
+const char *BTN_NOMBRE[BTN_COUNT] = { "----", "OK", "ARRIBA", "ABAJO", "ATRAS" };
+const Button BTN_ORDEN[] = { BTN_UP, BTN_DOWN, BTN_OK, BTN_BACK };
 const uint8_t BTN_ORDEN_N = sizeof(BTN_ORDEN) / sizeof(BTN_ORDEN[0]);
 
-//  Tabla de partida (modulo alimentado a 5 V: 0.01/0.70/1.50/2.50/3.70 V).
-//  En milivoltios medidos EN EL PIN del ESP32.
+//  Tabla de partida (modulo a 5 V: 0.01/0.70/1.50/2.50 V), en milivoltios
+//  medidos EN EL PIN. Solo vale hasta la primera calibracion.
 struct KeyDef { Button id; int16_t mvMin; int16_t mvMax; };
 KeyDef keyMap[] = {
   { BTN_DOWN,   -50,  300 },
   { BTN_BACK,   450,  950 },
   { BTN_OK,    1250, 1750 },
   { BTN_UP,    2250, 2750 },
-  { BTN_MENU,  3400, 3950 },   // a 5 V el ADC satura: el asistente lo detecta
 };
 const uint8_t KEYMAP_N = sizeof(keyMap) / sizeof(keyMap[0]);
 KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de seguridad)
@@ -306,7 +312,8 @@ static bool pantallaAnimada();
 // 3. MEMORIA NO VOLATIL (calibracion del teclado + historial)
 // =====================================================================
 #define NVS_NS      "medibot"
-#define CAL_MAGIC   0x4B32
+#define CAL_MAGIC   0x4B34      // cambia con el formato: una calibracion de
+                                // 5 botones se descarta
 
 struct CalEntrada { uint8_t id; int16_t mn, mx; };
 struct CalBlob {
@@ -1788,13 +1795,6 @@ void entradaUsuario(Button b) {
   if (b == BTN_NONE) return;
   ultimaTecla = millis();
   repintar = true;
-
-  if (b == BTN_MENU) {                             // atajo desde cualquier sitio
-    pedirModo(WK_IDLE);
-    emocion = EMO_NORMAL;
-    irA(ST_MENU);
-    return;
-  }
 
   switch (estado) {
     case ST_SPLASH:

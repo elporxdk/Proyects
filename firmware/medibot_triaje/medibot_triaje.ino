@@ -76,30 +76,38 @@
 //  pulsada para siempre y no genera ni un evento). Ahora el reposo se mide al
 //  arrancar y se declara zona prohibida (KEY_IDLE_GUARD_MV).
 //
-//  *** AVISO DE HARDWARE ***
-//  Alimentado a 5 V, el boton de 3.70 V y el reposo (5 V) leen los dos 4095
-//  en el ESP32 (su ADC satura hacia 3.15 V) y son INDISTINGUIBLES; ademas se
-//  mete sobretension en GPIO34. El asistente lo detecta y deja ese boton
-//  DESACTIVADO en vez de provocar pulsaciones erraticas. Para recuperarlo,
-//  alimenta el modulo con 3V3: la escalera es ratiometrica y todas las
-//  tensiones se multiplican por 0.66 (0.00/0.46/0.99/1.65/2.44 V). Luego
-//  repite la calibracion. Ninguna funcion imprescindible depende de el.
-enum Button : uint8_t { BTN_NONE = 0, BTN_OK, BTN_UP, BTN_DOWN, BTN_BACK, BTN_MENU, BTN_COUNT };
+//  *** EL TECLADO SON 4 BOTONES: ARRIBA, ABAJO, OK y ATRAS ***
+//  El modulo ADKeyboard trae cinco, pero el quinto (0.01/0.70/1.50/2.50/3.70 V
+//  -> el de 3.70 V) NO se puede usar con un ESP32 y no es cuestion de
+//  software: su ADC satura hacia 3.15 V, asi que ese boton y el reposo (que
+//  es VCC) dan los dos 4095 y son indistinguibles. Antes se dejaba declarado
+//  y el asistente lo descartaba, lo que solo servia para hacer perder 12 s en
+//  cada calibracion y para que el resumen dijera "4 de 5" como si algo
+//  hubiera fallado. Ahora sencillamente no existe: con cuatro botones se
+//  navega todo (ARRIBA/ABAJO mueven, OK entra, ATRAS sale).
+//
+//  ALIMENTACION: mejor 3V3 que 5 V. En reposo la salida del modulo es VCC, o
+//  sea que a 5 V se le estan metiendo 5 V a GPIO34, fuera de especificacion.
+//  A 3V3 los cuatro botones quedan en 0.00 / 0.46 / 0.99 / 1.65 V y el reposo
+//  en 3.3 V: perfectamente distinguibles. Funciona de las dos formas porque
+//  el asistente mide lo que haya, pero a 3V3 no se maltrata el pin.
+enum Button : uint8_t { BTN_NONE = 0, BTN_OK, BTN_UP, BTN_DOWN, BTN_BACK, BTN_COUNT };
 
 //  Nombre en pantalla y orden en el que el asistente pide cada boton
-const char *BTN_NOMBRE[BTN_COUNT] = { "----", "OK", "ARRIBA", "ABAJO", "ATRAS", "MENU" };
-const Button BTN_ORDEN[] = { BTN_UP, BTN_DOWN, BTN_OK, BTN_BACK, BTN_MENU };
+const char *BTN_NOMBRE[BTN_COUNT] = { "----", "OK", "ARRIBA", "ABAJO", "ATRAS" };
+const Button BTN_ORDEN[] = { BTN_UP, BTN_DOWN, BTN_OK, BTN_BACK };
 const uint8_t BTN_ORDEN_N = sizeof(BTN_ORDEN) / sizeof(BTN_ORDEN[0]);
 
-//  Tabla de partida en MILIVOLTIOS MEDIDOS EN EL PIN del ESP32 (modulo a 5 V:
-//  0.01 / 0.70 / 1.50 / 2.50 / 3.70 V). mvMin > mvMax = boton desactivado.
+//  Tabla de partida en MILIVOLTIOS MEDIDOS EN EL PIN del ESP32, para el
+//  modulo a 5 V (0.01 / 0.70 / 1.50 / 2.50 V). Solo se usa hasta la primera
+//  calibracion: lo que mida el asistente manda sobre esto.
+//  mvMin > mvMax = boton desactivado.
 struct KeyDef { Button id; int16_t mvMin; int16_t mvMax; };
 KeyDef KEYPAD_MAP[] = {
   { BTN_DOWN,   -50,  300 },
   { BTN_BACK,   450,  950 },
   { BTN_OK,    1250, 1750 },
   { BTN_UP,    2250, 2750 },
-  { BTN_MENU,  3400, 3950 },   // a 5 V el ADC satura: el asistente lo detecta
 };
 const uint8_t KEYPAD_MAP_SIZE = sizeof(KEYPAD_MAP) / sizeof(KEYPAD_MAP[0]);
 KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seguridad)
@@ -128,7 +136,8 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define WIZ_TOLER_MV         45      // cuanto puede moverse y seguir "estable"
 #define WIZ_SOLTAR_MS        12000   // gracia esperando a que se suelte el teclado
 #define NVS_NS               "medibot"
-#define CAL_MAGIC            0x4B32
+#define CAL_MAGIC            0x4B34   // cambia al cambiar el formato: una
+                                      // calibracion de 5 botones se descarta
 
 // ---------------------------------------------------------------------
 // 1.5 SENSOR MAX3010x  --> PARAMETROS AJUSTABLES
@@ -1790,14 +1799,6 @@ void processInputs(Button btn) {
   if (btn == BTN_NONE) return;
   lastInteraction = millis();
   needsRedraw = true;
-
-  // Boton extra: atajo directo al menu desde cualquier pantalla
-  if (btn == BTN_MENU) {
-    sensorRequest(SENS_IDLE);
-    currentEmotion = EMOTION_NORMAL;
-    setState(STATE_MENU);
-    return;
-  }
 
   switch (currentState) {
     case STATE_BOOT:

@@ -56,7 +56,7 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 
 | Caso | Qué comprueba |
 |---|---|
-| `calibrar` | sin calibración guardada, el asistente se abre solo, mide los 4 botones útiles, descarta MENU (a 5 V satura el ADC) y deja el menú navegable |
+| `calibrar` | sin calibración guardada, el asistente se abre solo, mide los 4 botones y deja el menú navegable |
 | `yacalibrado` | con la calibración guardada no se repite el asistente y los botones siguen funcionando |
 | `normal` | chequeo completo: el pulso y la SpO2 mostrados coinciden con los simulados y quedan en el historial |
 | `sindedo` | sin dedo cancela con un motivo claro, y el **reintento inmediato** no hereda el fallo anterior |

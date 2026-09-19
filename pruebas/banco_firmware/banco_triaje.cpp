@@ -70,7 +70,6 @@ static int mvDeBoton(const std::string &n) {
   if (n == "ABAJO")  return 10;
   if (n == "OK")     return 1500;
   if (n == "ATRAS")  return 700;
-  if (n == "MENU")   return 3700;   // a 5 V el ADC satura: no se distingue
   return -1;
 }
 static std::string botonPedido() {
@@ -187,8 +186,8 @@ int main(int argc, char **argv) {
     comprobar(abs(numeroAntes(" bpm") - bpmReal) <= 2, "el pulso sigue siendo correcto");
   } else if (caso == "calibrar") {
     comprobar(atenderAsistente(), "sin calibracion guardada, el asistente se abre solo");
-    comprobar(pantallaContiene("4 de 5 botones OK"),
-              "calibra los 4 botones utiles y descarta MENU (a 5 V satura el ADC)");
+    comprobar(pantallaContiene("4 de 4 botones OK"),
+              "calibra los 4 botones del teclado");
     comprobar(esperarTexto("Auto-Chequeo", 8000), "al terminar deja el menu listo");
     DOWN(); esperar(300);
     volcar("menu");
@@ -269,7 +268,7 @@ int main(int argc, char **argv) {
     printf("   [usuario] suelta el boton\n");
     g_adcMv = 3200;
     comprobar(atenderAsistente(), "el asistente sigue su curso");
-    comprobar(pantallaContiene("4 de 5 botones OK"),
+    comprobar(pantallaContiene("4 de 4 botones OK"),
               "mide el reposo DESPUES de soltar y captura los 4 botones");
     comprobar(pantallaContiene("Guardado en memoria"), "y los guarda");
     comprobar(esperarTexto("Auto-Chequeo", 8000), "el menu queda operativo");
