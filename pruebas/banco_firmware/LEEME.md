@@ -36,6 +36,26 @@ IDE. De ahí el comprobador.
 Regla: **todo tipo que se use en la firma de una función va declarado antes de
 la primera función del fichero** (en MEDIBOT, en el bloque de tipos).
 
+## Y que las APIs del core ESP32 existan
+
+`correr.sh` compila los sketches con las **dos** ramas del core (2.x y 3.x,
+porque el código elige API con `#if`) y luego pasa `comprobar_api_esp32.py`,
+que contrasta cada método usado sobre `MDNS`, `WiFi`, `HTTPClient` y
+`Preferences` contra las **cabeceras de verdad** de arduino-esp32, bajadas y
+cacheadas en `.libs/`.
+
+Hace falta porque compilar contra los sustitutos de `shim/` no demuestra nada
+si un sustituto tiene un método que el core real no tiene. Pasó exactamente
+eso con mDNS:
+
+```
+core 2.x:  MDNS.IP(i)
+core 3.x:  MDNS.address(i)   -> 'class MDNSResponder' has no member named 'IP'
+```
+
+El banco lo daba por bueno y el fallo salía en el IDE. Sin red, el comprobador
+avisa y no falla, para poder trabajar sin conexión.
+
 ## Qué es real y qué está simulado
 
 | Pieza | Qué se usa aquí |

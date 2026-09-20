@@ -64,6 +64,15 @@ una medida se reinicia solo y continúa.
 | `ArduinoJson` (Benoit Blanchon) | leer la API de MEDIBOT |
 
 `Preferences`, `WiFi`, `ESPmDNS` y `HTTPClient` vienen con el core de ESP32.
+Vale tanto con el core **2.x** como con el **3.x**: alguna API cambió de nombre
+entre ellos (por ejemplo `MDNS.IP()` pasó a ser `MDNS.address()`) y el sketch
+elige la que toca con `#if ESP_ARDUINO_VERSION_MAJOR`.
+
+> Si el IDE avisa de **«Multiple libraries were found for WiFi.h»**, comprueba
+> que usa la del core ESP32 (`packages/esp32/hardware/esp32/.../libraries/WiFi`).
+> Las carpetas `WiFi` y `WiFiNINA` que puedas tener en `Documentos/Arduino/
+> libraries` son de otras placas: no hacen falta aquí y conviene borrarlas para
+> que no se cuelen.
 
 ## La red: se conecta y busca MEDIBOT solo
 

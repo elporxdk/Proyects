@@ -1352,6 +1352,17 @@ struct NetRT {
 volatile bool g_netRetry = false;
 void netForzarBusqueda() { g_netRetry = true; }
 
+// El accesor del resultado de mDNS CAMBIO DE NOMBRE en el core 3.x del ESP32:
+// hasta la 2.x era MDNS.IP(i) y desde la 3.x es MDNS.address(i). Se elige en
+// tiempo de compilacion para que el sketch valga con las dos.
+static inline IPAddress mdnsDireccion(int i) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  return MDNS.address(i);
+#else
+  return MDNS.IP(i);
+#endif
+}
+
 static void netMsg(const char *m) {
   portENTER_CRITICAL(&g_vitalsMux);
   snprintf(g_net.msg, sizeof(g_net.msg), "%s", m);
@@ -1499,7 +1510,7 @@ static void netTrabajo(uint32_t ahora) {
       MDNS.begin("medibot-triaje");
       const int n = MDNS.queryService(MEDIBOT_MDNS_SVC, "tcp");
       for (int i = 0; i < n; i++)
-        if (netProbarIP(MDNS.IP(i))) { netEncontrado(); return; }
+        if (netProbarIP(mdnsDireccion(i))) { netEncontrado(); return; }
       const IPAddress h = MDNS.queryHost(MEDIBOT_MDNS_HOST);
       if ((uint32_t)h != 0 && netProbarIP(h)) { netEncontrado(); return; }
       netMsg("Explorando la red");

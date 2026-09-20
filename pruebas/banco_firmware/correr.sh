@@ -61,6 +61,27 @@ JSONDEF="-DARDUINOJSON_ENABLE_ARDUINO_STRING=0 -DARDUINOJSON_ENABLE_ARDUINO_STRE
 echo "Comprobando los prototipos que genera el IDE..."
 python3 comprobar_prototipos.py "$TRIAJE" "$PANEL"
 
+# ---- y compilar con las DOS versiones del core ESP32 -----------------------
+#  Varias APIs cambiaron de la 2.x a la 3.x (por ejemplo MDNS.IP() paso a
+#  llamarse MDNS.address()). El sketch elige una u otra con #if, asi que hay
+#  que compilar las dos ramas: con una sola, la otra puede estar rota y no
+#  enterarse nadie hasta que alguien la graba.
+for v in 2 3; do
+  echo "Comprobando la sintaxis con el core ESP32 $v.x..."
+  for sk in "$TRIAJE" "$PANEL"; do
+    $CXX $COMUN $JSONDEF -DESP_ARDUINO_VERSION_MAJOR=$v -Ishim_red -I"$JSON" \
+         -fsyntax-only -x c++ "$sk"
+  done
+done
+
+# ---- y las APIs del core tienen que existir DE VERDAD ----------------------
+#  Compilar contra los sustitutos no demuestra nada si un sustituto tiene un
+#  metodo que el core real no tiene: eso solo se ve en el IDE. Aqui se
+#  contrasta contra las cabeceras de arduino-esp32 (se cachean en .libs/).
+echo "Comprobando las APIs contra el core ESP32 real..."
+python3 comprobar_api_esp32.py "$TRIAJE" "$PANEL" --flags \
+  $COMUN $JSONDEF -Ishim_red -I"$JSON"
+
 mkdir -p .build
 echo "Compilando el banco del triaje..."
 $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$TRIAJE" banco_triaje.cpp \
