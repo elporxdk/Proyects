@@ -42,7 +42,11 @@ ha podido releer.
 
 | Lo que ves | Qué pasa |
 |---|---|
-| `I2C: nadie responde` / `[I2C] NADIE contesta` | El módulo no está alimentado o SDA/SCL no llegan. Revisa VIN, GND, SDA→21, SCL→22 |
+| `I2C: cable suelto/sin 3V3` | Las líneas están **al aire**: no hay resistencias de pull-up, o sea que el módulo no está enchufado o no le llega corriente. Revisa VIN→3V3, GND→GND, SDA→21, SCL→22 |
+| `I2C: linea a 0V (corto)` | SDA o SCL está clavada a masa: un cable tocando GND, o un módulo que ha bloqueado el bus |
+| `I2C: hay 3V3, SDA/SCL?` | El módulo **sí** tiene corriente (hay pull-ups) pero nadie contesta en 0x57: lo más probable es SDA y SCL cambiadas de sitio, o que el chip no sea un MAX30102 |
+| `[I2C] N direccion(es) que cambian en cada vuelta` | Direcciones fantasma (0x03, 0x46, 0x51…) distintas en cada escaneo. **No hay ningún dispositivo**: es ruido de un pin flotando |
+| `Tecla: SIN CONECTAR (GPIO34)` | El teclado no está enchufado. Mientras lo esté, se ignoran las pulsaciones para que el equipo no navegue solo |
 | `Sensor: MAX30100 no vale` | Es el chip antiguo (ID `0x11`). La librería MAX3010x no lo soporta: hace falta un MAX30102 o MAX30105 |
 | `Sensor: NO DETECTADO` con `I2C: 1 disp.` | Hay algo en el bus pero no contesta como MAX30102: mal contacto o módulo defectuoso |
 | `[MAX] Sin respuesta a 400 kHz` | Cables largos o sin pull-ups. El firmware baja solo a 100 kHz y sigue |
@@ -51,9 +55,69 @@ ha podido releer.
 | `Memoria: FALLO` | La NVS no admite escrituras: la calibración del teclado no se guardará |
 
 El equipo **no se queda colgado** en ninguno de esos casos: si el sensor no
-aparece al arrancar se sigue buscando cada 3 s (conectarlo con el equipo
-encendido basta, no hace falta reiniciar), y si deja de dar muestras a mitad de
-una medida se reinicia solo y continúa.
+aparece al arrancar se sigue buscando en segundo plano (conectarlo con el
+equipo encendido basta, no hace falta reiniciar), y si deja de dar muestras a
+mitad de una medida se reinicia solo y continúa. La búsqueda empieza cada 3 s y
+se va espaciando hasta 30 s mientras el sensor siga sin aparecer: insistir cada
+3 s eternamente no lo trae de vuelta y sólo llena el Monitor Serie.
+
+### Cómo sabe el firmware si un cable está suelto
+
+Antes de hablar por el bus, mira el **estado eléctrico** de SDA y SCL leyéndolas
+como entradas normales:
+
+| Lo que mide | Qué significa |
+|---|---|
+| Altas y quietas sin ayuda | Hay pull-ups → el módulo está conectado y con corriente |
+| Bailando (ni altas ni bajas) | No hay pull-ups → **nada conectado, o sin corriente** |
+| Bajas incluso con el pull-up interno del ESP32 | Algo las clava a 0 V → **cortocircuito** |
+
+Con el **teclado** hace lo mismo pero a su manera: cada lectura son 9 muestras
+seguidas del ADC tomadas en menos de un milisegundo. Con el teclado enchufado
+salen casi idénticas; con el GPIO34 al aire salen desperdigadas. Si casi todas
+las lecturas de una ventana salen desperdigadas, el firmware da el teclado por
+desconectado y **deja de aceptar pulsaciones**.
+
+Eso último importa más de lo que parece: el GPIO34 es sólo entrada y no tiene
+pull-up interno, así que sin nada enchufado flota cerca de 0 V — justo el rango
+del botón ABAJO. Sin esta comprobación el equipo se abre el asistente solo y
+después va bajando por los menús como si hubiera un fantasma pulsando teclas.
+
+### Si se reinicia en bucle: `Guru Meditation Error`
+
+Si el Monitor Serie enseña esto una y otra vez:
+
+```
+Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0)
+...
+Rebooting...
+rst:0xc (SW_CPU_RESET)
+```
+
+significa que **un núcleo se quedó colgado con las interrupciones apagadas**.
+En un ESP32 eso pasa cuando entre `portENTER_CRITICAL` y `portEXIT_CRITICAL`
+se llama a algo que puede esperar: `WiFi.*`, `MDNS.*`, `HTTPClient`, `Wire.*`,
+`Serial.*`, `delay()`… Ahí dentro sólo pueden ir **asignaciones a memoria**. Si
+hace falta un dato del WiFi, se lee ANTES en una variable local:
+
+```cpp
+const int8_t rssi = (int8_t)WiFi.RSSI();      // fuera del bloqueo
+portENTER_CRITICAL(&g_vitalsMux);
+g_net.rssi = rssi;                            // dentro, sólo copiar
+portEXIT_CRITICAL(&g_vitalsMux);
+```
+
+Este fallo **existió de verdad** en este firmware: `g_net.rssi = WiFi.RSSI()`
+estaba dentro del bloqueo y el triaje se reiniciaba en bucle justo al
+conectarse a la WiFi. No lo ve el compilador y no lo ve el banco de pruebas
+(en el PC no hay watchdog), así que ahora lo vigila un script:
+
+```
+python3 pruebas/banco_firmware/comprobar_criticas.py firmware/medibot_triaje/medibot_triaje.ino
+```
+
+Si el equipo llega a reiniciarse por un fallo así, arranca en **MODO SEGURO**
+(sin red) y la pantalla de arranque dice en qué paso murió: `Fallo en: red: wifi`.
 
 ## Librerías necesarias
 

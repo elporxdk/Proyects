@@ -130,6 +130,26 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define KEY_RELEASE_MS       40      // ms estable para aceptar la soltada
 #define KEY_HYSTERESIS_MV    70      // el boton ya pulsado ensancha su rango
 #define KEY_IDLE_GUARD_MV    120     // franja prohibida alrededor del reposo
+//  TECLADO DESCONECTADO: el GPIO34 es solo entrada y NO tiene pull-up interno,
+//  asi que sin nada enchufado flota y da lecturas que bailan cerca de 0 V. Un
+//  boton pulsado de verdad tambien da poca tension, pero QUIETA. La diferencia
+//  esta en la dispersion, y por eso se miran las dos cosas a la vez.
+#define KEY_AIRE_MV          350     // por debajo de esto puede ser pin al aire
+#define KEY_AIRE_DISP_MV     80      // ...y si ademas baila tanto, lo es
+//  Y la misma vigilancia mientras el equipo funciona: un pin al aire no se
+//  queda quieto NUNCA, asi que la lectura baila sin parar y acaba cayendo por
+//  casualidad dentro del rango de algun boton. Sin esto el equipo se mueve
+//  solo por los menus, como si hubiera un fantasma pulsando teclas.
+//
+//  Lo que se mira es la DISPERSION de las KEY_SAMPLES muestras de UNA lectura,
+//  que se toman seguidas en menos de un milisegundo: con el teclado conectado
+//  salen casi identicas (unas pocas decenas de mV), y con el pin al aire salen
+//  desperdigadas. Se pide ademas que se repita en casi todas las lecturas de
+//  una ventana, para que el salto de tension al pulsar un boton (que ocurre
+//  una vez) no se confunda nunca con un cable suelto.
+#define KEY_SPREAD_MV        120     // dispersion dentro de una lectura
+#define KEY_SALTOS_VENTANA   32      // lecturas que se recuerdan
+#define KEY_SALTOS_MIN       24      // ...de las cuales tantas deben bailar
 #define KEY_REPEAT_ENABLED   1       // autorepeticion en UP/DOWN
 #define KEY_REPEAT_DELAY_MS  600
 #define KEY_REPEAT_RATE_MS   180
@@ -175,7 +195,13 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define MAX_I2C_HZ_FAST      400000UL
 #define MAX_I2C_HZ_SAFE      100000UL
 #define MAX_INIT_RETRIES     5       // intentos de deteccion en el arranque
-#define SENSOR_RETRY_MS      3000UL  // reintento en segundo plano si no hay sensor
+#define SENSOR_RETRY_MS      3000UL  // primer reintento en segundo plano
+//  Si el sensor no esta (cable suelto, modulo sin soldar), reintentar cada 3 s
+//  para siempre no arregla nada: machaca el bus, llena el Monitor Serie de
+//  mensajes repetidos y roba tiempo al nucleo 0. El reintento se va espaciando
+//  hasta medio minuto; en cuanto el sensor aparece, vuelve a 3 s.
+#define SENSOR_RETRY_MAX_MS  30000UL // tope del reintento cuando sigue sin haber
+#define SENSOR_SCAN_CADA     10      // escaneo completo del bus 1 de cada N intentos
 #define PPG_STALL_MS         2500UL  // sin muestras nuevas -> reiniciar el sensor
 //  Con los LED apagados en reposo se ahorra corriente, pero si la escritura
 //  que vuelve a encenderlos se pierde, el sensor se queda a oscuras y "no
@@ -411,6 +437,14 @@ volatile uint8_t hwMaxRevId  = 0;
 volatile uint32_t hwMaxBusHz = MAX_I2C_HZ_FAST;
 volatile uint8_t  hwI2cCount = 0;      // dispositivos vistos en el bus
 volatile uint8_t  hwI2cFirst = 0;      // direccion del primero
+volatile uint32_t hwMaxIntentos = 0;   // intentos de deteccion acumulados
+// Veredicto electrico del bus: dice si el problema es un cable, no el codigo.
+// Los dos enum viven aqui, y no junto a las funciones que los usan, porque el
+// IDE de Arduino inserta los prototipos ANTES de la primera funcion del
+// fichero: un tipo declarado mas abajo da "was not declared in this scope".
+enum I2cDiag : uint8_t { I2C_CON_PULLUP, I2C_SIN_PULLUP, I2C_CORTO };
+enum LinNivel : uint8_t { LIN_ALTA, LIN_BAJA, LIN_AIRE };
+volatile uint8_t  hwI2cDiag = I2C_SIN_PULLUP;
 bool  nvsOk = false;                   // la memoria no volatil responde
 
 // ---------------------------------------------------------------------
@@ -441,6 +475,15 @@ static void paso(const char *p) {
 
 
 // --- Comunicacion entre nucleos ---
+//  REGLA DE g_vitalsMux (no es un consejo, es la causa de un reinicio real):
+//  entre portENTER_CRITICAL y portEXIT_CRITICAL las INTERRUPCIONES DEL NUCLEO
+//  ESTAN CORTADAS. Ahi dentro solo pueden ir asignaciones a memoria. Nada de
+//  WiFi.*, MDNS.*, HTTPClient, Wire.*, Serial.*, delay(), millis() prolongado
+//  ni ninguna funcion que pueda pedir un mutex o esperar: el nucleo se queda
+//  colgado con las interrupciones apagadas y a los 300 ms salta el watchdog:
+//      Guru Meditation Error: Core 0 panic'ed (Interrupt wdt timeout on CPU0)
+//  Si hace falta un dato del WiFi, se LEE ANTES en una variable local y dentro
+//  del bloqueo solo se copia. Lo vigila pruebas/banco_firmware/comprobar_criticas.py
 static NetInfo       g_net;
 static Vitals        g_vitals;
 static portMUX_TYPE  g_vitalsMux  = portMUX_INITIALIZER_UNLOCKED;
@@ -508,6 +551,9 @@ struct KeypadRuntime {
   uint16_t counts        = 0;          // cuentas crudas del ADC (diagnostico)
   int16_t  idleMv        = 3300;       // nivel de reposo medido al arrancar
   bool     idleOk        = false;
+  bool     desconectado  = false;      // el pin flota: no hay teclado enchufado
+  int16_t  spread        = 0;          // dispersion de la ultima lectura, en mV
+  uint32_t saltos        = 0;          // bitmap de las ultimas lecturas que bailaron
 } keypad;
 
 static int cmpI16(const void *a, const void *b) {
@@ -533,6 +579,10 @@ static int16_t keypadReadRawMv() {
   }
   keypad.counts = (uint16_t)(acc / KEY_SAMPLES);
   qsort(s, KEY_SAMPLES, sizeof(int16_t), cmpI16);
+  // Las muestras se han tomado una detras de otra: si salen desperdigadas es
+  // que el pin no esta sujeto a nada. Lo usa keypadPoll() para saber si hay
+  // teclado conectado.
+  keypad.spread = (int16_t)(s[KEY_SAMPLES - 1] - s[0]);
   const uint8_t m = KEY_SAMPLES / 2;
   return (int16_t)((s[m - 1] + s[m] + s[m + 1]) / 3);
 }
@@ -562,6 +612,26 @@ Button keypadPoll() {
   if (!keypad.emaInit) { keypad.ema = bruto; keypad.emaInit = true; }
   else keypad.ema = KEY_EMA_ALPHA * bruto + (1.0f - KEY_EMA_ALPHA) * keypad.ema;
   keypad.mv = (int16_t)keypad.ema;
+
+  // ¿Sigue el teclado enchufado? Se apunta si esta lectura ha salido
+  // desperdigada y se mira cuantas de las ultimas KEY_SALTOS_VENTANA lo han
+  // hecho. Un cable suelto las ensucia casi todas; pulsar un boton, ninguna.
+  keypad.saltos = (keypad.saltos << 1) | (keypad.spread > KEY_SPREAD_MV ? 1u : 0u);
+  const uint8_t bailando = (uint8_t)__builtin_popcount(
+      keypad.saltos & ((KEY_SALTOS_VENTANA >= 32) ? 0xFFFFFFFFu
+                                                  : ((1u << KEY_SALTOS_VENTANA) - 1u)));
+  const bool suelto = (bailando >= KEY_SALTOS_MIN);
+  if (suelto != keypad.desconectado) {
+    keypad.desconectado = suelto;
+    if (suelto) {
+      Serial.println(F("[TECLADO] La lectura no para de bailar: cable suelto en el teclado."));
+      Serial.println(F("          Se ignoran las pulsaciones hasta que vuelva a estar quieta."));
+    } else {
+      Serial.println(F("[TECLADO] Lectura estable otra vez: teclado operativo"));
+    }
+  }
+  // Con el pin al aire, cualquier "pulsacion" es ruido: no se devuelve ninguna.
+  if (keypad.desconectado) { keypad.raw = BTN_NONE; keypad.stable = BTN_NONE; return BTN_NONE; }
 
   const Button raw = keypadClassify(keypad.mv, keypad.stable);
   if (raw != keypad.raw) { keypad.raw = raw; keypad.lastRawChange = now; }
@@ -704,6 +774,21 @@ Button keypadMeasureIdle() {
 
   Serial.printf("[TECLADO] Nivel en reposo: %d mV (ADC %u, dispersion %d mV)\n",
                 (int)mediana, (unsigned)keypad.counts, (int)disp);
+
+  // Casi a 0 V y ademas inestable = pin flotando, no un boton mantenido. Sin
+  // esta comprobacion el firmware lo toma por una tecla pulsada, abre el
+  // asistente de calibracion y se queda un minuto esperando pulsaciones que
+  // no pueden llegar porque el teclado no esta conectado.
+  keypad.desconectado = (mediana < KEY_AIRE_MV && disp > KEY_AIRE_DISP_MV);
+  if (keypad.desconectado) {
+    Serial.println(F("[TECLADO] Lecturas casi a 0 V y saltando: el teclado NO esta conectado."));
+    Serial.printf( "          Revisa VCC->3V3, GND->GND y la salida analogica -> GPIO%d\n",
+                  (int)KEYPAD_PIN);
+    keypad.idleMv = mediana;
+    keypad.idleOk = true;
+    return BTN_NONE;
+  }
+
   if (coincide != BTN_NONE) {
     Serial.printf("[TECLADO] Coincide con %s: hay un boton pulsado al arrancar\n",
                   buttonName(coincide));
@@ -873,23 +958,102 @@ static bool rawRead(uint8_t addr, uint8_t reg, uint8_t &valor) {
   return true;
 }
 
+// ---- Estado ELECTRICO de las lineas, antes de hablar por el bus ----
+//  Sin esto, "no contesta nadie" puede ser un cable suelto, un cruce de SDA y
+//  SCL o un cortocircuito, y no hay forma de distinguirlos. Se mide mirando el
+//  pin como entrada normal: un bus I2C sano esta en reposo ALTO y quieto,
+//  porque los modulos llevan resistencias de pull-up a 3V3.
+static LinNivel i2cNivel(uint8_t pin, bool conPullup) {
+  pinMode(pin, conPullup ? INPUT_PULLUP : INPUT);
+  delayMicroseconds(400);
+  uint8_t altos = 0;
+  for (uint8_t i = 0; i < 16; i++) {
+    if (digitalRead(pin)) altos++;
+    delayMicroseconds(60);
+  }
+  if (altos >= 15) return LIN_ALTA;      // firme arriba: hay pull-up
+  if (altos <= 1)  return LIN_BAJA;      // firme abajo
+  return LIN_AIRE;                       // bailando: el pin flota
+}
+
+// Suelta el bus, mide las dos lineas y lo devuelve. Deja el veredicto en
+// hwI2cDiag (lo lee tambien la pantalla de Diagnostico).
+static uint8_t i2cRevisarLineas() {
+  Wire.end();                                     // soltar los pines
+  const LinNivel sdaSin = i2cNivel(I2C_SDA_PIN, false);
+  const LinNivel sdaCon = i2cNivel(I2C_SDA_PIN, true);
+  const LinNivel sclSin = i2cNivel(I2C_SCL_PIN, false);
+  const LinNivel sclCon = i2cNivel(I2C_SCL_PIN, true);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);           // y devolverlo al periferico
+  Wire.setClock(hwMaxBusHz);
+
+  uint8_t d;
+  // Sigue abajo aunque el propio ESP32 tire hacia arriba -> algo la clava a GND.
+  if (sdaCon == LIN_BAJA || sclCon == LIN_BAJA)        d = I2C_CORTO;
+  // Arriba y quieta sin ayuda -> hay pull-up externo: el modulo tiene corriente.
+  else if (sdaSin == LIN_ALTA && sclSin == LIN_ALTA)   d = I2C_CON_PULLUP;
+  else                                                 d = I2C_SIN_PULLUP;
+  hwI2cDiag = d;
+  return d;
+}
+
+// Explica el veredicto en castellano. Solo se imprime cuando CAMBIA, para no
+// llenar el Monitor Serie con la misma frase cada pocos segundos.
+static void i2cExplicar(uint8_t d) {
+  switch (d) {
+    case I2C_CORTO:
+      Serial.println(F("[I2C] SDA o SCL clavada a 0 V. Suele ser un cable tocando GND"));
+      Serial.println(F("      o un modulo que ha bloqueado el bus. Desconectalos y"));
+      Serial.println(F("      vuelve a conectarlos de uno en uno."));
+      break;
+    case I2C_SIN_PULLUP:
+      Serial.println(F("[I2C] Lineas AL AIRE: no hay pull-up, o sea que el modulo NO"));
+      Serial.println(F("      esta conectado o NO le llega corriente. Comprueba:"));
+      Serial.println(F("        VIN -> 3V3    GND -> GND    SDA -> GPIO21    SCL -> GPIO22"));
+      Serial.println(F("      (si el ESP32 y el modulo no comparten GND, tampoco funciona)"));
+      break;
+    default:
+      Serial.println(F("[I2C] Hay pull-up (el modulo tiene corriente) pero nadie contesta"));
+      Serial.println(F("      en 0x57: mira si SDA y SCL estan cambiadas de sitio, o si"));
+      Serial.println(F("      el chip no es un MAX30102."));
+      break;
+  }
+}
+
 // Recorre el bus y apunta cuantos dispositivos contestan. Es lo primero que
 // hay que mirar cuando "el sensor no funciona": 0 dispositivos significa
 // cableado o alimentacion, no software.
-static void i2cScan() {
+static void i2cScan(bool verboso) {
+  const uint8_t diag = i2cRevisarLineas();      // primero la electricidad
   uint8_t n = 0, primera = 0;
   for (uint8_t a = 1; a < 127; a++) {
     Wire.beginTransmission(a);
     if (Wire.endTransmission() == 0) {
       if (n == 0) primera = a;
       n++;
-      Serial.printf("[I2C] dispositivo en 0x%02X\n", a);
+      if (verboso) Serial.printf("[I2C] responde 0x%02X\n", a);
     }
   }
   hwI2cCount = n;
   hwI2cFirst = primera;
-  if (n == 0)
+
+  // El veredicto se cuenta entero la primera vez y luego solo si CAMBIA: si no,
+  // el Monitor Serie se llena con la misma frase y no se ve nada mas.
+  static uint8_t ultimoDiag = 0xFF;
+  const bool cambio = (diag != ultimoDiag);
+  ultimoDiag = diag;
+  if (!verboso && !cambio) return;
+
+  if (n == 0) {
     Serial.println(F("[I2C] NADIE contesta: revisa VIN, GND, SDA(21) y SCL(22)"));
+  } else if (diag == I2C_SIN_PULLUP) {
+    // Con las lineas al aire el escaneo "encuentra" direcciones distintas cada
+    // vez: son lecturas al azar del pin flotando, no dispositivos de verdad.
+    Serial.printf("[I2C] %u direccion(es) que cambian en cada vuelta: es RUIDO de\n"
+                  "      lineas al aire, no hay ningun dispositivo conectado.\n",
+                  (unsigned)n);
+  }
+  i2cExplicar(diag);
 }
 
 // Aplica la configuracion y la COMPRUEBA releyendo los registros. Sin esta
@@ -928,7 +1092,11 @@ static bool sensorConfigure(bool ledsOn) {
 // configuracion. Prueba a 400 kHz y, si no contesta, a 100 kHz.
 static bool sensorBegin(bool conEscaneo) {
   hwMaxWrong = false;
-  if (conEscaneo) i2cScan();
+  const uint32_t intento = hwMaxIntentos++;
+  // Los primeros intentos se cuentan enteros; a partir de ahi solo un
+  // recordatorio de vez en cuando.
+  const bool verboso = (intento < 2) || (intento % SENSOR_SCAN_CADA == 0);
+  if (conEscaneo) i2cScan(verboso);
 
   const uint32_t velocidades[2] = { MAX_I2C_HZ_FAST, MAX_I2C_HZ_SAFE };
   for (uint8_t v = 0; v < 2; v++) {
@@ -950,6 +1118,7 @@ static bool sensorBegin(bool conEscaneo) {
           Wire.setClock(velocidades[v]);              // begin() la reajusta
           if (sensorConfigure(MAX_LEDS_ALWAYS_ON != 0)) {
             hwMaxOk = true;
+            hwMaxIntentos = 0;                   // volver al reintento rapido
             Serial.printf("[MAX] Sensor OK en 0x%02X (ID 0x%02X rev 0x%02X) a %lu kHz, "
                           "intento %u\n", MAX_I2C_ADDR, id, hwMaxRevId,
                           (unsigned long)(velocidades[v] / 1000), (unsigned)(intento + 1));
@@ -959,10 +1128,13 @@ static bool sensorBegin(bool conEscaneo) {
       }
       delay(80);
     }
-    if (v == 0) Serial.println(F("[MAX] Sin respuesta a 400 kHz: se reintenta a 100 kHz"));
+    if (v == 0 && verboso)
+      Serial.println(F("[MAX] Sin respuesta a 400 kHz: se reintenta a 100 kHz"));
   }
   hwMaxOk = false;
-  Serial.println(F("[MAX] Sensor de pulso NO detectado en 0x57"));
+  if (verboso)
+    Serial.printf("[MAX] Sensor de pulso NO detectado en 0x57 (intento %lu)\n",
+                  (unsigned long)(intento + 1));
   return false;
 }
 
@@ -1526,9 +1698,15 @@ static void netTrabajo(uint32_t ahora) {
     case NET_WIFI:
       paso("red: wifi");
       if (WiFi.status() == WL_CONNECTED) {
+        // Se leen FUERA del bloqueo a proposito: WiFi.RSSI() y WiFi.localIP()
+        // piden un mutex al driver de WiFi, y pedir un mutex con las
+        // interrupciones cortadas cuelga el nucleo -> "Interrupt wdt timeout
+        // on CPU0". Ver la nota de g_vitalsMux.
+        const int8_t   rssi = (int8_t)WiFi.RSSI();
+        const uint32_t mia  = (uint32_t)WiFi.localIP();
         portENTER_CRITICAL(&g_vitalsMux);
-        g_net.rssi = (int8_t)WiFi.RSSI();
-        g_net.ipPropia = (uint32_t)WiFi.localIP();
+        g_net.rssi = rssi;
+        g_net.ipPropia = mia;
         portEXIT_CRITICAL(&g_vitalsMux);
         Serial.printf("[RED] WiFi OK, IP de este ESP32: %s\n", WiFi.localIP().toString().c_str());
         netMsg("Buscando MEDIBOT");
@@ -1593,7 +1771,8 @@ static void netTrabajo(uint32_t ahora) {
         nt.ultimoJson = ahora;
         paso("red: json");
         netLeerJson();
-        portENTER_CRITICAL(&g_vitalsMux); g_net.rssi = (int8_t)WiFi.RSSI(); portEXIT_CRITICAL(&g_vitalsMux);
+        const int8_t rssi = (int8_t)WiFi.RSSI();   // fuera del bloqueo (ver NET_WIFI)
+        portENTER_CRITICAL(&g_vitalsMux); g_net.rssi = rssi; portEXIT_CRITICAL(&g_vitalsMux);
       }
       break;
 
@@ -1618,6 +1797,7 @@ void sensorTaskCode(void *pv) {
   uint32_t myEpoch = 0xFFFFFFFF;
   SensorMode myMode = SENS_IDLE;
   uint32_t ultimoReintento = 0;
+  uint32_t esperaReintento = SENSOR_RETRY_MS;   // crece si el sensor no aparece
   uint32_t ultimoAvisoPila = 0;
 
   for (;;) {
@@ -1673,12 +1853,22 @@ void sensorTaskCode(void *pv) {
     // Sin sensor: se reintenta la deteccion en segundo plano. Asi, si estaba
     // mal conectado o tardo en arrancar, el equipo se recupera solo y no hay
     // que reiniciarlo para poder medir.
-    if (!hwMaxOk && now - ultimoReintento >= SENSOR_RETRY_MS) {
+    //
+    // La espera CRECE (3 s, 6, 12... hasta 30 s) mientras siga sin aparecer:
+    // insistir cada 3 s eternamente no lo trae de vuelta, y en cambio machaca
+    // el bus, llena el Monitor Serie y le roba tiempo a la red. El escaneo
+    // completo del bus, que es lo caro, solo se hace 1 de cada SENSOR_SCAN_CADA.
+    if (!hwMaxOk && now - ultimoReintento >= esperaReintento) {
       ultimoReintento = now;
-      if (sensorBegin(true)) {
+      const bool escanear = (hwMaxIntentos < 3) || (hwMaxIntentos % SENSOR_SCAN_CADA == 0);
+      if (sensorBegin(escanear)) {
         Serial.println(F("[MAX] Sensor recuperado: ya se puede medir"));
+        esperaReintento = SENSOR_RETRY_MS;
         ppgResetAll(now);
         ppgLastSampleMs = now;
+      } else if (esperaReintento < SENSOR_RETRY_MAX_MS) {
+        esperaReintento *= 2;
+        if (esperaReintento > SENSOR_RETRY_MAX_MS) esperaReintento = SENSOR_RETRY_MAX_MS;
       }
     }
 
@@ -2055,9 +2245,11 @@ void drawDiagScreen() {
   else              snprintf(buf, sizeof(buf), "Sensor: NO DETECTADO");
   u8g2.drawStr(2, 21, buf);
 
-  if (hwI2cCount == 0) snprintf(buf, sizeof(buf), "I2C: nadie responde");
-  else                 snprintf(buf, sizeof(buf), "I2C: %u disp. (1o 0x%02X)",
-                                (unsigned)hwI2cCount, hwI2cFirst);
+  if (hwMaxOk)                          snprintf(buf, sizeof(buf), "I2C: %u disp. (1o 0x%02X)",
+                                                 (unsigned)hwI2cCount, hwI2cFirst);
+  else if (hwI2cDiag == I2C_CORTO)      snprintf(buf, sizeof(buf), "I2C: linea a 0V (corto)");
+  else if (hwI2cDiag == I2C_SIN_PULLUP) snprintf(buf, sizeof(buf), "I2C: cable suelto/sin 3V3");
+  else                                  snprintf(buf, sizeof(buf), "I2C: hay 3V3, SDA/SCL?");
   u8g2.drawStr(2, 30, buf);
 
   if (!hwMaxOk)               snprintf(buf, sizeof(buf), "IR: --");
@@ -2066,7 +2258,10 @@ void drawDiagScreen() {
                 v.fingerPresent ? "DEDO" : "sin dedo");
   u8g2.drawStr(2, 39, buf);
 
-  snprintf(buf, sizeof(buf), "Tecla: %d mV (reposo %d)", (int)keypadLastMv(), (int)keypad.idleMv);
+  if (keypad.desconectado)
+    snprintf(buf, sizeof(buf), "Tecla: SIN CONECTAR (GPIO%d)", (int)KEYPAD_PIN);
+  else
+    snprintf(buf, sizeof(buf), "Tecla: %d mV (reposo %d)", (int)keypadLastMv(), (int)keypad.idleMv);
   u8g2.drawStr(2, 48, buf);
 
   const NetInfo n = netGet();
@@ -2477,7 +2672,14 @@ void setup() {
                            // estamos en modo seguro)
 
   // Sin calibracion guardada, o con un boton mantenido al encender -> asistente.
-  if (!hayCal || teclaMantenida != BTN_NONE) {
+  // Pero si el teclado ni siquiera esta conectado no hay nada que calibrar: el
+  // asistente se quedaria esperando pulsaciones imposibles, asi que se avisa y
+  // se sigue al menu con la tabla de fabrica.
+  if (keypad.desconectado) {
+    Serial.println(F("[TECLADO] Asistente NO abierto: conecta el teclado y reinicia"));
+    keypadRestoreDefaults();
+    setState(STATE_BOOT);
+  } else if (!hayCal || teclaMantenida != BTN_NONE) {
     keypadWizardStart();
     setState(STATE_KEYPAD_WIZARD);
   } else {

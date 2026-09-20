@@ -12,6 +12,7 @@ extern bool     maxSimPresente();    // responde en el bus
 class TwoWire {
  public:
   void begin(int sda = -1, int scl = -1) { (void)sda; (void)scl; }
+  bool end() { return true; }
   void setClock(unsigned long hz) { clock = hz; }
   void beginTransmission(uint8_t a) { addr = a; nEscrito = 0; }
   size_t write(uint8_t b) { if (nEscrito < 4) escrito[nEscrito++] = b; return 1; }

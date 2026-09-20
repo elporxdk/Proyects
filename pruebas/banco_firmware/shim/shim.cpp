@@ -41,11 +41,41 @@ long random(long a, long b) { return b > a ? a + (long)(::rand() % (b - a)) : a;
 
 // ===================== ADC / pines =====================
 std::atomic<int> g_adcMv{3200};          // reposo del teclado
-int  analogRead(int) { long v = (long)g_adcMv.load() * 4095 / 3300; return (int)(v > 4095 ? 4095 : v); }
-uint32_t analogReadMilliVolts(int) { int v = g_adcMv.load(); return (uint32_t)(v > 3200 ? 3200 : v); }
+std::atomic<int> g_adcRuido{0};          // un pin sin nada enchufado no da un valor quieto
+
+// Tension presente en el pin, con el ruido que corresponda. Con g_adcRuido > 0
+// las lecturas bailan como en una entrada analogica al aire: es asi como el
+// firmware distingue "no hay teclado" de "hay un boton pulsado" (un boton da
+// poca tension, pero QUIETA).
+static int adcMv() {
+  const int r = g_adcRuido.load();
+  int v = g_adcMv.load() + (r > 0 ? (::rand() % (2 * r + 1)) - r : 0);
+  if (v < 0) v = 0;
+  return v;
+}
+int  analogRead(int) { long v = (long)adcMv() * 4095 / 3300; return (int)(v > 4095 ? 4095 : v); }
+uint32_t analogReadMilliVolts(int) { int v = adcMv(); return (uint32_t)(v > 3200 ? 3200 : v); }
 void analogReadResolution(int) {}
 void analogSetPinAttenuation(int, int) {}
-void pinMode(int, int) {}
+// Modo actual de cada pin, para poder distinguir "con pull-up interno" de
+// "sin el": es justo lo que usa el firmware para saber si hay modulo o no.
+std::atomic<int> g_i2cLineas{LIN_CONECTADO};
+static std::atomic<int> g_modoPin[40];
+
+void pinMode(int pin, int mode) {
+  if (pin >= 0 && pin < 40) g_modoPin[pin] = mode;
+}
+
+int digitalRead(int pin) {
+  const int estado = g_i2cLineas.load();
+  const bool pullupInterno = (pin >= 0 && pin < 40) && (g_modoPin[pin].load() == INPUT_PULLUP);
+  switch (estado) {
+    case LIN_CORTO:   return LOW;                       // clavada a 0 V pase lo que pase
+    case LIN_AL_AIRE: return pullupInterno ? HIGH       // el ESP32 la levanta
+                                           : (::rand() & 1);  // flotando: ruido
+    default:          return HIGH;                      // pull-ups del modulo
+  }
+}
 
 // ===================== Serie =====================
 SerialSim Serial;
@@ -68,6 +98,11 @@ TwoWire Wire;
 uint8_t maxSimRegs[256] = {0};
 
 uint8_t TwoWire::endTransmission(bool) {
+  // Con las lineas al aire, un bus real devuelve ACK de vez en cuando en
+  // direcciones al azar. Se simula para que el banco vea el mismo ruido que
+  // aparece en el Monitor Serie de la placa.
+  if (g_i2cLineas.load() == LIN_AL_AIRE && addr != MAXSIM_I2C_ADDR)
+    return (::rand() % 25 == 0) ? 0 : 2;
   if (addr != MAXSIM_I2C_ADDR || !maxSimPresente()) return 2;   // nadie contesta
   if (nEscrito >= 1) puntero = escrito[0];
   if (nEscrito >= 2) maxSimRegs[puntero] = escrito[1];           // escritura real

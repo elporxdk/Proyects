@@ -36,6 +36,37 @@ IDE. De ahí el comprobador.
 Regla: **todo tipo que se use en la firma de una función va declarado antes de
 la primera función del fichero** (en MEDIBOT, en el bloque de tipos).
 
+## Y que nada bloquee dentro de una sección crítica
+
+`comprobar_criticas.py` recorre los dos sketches y comprueba que entre
+`portENTER_CRITICAL` y `portEXIT_CRITICAL` **sólo haya asignaciones a
+memoria**.
+
+En un ESP32, `portENTER_CRITICAL` corta las interrupciones del núcleo. Si ahí
+dentro se llama a algo que pide un mutex o que espera, el núcleo se queda
+colgado con las interrupciones apagadas y a los 300 ms la placa se reinicia
+sola:
+
+```
+Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0)
+```
+
+Pasó de verdad, y en los dos firmwares a la vez:
+
+```cpp
+portENTER_CRITICAL(&g_vitalsMux);
+g_net.rssi = (int8_t)WiFi.RSSI();     // <-- pide el mutex del driver de WiFi
+portEXIT_CRITICAL(&g_vitalsMux);
+```
+
+El triaje se reiniciaba en bucle justo al conectarse a la WiFi, siempre
+después de `[RED] Conectando a MEDIBOT`. **El compilador no lo ve**, y el banco
+tampoco: en el PC no hay watchdog de interrupciones, así que el caso pasaba
+verde. Por eso hace falta un comprobador estático aparte.
+
+Regla: el dato se lee ANTES, en una variable local, y dentro del bloqueo sólo
+se copia.
+
 ## Y que las APIs del core ESP32 existan
 
 `correr.sh` compila los sketches con las **dos** ramas del core (2.x y 3.x,
@@ -93,7 +124,10 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 | `sinwifi` | sin red avisa y reintenta: cuando el router aparece, se conecta **sin reiniciar** |
 | `apicaida` | si la API deja de responder lo detecta, la vuelve a buscar y la recupera sola |
 | `redymedida` | midiendo con la red activa: el pulso sale bien y **no se pierde ni una muestra** |
-| `panel/normal`, `panel/botonpulsado` | lo mismo en el firmware del panel |
+| `busalaire` | el sensor no está cableado y el bus flota: el equipo dice que es un cable suelto (no sólo "no detectado") y sigue usable |
+| `buscorto` | SDA o SCL tocando GND: lo distingue del caso anterior y lo dice |
+| `tecladosuelto` | GPIO34 al aire: **no** abre el asistente, **no** navega solo, y al enchufar el teclado la selección sigue donde estaba |
+| `panel/normal`, `panel/botonpulsado`, `panel/tecladosuelto` | lo mismo en el firmware del panel |
 
 ## Por qué existe
 

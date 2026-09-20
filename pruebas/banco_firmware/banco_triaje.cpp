@@ -175,6 +175,18 @@ int main(int argc, char **argv) {
   if (caso == "sinmemoria") { g_nvsRota = true; g_nvsReparable = false; }
   if (caso == "botonpulsado") g_adcMv = 2500;      // ARRIBA mantenido al encender
   if (caso == "modoseguro") g_motivoReinicio = ESP_RST_PANIC;   // veniamos de un fallo
+  if (caso == "busalaire") {           // el sensor ni siquiera esta cableado
+    sensorSim.presente = false;
+    g_i2cLineas = LIN_AL_AIRE;
+  }
+  if (caso == "buscorto") {            // una linea del bus tocando GND
+    sensorSim.presente = false;
+    g_i2cLineas = LIN_CORTO;
+  }
+  if (caso == "tecladosuelto") {       // nada enchufado en el GPIO34
+    g_adcMv = 150;                     // cerca de 0 V...
+    g_adcRuido = 200;                  // ...y sin parar quieto, como el pin real
+  }
 
   printf("== CASO %s (BPM=%d SpO2=%d) ==\n", caso.c_str(), bpmReal, spo2Real);
   setup();
@@ -365,6 +377,63 @@ int main(int argc, char **argv) {
     comprobar(pantallaContiene("DEDO"), "al poner el dedo lo refleja en vivo");
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "se sale al menu");
+  } else if (caso == "busalaire" || caso == "buscorto") {
+    // El sensor no responde Y ADEMAS el bus esta electricamente muerto. El
+    // firmware tiene que decir QUE pasa (cable suelto / cortocircuito), no
+    // solo "no detectado": es la diferencia entre buscar el fallo en el
+    // codigo durante horas y mirar el cable.
+    comprobar(esperarTexto("NO DETECTADO", 5000), "avisa de que no hay sensor");
+    lanzarChequeoNo();
+    abrirDelMenu(M_DIAG);
+    comprobar(esperarTexto("DIAGNOSTICO", 4000), "se puede abrir Diagnostico sin sensor");
+    esperar(1500);
+    volcar("diagnostico");
+    if (caso == "busalaire")
+      comprobar(pantallaContiene("cable suelto") || pantallaContiene("sin 3V3"),
+                "dice que el modulo no esta conectado o no tiene corriente");
+    else
+      comprobar(pantallaContiene("corto") || pantallaContiene("0V"),
+                "dice que una linea esta clavada a 0 V");
+    BACK();
+    comprobar(esperarTexto("Auto-Chequeo", 4000),
+              "el equipo sigue usable y NO se queda colgado ni se reinicia");
+  } else if (caso == "tecladosuelto") {
+    // GPIO34 al aire: lecturas casi a 0 V que bailan. Ese vaiven cae dentro
+    // del rango del boton ABAJO, asi que ANTES el equipo se abria el asistente
+    // solo y luego navegaba el menu como si hubiera un fantasma pulsando.
+    comprobar(!esperarTexto("CALIBRAR TECLADO", 6000),
+              "con el teclado desconectado NO se abre el asistente");
+    esperarSinTexto("MEDIBOT v6.1", 12000);
+
+    // Se conecta el teclado: a partir de aqui el equipo tiene que responder.
+    printf("   [hardware] se conecta el teclado\n");
+    g_adcRuido = 0;
+    g_adcMv = 3200;
+    esperar(1000);
+    OK();
+    comprobar(esperarTexto("Auto-Chequeo", 5000), "conectado, el menu responde");
+    menuPos = 0;
+    volcar("menu");
+
+    // Y ahora se suelta el cable con el menu delante. La prueba de verdad: la
+    // seleccion NO puede moverse sola.
+    printf("   [hardware] se suelta el cable del teclado\n");
+    g_adcMv = 150;
+    g_adcRuido = 200;
+    esperar(6000);
+    comprobar(pantallaContiene("Auto-Chequeo"),
+              "con el cable suelto no se mete solo en ninguna pantalla");
+    volcar("cable suelto");
+
+    // Se vuelve a conectar: si hubieran entrado pulsaciones fantasma, la
+    // seleccion se habria bajado y OK abriria otra cosa distinta del chequeo.
+    printf("   [hardware] se conecta otra vez\n");
+    g_adcRuido = 0;
+    g_adcMv = 3200;
+    esperar(1500);
+    OK();
+    comprobar(esperarTexto("Coloque su dedo", 6000),
+              "la seleccion sigue donde estaba: no hubo pulsaciones fantasma");
   } else if (caso == "sensorlento") {
     // El sensor no responde al arrancar y aparece despues (mal contacto que se
     // asienta, modulo que tarda en dar tension...): tiene que recuperarse solo.

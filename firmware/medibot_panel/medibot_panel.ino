@@ -79,6 +79,17 @@
 #define KEY_POLL_MS           10
 #define KEY_SAMPLES           9          // impar, >= 3 (mediana)
 #define KEY_EMA_ALPHA         0.40f
+//  TECLADO DESCONECTADO: el GPIO34 es solo entrada y no tiene pull-up interno,
+//  asi que sin nada enchufado flota y sus lecturas bailan cerca de 0 V, que es
+//  justo el rango de un boton. Sin detectarlo, el panel navega solo por los
+//  menus como si hubiera un fantasma pulsando teclas. Se mide la DISPERSION de
+//  las KEY_SAMPLES muestras de UNA lectura (tomadas seguidas en menos de un
+//  milisegundo): con el teclado puesto salen casi identicas.
+#define KEY_AIRE_MV           350     // casi a 0 V...
+#define KEY_AIRE_DISP_MV      80      // ...y ademas inestable = pin al aire
+#define KEY_SPREAD_MV         120     // dispersion dentro de una lectura
+#define KEY_SALTOS_VENTANA    32      // lecturas que se recuerdan
+#define KEY_SALTOS_MIN        24      // ...de las cuales tantas deben bailar
 #define KEY_DEBOUNCE_MS       40
 #define KEY_RELEASE_MS       40
 #define KEY_HYSTERESIS_MV     70
@@ -283,6 +294,15 @@ bool  nvsOk  = false;                  // la memoria no volatil responde
 
 // --- Compartido entre nucleos ---
 static Shared        g_sh;
+//  REGLA DE g_mux (no es un consejo, es la causa de un reinicio real):
+//  entre portENTER_CRITICAL y portEXIT_CRITICAL las INTERRUPCIONES DEL NUCLEO
+//  ESTAN CORTADAS. Ahi dentro solo pueden ir asignaciones a memoria. Nada de
+//  WiFi.*, MDNS.*, HTTPClient, Wire.*, Serial.*, delay() ni ninguna funcion que
+//  pueda pedir un mutex o esperar: el nucleo se cuelga con las interrupciones
+//  apagadas y a los 300 ms salta el watchdog:
+//      Guru Meditation Error: Core 0 panic'ed (Interrupt wdt timeout on CPU0)
+//  Si hace falta un dato del WiFi, se LEE ANTES en una variable local y dentro
+//  del bloqueo solo se copia. Lo vigila pruebas/banco_firmware/comprobar_criticas.py
 static portMUX_TYPE  g_mux = portMUX_INITIALIZER_UNLOCKED;
 volatile WorkMode    g_modo  = WK_IDLE;
 volatile uint32_t    g_epoca = 0;
@@ -373,6 +393,9 @@ struct KeyRT {
   uint16_t cuentas      = 0;
   int16_t  reposoMv     = 3300;
   bool     reposoOk     = false;
+  bool     desconectado = false;      // el pin flota: no hay teclado enchufado
+  int16_t  spread       = 0;          // dispersion de la ultima lectura, en mV
+  uint32_t saltos       = 0;          // bitmap de las lecturas que bailaron
 } kb;
 
 static int cmpI16(const void *a, const void *b) {
@@ -397,6 +420,9 @@ static int16_t leerMvCrudo() {
   }
   kb.cuentas = (uint16_t)(acc / KEY_SAMPLES);
   qsort(s, KEY_SAMPLES, sizeof(int16_t), cmpI16);
+  // Muestras tomadas una detras de otra: si salen desperdigadas, el pin no
+  // esta sujeto a nada. Lo usa tecladoLeer() para saber si hay teclado.
+  kb.spread = (int16_t)(s[KEY_SAMPLES - 1] - s[0]);
   const uint8_t m = KEY_SAMPLES / 2;
   return (int16_t)((s[m - 1] + s[m] + s[m + 1]) / 3);
 }
@@ -426,6 +452,21 @@ Button tecladoLeer() {
   if (!kb.emaInit) { kb.ema = bruto; kb.emaInit = true; }
   else kb.ema = KEY_EMA_ALPHA * bruto + (1.0f - KEY_EMA_ALPHA) * kb.ema;
   kb.mv = (int16_t)kb.ema;
+
+  // ¿Sigue el teclado enchufado? Un cable suelto ensucia casi todas las
+  // lecturas de la ventana; pulsar un boton, ninguna.
+  kb.saltos = (kb.saltos << 1) | (kb.spread > KEY_SPREAD_MV ? 1u : 0u);
+  const uint8_t bailando = (uint8_t)__builtin_popcount(
+      kb.saltos & ((KEY_SALTOS_VENTANA >= 32) ? 0xFFFFFFFFu
+                                              : ((1u << KEY_SALTOS_VENTANA) - 1u)));
+  const bool suelto = (bailando >= KEY_SALTOS_MIN);
+  if (suelto != kb.desconectado) {
+    kb.desconectado = suelto;
+    Serial.println(suelto
+      ? F("[TECLADO] La lectura no para de bailar: cable suelto. Se ignoran las teclas.")
+      : F("[TECLADO] Lectura estable otra vez: teclado operativo"));
+  }
+  if (kb.desconectado) { kb.raw = BTN_NONE; kb.estable = BTN_NONE; return BTN_NONE; }
 
   const Button raw = clasificar(kb.mv, kb.estable);
   if (raw != kb.raw) { kb.raw = raw; kb.cambioRaw = ahora; }
@@ -529,6 +570,19 @@ static Button tecladoMedirReposo() {
 
   Serial.printf("[TECLADO] Nivel en reposo: %d mV (ADC %u, dispersion %d mV)\n",
                 (int)mediana, (unsigned)kb.cuentas, (int)disp);
+
+  // Casi a 0 V y ademas inestable = pin flotando, no un boton mantenido. Sin
+  // esto se abre el asistente y se queda esperando pulsaciones imposibles.
+  kb.desconectado = (mediana < KEY_AIRE_MV && disp > KEY_AIRE_DISP_MV);
+  if (kb.desconectado) {
+    Serial.println(F("[TECLADO] Lecturas casi a 0 V y saltando: el teclado NO esta conectado."));
+    Serial.printf( "          Revisa VCC->3V3, GND->GND y la salida analogica -> GPIO%d\n",
+                  (int)KEYPAD_PIN);
+    kb.reposoMv = mediana;
+    kb.reposoOk = true;
+    return BTN_NONE;
+  }
+
   if (coincide != BTN_NONE) {
     Serial.printf("[TECLADO] Coincide con %s: hay un boton pulsado al arrancar\n",
                   BTN_NOMBRE[coincide]);
@@ -1173,7 +1227,11 @@ static void netTrabajo(uint32_t ahora) {
   switch (nt.etapa) {
     case NET_WIFI:
       if (WiFi.status() == WL_CONNECTED) {
-        portENTER_CRITICAL(&g_mux); g_sh.rssi = (int8_t)WiFi.RSSI(); portEXIT_CRITICAL(&g_mux);
+        // Fuera del bloqueo a proposito: WiFi.RSSI() pide un mutex al driver
+        // de WiFi, y pedir un mutex con las interrupciones cortadas cuelga el
+        // nucleo -> "Interrupt wdt timeout on CPU0". Ver la nota de g_mux.
+        const int8_t rssi = (int8_t)WiFi.RSSI();
+        portENTER_CRITICAL(&g_mux); g_sh.rssi = rssi; portEXIT_CRITICAL(&g_mux);
         configTzTime(TZ_INFO, NTP_SERVER);       // hora real para el historial
         netMsg("Buscando MEDIBOT");
         netEtapa(NET_MDNS);
@@ -1226,7 +1284,8 @@ static void netTrabajo(uint32_t ahora) {
       if (ahora - nt.ultimoJson >= JSON_POLL_MS) {
         nt.ultimoJson = ahora;
         netLeerJson();
-        portENTER_CRITICAL(&g_mux); g_sh.rssi = (int8_t)WiFi.RSSI(); portEXIT_CRITICAL(&g_mux);
+        const int8_t rssi = (int8_t)WiFi.RSSI();   // fuera del bloqueo (ver NET_WIFI)
+        portENTER_CRITICAL(&g_mux); g_sh.rssi = rssi; portEXIT_CRITICAL(&g_mux);
       }
       break;
 
@@ -1974,7 +2033,13 @@ void setup() {
   // Sin calibracion, o con un boton mantenido al encender -> asistente.
   // Esa es la via de escape si los rangos guardados quedaron mal y no se
   // puede navegar el menu para repetirlos.
-  if (!hayCal || mantenido != BTN_NONE) { wizIniciar(); irA(ST_CAL); }
+  // Si el teclado ni siquiera esta conectado no hay nada que calibrar: el
+  // asistente se quedaria esperando pulsaciones que no pueden llegar.
+  if (kb.desconectado) {
+    Serial.println(F("[TECLADO] Asistente NO abierto: conecta el teclado y reinicia"));
+    tecladoRestaurarDefecto();
+    irA(ST_SPLASH);
+  } else if (!hayCal || mantenido != BTN_NONE) { wizIniciar(); irA(ST_CAL); }
   else irA(ST_SPLASH);
 }
 

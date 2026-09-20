@@ -67,15 +67,28 @@ static void atenderAsistente() {
 
 int main(int argc, char **argv) {
   const int bpmReal = argc > 1 ? atoi(argv[1]) : 72;
-  const bool botonPulsado = (argc > 2 && std::string(argv[2]) == "botonpulsado");
+  const std::string caso = argc > 2 ? argv[2] : "normal";
+  const bool botonPulsado = (caso == "botonpulsado");
+  const bool tecladoSuelto = (caso == "tecladosuelto");
   sensorSim.bpm = bpmReal;
   sensorSim.dedo = false;
   if (botonPulsado) g_adcMv = 2500;          // ARRIBA mantenido al encender
+  if (tecladoSuelto) { g_adcMv = 150; g_adcRuido = 200; }   // GPIO34 al aire
   printf("== PANEL: auto-chequeo con pulso simulado de %d BPM%s ==\n", bpmReal,
          botonPulsado ? " (boton mantenido al encender)" : "");
   setup();
   std::thread(hiloUI).detach();
 
+  if (tecladoSuelto) {
+    // Con el pin al aire las lecturas caen dentro del rango de un boton: el
+    // panel NO puede abrir el asistente ni navegar solo por los menus.
+    comprobar(!esperarTexto("CALIBRAR TECLADO", 6000),
+              "con el teclado desconectado NO se abre el asistente");
+    printf("   [hardware] se conecta el teclado\n");
+    g_adcRuido = 0;
+    g_adcMv = 3200;
+    esperar(1500);
+  }
   if (botonPulsado) {
     // Se mantiene mas de WIZ_REPOSO_MS: si el reposo se midiera aqui, saldria
     // 2500 mV y la tabla guardada dejaria el teclado inservible.
@@ -85,7 +98,7 @@ int main(int argc, char **argv) {
     printf("   [usuario] suelta el boton\n");
     g_adcMv = 3200;
   }
-  atenderAsistente();
+  if (!tecladoSuelto) atenderAsistente();
   if (botonPulsado) {
     comprobar(pantallaContiene("4 de 4 botones OK"),
               "mide el reposo DESPUES de soltar y captura los 4 botones");

@@ -36,11 +36,28 @@ long     random(long min, long max);
 
 // ---- ADC simulado ----
 extern std::atomic<int> g_adcMv;      // tension presente en el pin, en mV
+extern std::atomic<int> g_adcRuido;   // +-mV de ruido: >0 simula el pin al aire
 int  analogRead(int pin);
 uint32_t analogReadMilliVolts(int pin);
 void analogReadResolution(int bits);
 void analogSetPinAttenuation(int pin, int att);
 void pinMode(int pin, int mode);
+int  digitalRead(int pin);
+#define INPUT        0
+#define OUTPUT       1
+#define INPUT_PULLUP 2
+
+// ---- Estado ELECTRICO simulado del bus I2C ----
+//  Reproduce lo que hace una placa de verdad, que es lo que el firmware mira
+//  antes de hablar por el bus:
+//    LIN_CONECTADO : el modulo tiene corriente -> sus pull-ups dejan SDA/SCL
+//                    firmemente altas.
+//    LIN_AL_AIRE   : no hay nada enchufado -> los pines flotan, las lecturas
+//                    bailan y el escaneo "encuentra" direcciones al azar.
+//    LIN_CORTO     : una linea tocando GND -> se queda baja aunque el ESP32
+//                    tire de ella hacia arriba.
+enum LineasI2C { LIN_CONECTADO = 0, LIN_AL_AIRE = 1, LIN_CORTO = 2 };
+extern std::atomic<int> g_i2cLineas;
 #define ADC_11db  3
 #define ADC_6db   2
 #define ADC_2_5db 1

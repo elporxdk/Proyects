@@ -127,10 +127,37 @@ configuración ha entrado.
 
 - `[I2C] NADIE contesta` → cableado o alimentación (VIN, GND, SDA→21, SCL→22).
 - `Es un MAX30100` → chip antiguo (ID `0x11`), incompatible con esta librería.
-- Si no aparece al arrancar, **se sigue buscando cada 3 s**: conectarlo con el
-  equipo encendido basta, no hace falta reiniciar.
+- Si no aparece al arrancar, **se sigue buscando en segundo plano**: conectarlo
+  con el equipo encendido basta, no hace falta reiniciar.
 - Si deja de dar muestras a mitad de una medida, el sensor se reinicia solo y
   la medida continúa.
+
+## Si el teclado no está enchufado
+
+El GPIO34 es **sólo entrada y no tiene pull-up interno**: sin nada conectado
+flota cerca de 0 V, que es justo el rango del botón ABAJO. Sin detectarlo, el
+panel se abre el asistente solo y después va navegando por los menús como si
+alguien estuviera pulsando teclas.
+
+El firmware lo distingue midiendo la **dispersión** de las 9 muestras seguidas
+que componen cada lectura: con el teclado enchufado salen casi idénticas, y con
+el pin al aire salen desperdigadas. Cuando casi todas las lecturas de una
+ventana salen desperdigadas, da el teclado por desconectado y deja de aceptar
+pulsaciones hasta que la lectura vuelve a estar quieta.
+
+```
+[TECLADO] Lecturas casi a 0 V y saltando: el teclado NO esta conectado.
+          Revisa VCC->3V3, GND->GND y la salida analogica -> GPIO34
+```
+
+## Si se reinicia en bucle: `Guru Meditation Error`
+
+`Core 0 panic'ed (Interrupt wdt timeout on CPU0)` significa que un núcleo se
+quedó colgado **con las interrupciones apagadas**. Pasa cuando entre
+`portENTER_CRITICAL` y `portEXIT_CRITICAL` se llama a algo que puede esperar
+(`WiFi.*`, `MDNS.*`, `HTTPClient`, `Wire.*`, `Serial.*`, `delay()`). Ahí dentro
+sólo pueden ir asignaciones a memoria: el dato se lee ANTES en una variable
+local. Lo vigila `pruebas/banco_firmware/comprobar_criticas.py`.
 
 ## Qué calibrar del MAX30102
 

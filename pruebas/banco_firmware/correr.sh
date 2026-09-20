@@ -61,6 +61,12 @@ JSONDEF="-DARDUINOJSON_ENABLE_ARDUINO_STRING=0 -DARDUINOJSON_ENABLE_ARDUINO_STRE
 echo "Comprobando los prototipos que genera el IDE..."
 python3 comprobar_prototipos.py "$TRIAJE" "$PANEL"
 
+# ---- y no puede bloquear el nucleo con las interrupciones cortadas ---------
+#  Esto no lo ve el compilador ni el banco (en el PC no hay watchdog): un
+#  WiFi.RSSI() dentro de portENTER_CRITICAL reinicia la placa en bucle.
+echo "Comprobando las secciones criticas..."
+python3 comprobar_criticas.py "$TRIAJE" "$PANEL"
+
 # ---- y compilar con las DOS versiones del core ESP32 -----------------------
 #  Varias APIs cambiaron de la 2.x a la 3.x (por ejemplo MDNS.IP() paso a
 #  llamarse MDNS.address()). El sketch elige una u otra con #if, asi que hay
@@ -94,7 +100,7 @@ $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado"}
+CASOS=${1:-"calibrar yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado busalaire buscorto tecladosuelto"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0
@@ -110,7 +116,7 @@ done
 
 if [ -z "$1" ]; then
   rm -f .build/nvs.medibot
-  for pcaso in normal botonpulsado; do
+  for pcaso in normal botonpulsado tecladosuelto; do
     rm -f .build/nvs.medibot
     if ./.build/banco_panel 72 "$pcaso" > ".build/salida_panel_$pcaso.txt" 2>&1; then
       echo "  OK    panel/$pcaso"
