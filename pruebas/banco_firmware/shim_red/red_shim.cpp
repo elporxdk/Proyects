@@ -1,3 +1,16 @@
+// =====================================================================
+//  ESTO NO ES FIRMWARE. NO SE GRABA EN EL ESP32.
+// =====================================================================
+//  Es parte del banco de pruebas que corre en el PC (ver LEEME.md). Lleva
+//  int main(), hilos y sensores simulados: en un ESP32 no tiene ningun
+//  sentido y no compila.
+//
+//  Lo que se graba en la placa es:   firmware/medibot_triaje/medibot_triaje.ino
+// =====================================================================
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_AVR) || defined(ESP32)
+#error "Esto es el BANCO DE PRUEBAS de PC, no firmware. Graba firmware/medibot_triaje/medibot_triaje.ino"
+#endif
+
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
