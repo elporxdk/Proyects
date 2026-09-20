@@ -120,26 +120,31 @@ static bool atenderAsistente(uint32_t msMax = 90000) {
 // Entradas del menu del firmware, en orden
 enum { M_CHEQUEO = 0, M_MEDIBOT, M_HISTORIAL, M_DIAG, M_CALIBRAR, M_ABOUT };
 
-// Desde el menu (seleccion en la primera entrada), abre la que se pida.
+// El menu recuerda donde quedo la seleccion al salir de una pantalla, asi que
+// el banco lleva la cuenta en vez de suponer que esta siempre en la primera.
+static const int MENU_N = 6;
+static int menuPos = 0;
+
 static void abrirDelMenu(int indice) {
-  for (int i = 0; i < indice; i++) DOWN();
+  while (menuPos != indice) { DOWN(); menuPos = (menuPos + 1) % MENU_N; }
   OK();
 }
 
 // Llega al menu y deja la seleccion en la primera entrada (sin pulsar OK).
 static void lanzarChequeoNo() {
   atenderAsistente();
-  esperar(3500);
+  // La pantalla de autodiagnostico dura mas cuando hay un fallo que contar,
+  // asi que se espera a que desaparezca en vez de a un tiempo fijo.
+  esperarSinTexto("MEDIBOT v6.1", 12000);
+  esperar(400);
   if (!pantallaContiene("Auto-Chequeo")) OK();
   esperarTexto("Auto-Chequeo", 3000);
+  menuPos = 0;
 }
 
 // Lleva la interfaz desde la cara de reposo hasta el menu y lanza el chequeo.
 static void lanzarChequeo() {
-  atenderAsistente();
-  esperar(3500);                                 // deja pasar el autodiagnostico
-  if (!pantallaContiene("Auto-Chequeo")) OK();   // cara de reposo -> menu
-  esperarTexto("Auto-Chequeo", 3000);
+  lanzarChequeoNo();
   OK();
 }
 
@@ -156,6 +161,7 @@ int main(int argc, char **argv) {
   if (caso == "max30100")  sensorSim.partId = 0x11;
   if (caso == "sinmemoria") { g_nvsRota = true; g_nvsReparable = false; }
   if (caso == "botonpulsado") g_adcMv = 2500;      // ARRIBA mantenido al encender
+  if (caso == "modoseguro") g_motivoReinicio = ESP_RST_PANIC;   // veniamos de un fallo
 
   printf("== CASO %s (BPM=%d SpO2=%d) ==\n", caso.c_str(), bpmReal, spo2Real);
   setup();
@@ -216,6 +222,7 @@ int main(int argc, char **argv) {
     comprobar(pantallaContiene("MEDIBOT (red)") && pantallaContiene("Historial"),
               "el menu tiene la entrada de MEDIBOT");
     DOWN(); OK();
+    menuPos = M_HISTORIAL;
     comprobar(esperarTexto("HISTORIAL", 3000), "OK entra en la opcion elegida");
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "ATRAS vuelve");
@@ -226,9 +233,35 @@ int main(int argc, char **argv) {
     esperar(3000);
     OK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "los botones guardados funcionan");
+    menuPos = 0;
     abrirDelMenu(M_CALIBRAR);
     comprobar(esperarTexto("CALIBRAR TECLADO", 3000),
               "desde el menu se puede repetir la calibracion");
+  } else if (caso == "modoseguro") {
+    // Tras un reinicio por fallo, el equipo tiene que arrancar SIN RED, para
+    // no repetir el bucle, y decirlo; y dejar activarla a mano si se quiere.
+    comprobar(esperarTexto("MODO SEGURO", 6000),
+              "tras un fallo lo avisa en el arranque");
+    volcar("arranque tras fallo");
+    comprobar(pantallaContiene("Fallo en:"),
+              "y dice en la pantalla en que paso se quedo");
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("MODO SEGURO", 4000), "y la pantalla de red lo explica");
+    volcar("modo seguro");
+    comprobar(!WiFi.arrancada, "NO ha tocado la WiFi");
+    comprobar(pantallaContiene("Activar la red ahora"), "ofrece activarla a mano");
+    OK();
+    comprobar(esperarTexto("192.168.1.77:5000", 30000),
+              "al activarla a mano se conecta con normalidad");
+    printf("   [usuario] hace un auto-chequeo en modo seguro\n");
+    BACK();
+    abrirDelMenu(M_CHEQUEO);
+    esperarTexto("Coloque su dedo", 6000);
+    esperar(2500);
+    sensorSim.dedo = true;
+    comprobar(esperarTexto("TUS RESULTADOS", 45000),
+              "el equipo sigue siendo usable tras el fallo");
   } else if (caso == "wifi") {
     // Conexion completa: engancha a la WiFi MEDIBOT, localiza la Raspberry
     // por mDNS y enseña los datos que sirve /api/esp32.

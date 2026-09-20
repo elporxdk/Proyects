@@ -92,11 +92,13 @@ int  xTaskCreatePinnedToCore(void (*fn)(void *), const char *name, uint32_t stac
                              void *param, int prio, TaskHandle_t *handle, int core);
 
 // --- trozos del ESP32 que usa el firmware para diagnosticarse ---
+#define RTC_DATA_ATTR            // en la placa vive en la memoria RTC
 typedef uint32_t StackType_t;
 uint32_t uxTaskGetStackHighWaterMark(void *tarea);
 enum { ESP_RST_UNKNOWN = 0, ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW, ESP_RST_PANIC,
        ESP_RST_INT_WDT, ESP_RST_TASK_WDT, ESP_RST_WDT, ESP_RST_DEEPSLEEP,
        ESP_RST_BROWNOUT, ESP_RST_SDIO };
+extern int g_motivoReinicio;     // el banco decide como fue el ultimo reinicio
 int esp_reset_reason();
 struct EspSim { uint32_t getFreeHeap() { return 210000; } };
 extern EspSim ESP;

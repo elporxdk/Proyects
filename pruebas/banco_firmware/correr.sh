@@ -52,7 +52,7 @@ if [ -z "$JSON" ]; then
 fi
 
 CXX=${CXX:-g++}
-COMUN="-std=c++17 -O1 -g -DARDUINO=200 -Wno-narrowing -Ishim -I$MAX3010X"
+COMUN="-std=c++17 -O1 -g -DARDUINO=200 -Wno-narrowing -Werror=format-truncation -Ishim -I$MAX3010X"
 JSONDEF="-DARDUINOJSON_ENABLE_ARDUINO_STRING=0 -DARDUINOJSON_ENABLE_ARDUINO_STREAM=0 \
          -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -DARDUINOJSON_ENABLE_PROGMEM=0 \
          -DARDUINOJSON_ENABLE_STD_STRING=1"
@@ -94,7 +94,7 @@ $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar yacalibrado normal wifi wifibarrido sinwifi apicaida redymedida diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado"}
+CASOS=${1:-"calibrar yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0

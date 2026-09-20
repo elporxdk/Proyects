@@ -263,6 +263,8 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define UI_FRAME_MS           40      // 25 fps
 #define LCD_BUS_CLOCK         600000UL// ST7920: 100 kHz daba ~80 ms por frame
 #define INACTIVITY_TIMEOUT    30000UL
+#define BOOT_SCREEN_MS        2200UL  // pantalla de autodiagnostico al arrancar
+#define BOOT_SCREEN_FALLO_MS  6000UL  // ...mas tiempo si hay un fallo que leer
 #define REQ_SCREEN_MS         2200UL  // duracion de la pantalla "coloque el dedo"
 #define ERROR_SCREEN_MS       6000UL
 
@@ -410,6 +412,33 @@ volatile uint32_t hwMaxBusHz = MAX_I2C_HZ_FAST;
 volatile uint8_t  hwI2cCount = 0;      // dispositivos vistos en el bus
 volatile uint8_t  hwI2cFirst = 0;      // direccion del primero
 bool  nvsOk = false;                   // la memoria no volatil responde
+
+// ---------------------------------------------------------------------
+//  MIGAS DE PAN Y MODO SEGURO
+// ---------------------------------------------------------------------
+//  Cuando el equipo entra en bucle de reinicio, el mensaje del fallo pasa
+//  volando y muchas veces no se llega a leer: solo se ve la cabecera de la
+//  ROM, que no dice nada. Dos medidas:
+//
+//  1. MIGAS: en cada paso se apunta DONDE esta el programa en la memoria RTC,
+//     que SOBREVIVE a un reinicio por fallo. En el arranque siguiente se
+//     imprime, asi que se sabe en que se quedo aunque no se leyera nada.
+//
+//  2. MODO SEGURO: si el reinicio anterior fue un fallo o un watchdog, se
+//     arranca SIN RED. Asi el equipo deja de reiniciarse solo, se puede usar
+//     y queda claro si lo que mata al equipo es la parte de red. Desde la
+//     pantalla de MEDIBOT se puede activar a mano con OK, y el siguiente
+//     arranque limpio (boton de reset o encendido) vuelve a la normalidad.
+#define RTC_MAGIA 0x4D454449UL          // "MEDI"
+RTC_DATA_ATTR static uint32_t rtcMagia;
+RTC_DATA_ATTR static char     rtcPaso[16];
+bool modoSeguro = false;
+
+static void paso(const char *p) {
+  rtcMagia = RTC_MAGIA;
+  snprintf(rtcPaso, sizeof(rtcPaso), "%s", p);
+}
+
 
 // --- Comunicacion entre nucleos ---
 static NetInfo       g_net;
@@ -1106,7 +1135,9 @@ Vitals vitalsGet() {
 // ahora mismo (ver el comentario del campo Vitals::epoch).
 bool vitalsVigentes(const Vitals &v) { return v.epoch == g_modeEpoch; }
 
-void sensorReposo() { sensorRequest(SENS_NET); }
+// Fuera de la medida el nucleo 0 se dedica a la red... salvo en modo seguro,
+// donde se queda parado para descartar que el problema venga de ahi.
+void sensorReposo() { sensorRequest(modoSeguro ? SENS_IDLE : SENS_NET); }
 
 NetInfo netGet() {
   NetInfo copy;
@@ -1493,6 +1524,7 @@ static void netTrabajo(uint32_t ahora) {
       break;
 
     case NET_WIFI:
+      paso("red: wifi");
       if (WiFi.status() == WL_CONNECTED) {
         portENTER_CRITICAL(&g_vitalsMux);
         g_net.rssi = (int8_t)WiFi.RSSI();
@@ -1510,6 +1542,7 @@ static void netTrabajo(uint32_t ahora) {
       break;
 
     case NET_MDNS: {
+      paso("red: mdns");
       static bool mdnsListo = false;
       if (!mdnsListo) mdnsListo = MDNS.begin("medibot-triaje");
       const int n = MDNS.queryService(MEDIBOT_MDNS_SVC, "tcp");
@@ -1524,6 +1557,7 @@ static void netTrabajo(uint32_t ahora) {
     }
 
     case NET_SWEEP: {
+      paso("red: barrido");
       const IPAddress base = WiFi.localIP();
       for (uint8_t k = 0; k < 4 && nt.host <= 254; k++, nt.host++) {
         if (nt.host == base[3]) continue;
@@ -1557,6 +1591,7 @@ static void netTrabajo(uint32_t ahora) {
       }
       if (ahora - nt.ultimoJson >= JSON_POLL_MS) {
         nt.ultimoJson = ahora;
+        paso("red: json");
         netLeerJson();
         portENTER_CRITICAL(&g_vitalsMux); g_net.rssi = (int8_t)WiFi.RSSI(); portEXIT_CRITICAL(&g_vitalsMux);
       }
@@ -1648,6 +1683,7 @@ void sensorTaskCode(void *pv) {
     }
 
     if (myMode == SENS_PPG) {
+      paso("midiendo ppg");
       ppgUpdate(now);
       vTaskDelay(2 / portTICK_PERIOD_MS);
     } else if (myMode == SENS_NET) {
@@ -1806,28 +1842,35 @@ void drawAvatar(Emotion emo, int frame, int cx, int cy, float s) {
 // --- PANTALLAS ---
 void drawBootScreen() {
   u8g2.setFont(u8g2_font_helvB08_tr);
-  drawCenteredStr(12, "MEDIBOT v6.1");
-  u8g2.drawHLine(0, 15, 128);
+  drawCenteredStr(11, "MEDIBOT v6.1");
+  u8g2.drawHLine(0, 13, 128);
 
   u8g2.setFont(u8g2_font_5x7_tr);
-  char buf[32];
+  char buf[36];
   if (hwMaxWrong)      snprintf(buf, sizeof(buf), "Sensor : CHIP NO COMPAT.");
   else if (hwMaxOk)    snprintf(buf, sizeof(buf), "Sensor : OK (ID 0x%02X)", hwMaxPartId);
   else                 snprintf(buf, sizeof(buf), "Sensor : NO DETECTADO");
-  u8g2.drawStr(4, 29, buf);
+  u8g2.drawStr(4, 24, buf);
 
   snprintf(buf, sizeof(buf), "Teclado: %u botones", (unsigned)keypadActiveCount());
-  u8g2.drawStr(4, 41, buf);
+  u8g2.drawStr(4, 34, buf);
 
-  if (!nvsOk) {
-    u8g2.setFont(u8g2_font_4x6_tr);
-    drawCenteredStr(50, "MEMORIA KO (no guarda ajustes)");   // 30 x 4 px = cabe
-    u8g2.setFont(u8g2_font_5x7_tr);
+  // Si el arranque anterior se fue al garete, se dice AQUI: en un bucle de
+  // reinicio el Monitor Serie pasa volando y esto se lee en la pantalla.
+  u8g2.setFont(u8g2_font_4x6_tr);
+  if (modoSeguro) {
+    if (rtcMagia == RTC_MAGIA) {
+      snprintf(buf, sizeof(buf), "Fallo en: %s", rtcPaso);
+      drawCenteredStr(44, buf);
+    }
+    drawCenteredStr(51, "MODO SEGURO: arrancado sin red");
+  } else if (!nvsOk) {
+    drawCenteredStr(51, "MEMORIA KO (no guarda ajustes)");
   }
 
-  uint32_t pct = (stateElapsed() * 100UL) / 2200UL;
+  uint32_t pct = (stateElapsed() * 100UL) / (uint32_t)BOOT_SCREEN_MS;
   if (pct > 100) pct = 100;
-  drawProgressBar(4, 52, 120, 9, (uint8_t)pct);
+  drawProgressBar(4, 55, 120, 9, (uint8_t)pct);
 }
 
 void drawMenu() {
@@ -1913,6 +1956,18 @@ void drawMedibotScreen() {
   drawCenteredStr(9, "MEDIBOT");
   u8g2.drawHLine(0, 11, 128);
   u8g2.setFont(u8g2_font_5x7_tr);
+
+  if (modoSeguro) {
+    // Se arranco sin red porque el reinicio anterior fue un fallo. Aqui se
+    // explica y se deja activarla a mano, por si se quiere probar.
+    drawCenteredStr(24, "MODO SEGURO");
+    drawCenteredStr(36, "Red desactivada tras");
+    drawCenteredStr(45, "un reinicio por fallo");
+    u8g2.setFont(u8g2_font_4x6_tr);
+    drawCenteredStr(56, "Apaga y enciende para volver a la normalidad");
+    drawCenteredStr(63, "[OK] Activar la red ahora  [ATRAS] Salir");
+    return;
+  }
 
   if (n.etapa != NET_FOUND) {
     // --- todavia no esta localizado: se cuenta por donde va ---
@@ -2279,7 +2334,11 @@ void processInputs(Button btn) {
 
     case STATE_MEDIBOT:
       if (btn == BTN_UP || btn == BTN_DOWN) resultPage = (resultPage == 0) ? 1 : 0;
-      if (btn == BTN_OK && netGet().etapa != NET_FOUND) {
+      if (btn == BTN_OK && modoSeguro) {        // activar la red a mano
+        modoSeguro = false;
+        Serial.println(F("[ARRANQUE] Modo seguro desactivado a mano: se arranca la red"));
+        sensorReposo();
+      } else if (btn == BTN_OK && netGet().etapa != NET_FOUND) {
         netForzarBusqueda();                  // reintento inmediato
       } else if (btn == BTN_OK || btn == BTN_BACK) {
         setState(STATE_MENU);
@@ -2342,16 +2401,31 @@ void setup() {
   Serial.begin(115200);
   delay(50);
   Serial.println(F("\n=== MEDIBOT v6.1 ==="));
+
+  const int motivo = esp_reset_reason();
+  const bool huboFallo = (motivo == ESP_RST_PANIC || motivo == ESP_RST_TASK_WDT ||
+                          motivo == ESP_RST_INT_WDT || motivo == ESP_RST_WDT);
   Serial.printf("[ARRANQUE] Ultimo reinicio: %s\n", motivoReinicio());
+  if (huboFallo && rtcMagia == RTC_MAGIA)
+    Serial.printf("[ARRANQUE] Se quedo en el paso: %s\n", rtcPaso);
   Serial.printf("[ARRANQUE] Memoria libre: %u bytes\n", (unsigned)ESP.getFreeHeap());
 
+  // Tras un fallo se arranca sin red, para no repetir el bucle de reinicio
+  modoSeguro = huboFallo;
+  if (modoSeguro)
+    Serial.println(F("[ARRANQUE] MODO SEGURO: se arranca SIN RED. Menu -> MEDIBOT"
+                     " -> OK para activarla a mano."));
+  paso("arranque");
+
   // --- Pantalla (setBusClock ANTES de begin: si no, no surte efecto) ---
+  paso("pantalla");
   u8g2.setBusClock(LCD_BUS_CLOCK);
   u8g2.begin();
   u8g2.enableUTF8Print();
   u8g2.setFontMode(0);
 
   // --- ADC y teclado ---
+  paso("teclado/adc");
   analogReadResolution(ADC_BITS);
   analogSetPinAttenuation(KEYPAD_PIN, ADC_ATTENUATION);
   pinMode(KEYPAD_PIN, INPUT);
@@ -2361,6 +2435,7 @@ void setup() {
   // La calibracion del teclado vive en la NVS. Si no se puede abrir, no se
   // guardara nada y el asistente saldria en cada arranque sin explicar por
   // que: se intenta reiniciar la particion y, si tampoco, se avisa.
+  paso("memoria nvs");
   nvsOk = prefs.begin(NVS_NS, false);
   if (!nvsOk) {
     Serial.println(F("[MEMORIA] La NVS no abre: se reinicia la particion"));
@@ -2377,9 +2452,11 @@ void setup() {
   if (keypadActiveCount() == 0) keypadRestoreDefaults();
   // Medir el reposo ANTES de nada: si coincide con un boton es que se esta
   // manteniendo una tecla al encender -> se abre el asistente (via de escape).
+  paso("reposo teclado");
   const Button teclaMantenida = keypadMeasureIdle();
 
   // --- I2C y sensor de pulso (con escaneo del bus y reintentos, bloque 4.1) ---
+  paso("i2c/sensor");
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   if (!sensorBegin(true))
     Serial.println(F("[MAX] Se seguira reintentando en segundo plano cada 3 s"));
@@ -2393,9 +2470,11 @@ void setup() {
   // los 8 KB que bastaban antes. Un desbordamiento aqui es un reinicio seco
   // ("A stack overflow in task SensorTask has been detected" -> Rebooting).
   // Cuanta queda de verdad se ve en Diagnostico y por Serial.
+  paso("tarea nucleo 0");
   xTaskCreatePinnedToCore(sensorTaskCode, "SensorTask", TAREA_STACK, NULL, 1,
                           &SensorTaskHandle, 0);
-  sensorReposo();          // en cuanto arranca, a conectarse a la WiFi
+  sensorReposo();          // en cuanto arranca, a conectarse a la WiFi (si no
+                           // estamos en modo seguro)
 
   // Sin calibracion guardada, o con un boton mantenido al encender -> asistente.
   if (!hayCal || teclaMantenida != BTN_NONE) {
@@ -2404,6 +2483,7 @@ void setup() {
   } else {
     setState(STATE_BOOT);
   }
+  paso("listo");
 }
 
 // =====================================================================
@@ -2466,7 +2546,10 @@ void loop() {
 
   switch (currentState) {
     case STATE_BOOT:
-      if (stateElapsed() > 2200) { currentEmotion = EMOTION_NORMAL; setState(STATE_IDLE_FACE); }
+      if (stateElapsed() > (modoSeguro ? BOOT_SCREEN_FALLO_MS : BOOT_SCREEN_MS)) {
+        currentEmotion = EMOTION_NORMAL;
+        setState(STATE_IDLE_FACE);
+      }
       break;
 
     case STATE_TRIAGE_FINGER_REQ:
@@ -2484,6 +2567,9 @@ void loop() {
         patientSpO2 = v.finalSpO2;
         sensorReposo();
         evaluateDiagnoses();
+        // La cuenta de inactividad arranca AQUI, no en la ultima tecla: si no,
+        // el tiempo que ha durado la medida se come el rato para leer esto.
+        lastInteraction = millis();
         saveReport();
         resultPage = 0;
         currentEmotion = (patientBPM > 100 || patientBPM < 60 || patientSpO2 < 92)
@@ -2505,8 +2591,13 @@ void loop() {
   // --- 9.5 Vuelta a reposo por inactividad (nunca durante una medida) ---
   const bool midida = (currentState == STATE_TRIAGE_FINGER_REQ ||
                        currentState == STATE_TRIAGE_FINGER_READ);
-  if (!midida && currentState != STATE_IDLE_FACE && currentState != STATE_BOOT &&
-      currentState != STATE_KEYPAD_WIZARD &&
+  // Diagnostico y MEDIBOT enseñan datos EN VIVO y se salen con ATRAS: no
+  // tiene sentido que caduquen mientras alguien las esta mirando (buscar la
+  // Raspberry por la red puede pasar del minuto, y probar el sensor con el
+  // dedo tambien lleva su rato).
+  const bool mirando = (currentState == STATE_DIAG || currentState == STATE_MEDIBOT);
+  if (!midida && !mirando && currentState != STATE_IDLE_FACE &&
+      currentState != STATE_BOOT && currentState != STATE_KEYPAD_WIZARD &&
       (now - lastInteraction > INACTIVITY_TIMEOUT)) {
     currentEmotion = EMOTION_NORMAL;
     setState(STATE_IDLE_FACE);

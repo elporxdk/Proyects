@@ -257,4 +257,5 @@ EspSim ESP;
 // El banco simula una pila holgada; lo que importa es que el firmware la lea
 // y la publique, no el numero en si.
 uint32_t uxTaskGetStackHighWaterMark(void *) { return 3000; }
-int esp_reset_reason() { return ESP_RST_POWERON; }
+int g_motivoReinicio = ESP_RST_POWERON;
+int esp_reset_reason() { return g_motivoReinicio; }
