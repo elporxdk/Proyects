@@ -5,43 +5,16 @@
  *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
  *                  (en el shield salen por el header WIFI/BT: NO son libres)
  *    2          -> Servo dispensador (libreria Servo)   [header Encoder3]
- *    3          -> libre (el resto del header Encoder3, sin usar)
- *                  ¡NO encoder en M3! Su header es D2/D3 y D2 es
- *                  la señal del servo: dos salidas sobre la misma linea.
+ *    3          -> libre 
  *    4,5        -> LIBRES (header Encoder4)
- *    6,7        -> Encoder del motor M2  (lado B)        [header Encoder2]
- *    8,9        -> Encoder del motor M1  (lado A)        [header Encoder1]
+ *    6,7        -> Encoder del motor M2  (lado B)       
+ *    8,9        -> Encoder del motor M1  (lado A)        
  *    10,11,12,13-> Mando PS2 (attention/command/data/clock)
  *                  Son sus pines de siempre: NO se tocan.
- *    A0..A3     -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
- *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC y servos brazo
- *
- *  NUNCA cablees el ULN2003 (ni nada) a los pines 0 y 1: son el RX/TX del USB.
- *  Con Serial.begin() el UART se apodera de ellos, digitalWrite deja de valer
- *  y el motor no gira; encima las respuestas del Arduino saldrian por una
- *  bobina y las subidas de sketch pueden fallar.
- *
- *  Los servos de camara pan/tilt estan DESACTIVADOS (USAR_SERVOS_CAMARA 0)
- *  porque este robot no lleva ese soporte. Con M4 fuera, sus pines (D3 y D5)
- *  estan libres: se puede montar el pan/tilt sin perder ningun encoder.
- *
- *  Motores DC: por el Motor Shield (I2C). AFMS.begin(1600) para que giren
- *  (a 50 Hz casi no reciben potencia).
- *
- *  Todas las ordenes llegan por Serial (via el hub serial_hub.py del lado PC).
- *
- *  El mando PS2 y el Motor Shield son OPCIONALES: si no estan conectados, el
- *  Arduino arranca igual y responde por Serial (movimiento por COM + dispensador).
- *
- *  ------------------- ORDENES DISPENSADOR (Pillbox) ----------
- *  SELECT,N: coloca el compartimiento N ARRIBA (zona de seleccion/espera).
- *  DISPENSE,N: parte de HOME, lleva N a la zona de dispensado (abajo) con
- *  rot=(N<=4)?N+3:N-5, acciona el servo y vuelve a HOME. Todo hacia adelante.
- *
- *  DIRECCION UNICA: los movimientos hacia atras estan PROHIBIDOS. La ruleta
- *  SIEMPRE avanza (pasos positivos); si el destino queda "detras", completa la
- *  vuelta hacia adelante. Aplica a SELECT, HOME y DISPENSE.
- *
+ *    A0..A3     -> Motor paso a paso ULN2003 (ruleta) 
+ *    A4,A5      -> I2C (SDA/SCL) del Motor Shield 
+
+ 
  *   SELECT,<n> / GOTO,<n>  Coloca el compartimiento n (1..8) ARRIBA
  *   DISPENSE,<n>   Lleva n a dispensado, suelta y vuelve a HOME
  *   DISPENSE       Dispensa el compartimiento que este arriba
@@ -52,10 +25,6 @@
  *                  vuelta) para probar el paso a paso AISLADO del resto
  *
  *  ------------------- ORDENES ENCODERS -----------------------
- *  Libreria oficial del shield (QGPMaker_Encoder). Habilitados M1 y M2, uno
- *  por lado del chasis (M1/M3 son un lado y M2/M4 el otro, asi que el segundo
- *  de cada lado no aporta dato nuevo).
- *  El de M3 NO se puede usar, porque su pin D2 es el unico sitio libre para el servo
  *  dispensador. El campo <m3> va siempre a 0.
  *   ENC            ENC,<m1>,<m2>,0,<m4>     posicion acumulada, con signo
  *   ENCRPM         ENCRPM,<r1>,<r2>,0,<r4>  velocidad de cada motor en RPM
@@ -77,9 +46,7 @@
  *   L1 / R1            desplazamiento lateral (sin cambiar de orientacion)
  *   L2 / R2 + PAD      giro amplio: empuja solo un lado del robot
  *   X                  vibracion del mando
- *
- *  El cableado real NO coincide con la logica no hay que tocar ningun cable. Si los giros
- *  izquierda/derecha salen cambiados, pon INVERTIR_GIRO a true.
+ 
  *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
@@ -161,20 +128,7 @@ Servo servoPan;
 Servo servoTilt;
 #endif
 
-// ------------- Motor paso a paso (ruleta) -------------
-//  ═══ EL UNICO SITIO DONDE SE DECLARA EL CABLEADO DEL ULN2003 ═══
-//  Si mueves los cables, cambia SOLO estas cuatro lineas. Antes el pinout
-//  aparecia repetido en tres comentarios distintos y NO COINCIDIAN entre si
-//  (uno decia A0..A3, otro "ULN2003 en 8/9/10/11", otro "el stepper en 6-9").
-//  Seguir el comentario equivocado lleva a cablear las bobinas sobre los pines
-//  del mando PS2 (10-13) o sobre los headers de encoder (6-9): entonces las
-//  luces del ULN2003 se encienden solas —las mueve el PS2, no la ruleta— y el
-//  motor no gira. Ahora hay una sola fuente de verdad y el compilador la
-//  comprueba (ver COMPROBACION DE PINES mas abajo).
-//  Se usan PIN_A0..PIN_A3 y no A0..A3 a proposito: en el core de Arduino, A0 es
-//  una  static const uint8_t , no una macro, y el PREPROCESADOR no puede verla
-//  (la tomaria como 0 y la comprobacion de choques de abajo pasaria siempre sin
-//  mirar nada). PIN_A0 si es una macro, y vale exactamente lo mismo.
+
 #ifndef PIN_A0            // fuera del core de AVR (analisis estatico, tests)
 #define PIN_A0 14
 #define PIN_A1 15
@@ -189,19 +143,7 @@ Servo servoTilt;
 #define RULETA_IN3 PIN_A2
 #define RULETA_IN4 PIN_A3
 
-//  POR QUE EN LOS ANALOGICOS: en el Uno, A0..A5 son pines digitales completos
-//  (digitalWrite funciona igual que en 0-13), asi que mueven el ULN2003 sin
-//  problema. Ponerlos aqui deja LIBRES los cuatro headers Encoder del shield
-//  (D2-D9) para los encoders de los motores. Excepcion: A6/A7 del Nano/Pro
-//  Mini son solo entrada analogica, no servirian; en el Uno no existen.
-//
-//  ATENCION, NO USAR NUNCA LOS PINES 0 NI 1:
-//    Son el RX/TX del puerto serie por USB (header WIFI/BT del shield) y estan
-//    soldados al chip USB de la placa. En cuanto se hace Serial.begin() el
-//    hardware del UART se apodera de ellos y digitalWrite() deja de tener
-//    efecto, asi que las bobinas conectadas ahi NUNCA reciben la secuencia de
-//    pasos y el motor solo vibra. Ademas todo lo que responde el Arduino
-//    (POS, OK,MOVE...) saldria por el pin 1 hacia una bobina.
+
 const int PIN_IN1 = RULETA_IN1;
 const int PIN_IN2 = RULETA_IN2;
 const int PIN_IN3 = RULETA_IN3;
@@ -211,14 +153,7 @@ const int  PASOS_POR_VUELTA  = 2048;                                 // 28BYJ-48
 const int  N_COMPARTIMIENTOS = 8;
 const int  PASOS_POR_COMP    = PASOS_POR_VUELTA / N_COMPARTIMIENTOS; // 256 pasos = 45 grados
 
-// ── COMPROBACION DE PINES EN TIEMPO DE COMPILACION ───────────────────────
-//  Si alguien recablea la ruleta sobre un pin que ya tiene dueno, el sketch NO
-//  COMPILA y dice cual es el choque, en vez de subirse y portarse raro. Es la
-//  clase de fallo que se manifiesta como "las luces se encienden todas y el
-//  motor no gira", que desde fuera parece un problema de la placa ULN2003.
-//  Ojo: aqui van NUMEROS y macros, nunca  const int , por lo dicho arriba sobre
-//  el preprocesador. El 2 es SERVO_PIN; que sigan siendo el mismo pin lo
-//  comprueba PIN_SERVO_ESPERADO justo debajo.
+
 #define PIN_SERVO_ESPERADO 2
 #define RULETA_CHOCA(p) ((p) == 0 || (p) == 1 ||  /* Serial RX/TX */          \
                          (p) == PIN_SERVO_ESPERADO ||   /* servo disp. (D2) */\
@@ -236,58 +171,23 @@ const int  PASOS_POR_COMP    = PASOS_POR_VUELTA / N_COMPARTIMIENTOS; // 256 paso
 #error "Dos bobinas de la ruleta declaradas en el mismo pin."
 #endif
 
-// ── SECUENCIA DE PASOS (antes: libreria Stepper) ─────────────────────────
-//  SE SUSTITUYE LA LIBRERIA Stepper POR ESTA TABLA. Motivo: Stepper::step() es
-//  BLOQUEANTE — se queda dentro haciendo espera activa hasta terminar TODOS los
-//  pasos. A 10 rpm son 2,93 ms por paso y 256 pasos por compartimiento, o sea
-//  0,75 s por compartimiento: un SELECT lejano bloquea 5,3 s y un DISPENSE
-//  hasta 19,5 s. Durante todo ese rato leerSerial() NO se llama, y el buffer de
-//  recepcion del Uno son 64 bytes = 67 ms de trafico a 9600 baudios. Todo lo
-//  que manda la Raspberry mientras la ruleta gira SE PIERDE, incluidos los '\n':
-//  dos ordenes se pegan en una linea sin sentido. De ahi "no se envian
-//  correctamente los movimientos". Ahora se avanza UN paso por vuelta de loop()
-//  y el serie se atiende sin interrupcion.
-//
-//  La tabla reproduce EXACTAMENTE lo que generaba Stepper con el orden de pines
-//  (IN1, IN3, IN2, IN4) que usaba el sketch, asi que la calibracion mecanica no
-//  cambia: siguen siendo 2048 pasos por vuelta y 256 por compartimiento.
-//  Bits: IN1,IN2,IN3,IN4 -> 1100, 0110, 0011, 1001 (dos bobinas CONTIGUAS).
-//  Ese "contiguas" es lo importante: con el orden ingenuo (IN1,IN2,IN3,IN4)
-//  saldria 1010/0101, o sea bobinas OPUESTAS, y el motor solo zumba.
-//  NUNCA hay mas de dos bobinas activas: las cuatro luces encendidas a la vez
-//  es imposible por construccion.
+
 const uint8_t SECUENCIA_PASOS[4] = { 0b1100, 0b0110, 0b0011, 0b1001 };
 
-//  Microsegundos por paso. Equivale al antiguo ruleta.setSpeed(10) rpm:
-//  60e6 / 2048 pasos / 10 rpm = 2930 us.
 const unsigned long US_POR_PASO = 2930;
 
 int compActual = 1;   // compartimiento que esta ARRIBA (zona de carga/espera, 1..8)
 
-// El mando PS2 es OPCIONAL: si no esta conectado, el robot sigue funcionando
-// (movimiento por COM desde Vision y dispensador por Serial). Antes el arranque
-// se colgaba esperando el PS2 y el Arduino no respondia nada.
+
 bool ps2Presente = false;
 
-// VERSION DEL PROTOCOLO SERIE. Tiene que coincidir con VERSION_PROTOCOLO de
-// medibot_protocolo.py. Se responde a PROTO y se anuncia al arrancar, para
-// que un desajuste se vea de inmediato en vez de manifestarse como "un
-// comando que no hace nada".
+
 #define VERSION_PROTOCOLO 2
 
 // Buffer para lectura no bloqueante de comandos por Serial
 String bufferSerial = "";
 
-// Estado de movimiento recibido por COM (comandos MOVE / GPIO desde Vision).
-//  Se aplica en el loop cuando el mando PS2 no tiene el control.
-//  POR QUE HAY UN CODIGO Y NO SOLO CUATRO BOOLEANOS: el giro sobre el propio
-//  eje NO se puede representar con adelante/atras/izquierda/derecha. Antes el
-//  estado eran solo esos cuatro, asi que cuando Vision mandaba MOVE,SPINL el
-//  firmware no tenia donde guardarlo: los ponia todos a false (= PARAR) y
-//  encima contestaba OK,MOVE,SPINL. El robot se paraba y Vision creia que
-//  estaba girando.
-//  Los cuatro booleanos se conservan porque el protocolo antiguo
-//  GPIO,<pin>,<val> manda un pin cada vez y necesita acumular el estado.
+
 bool vAdelante  = false;
 bool vAtras     = false;
 bool vIzquierda = false;
@@ -295,29 +195,6 @@ bool vDerecha   = false;
 
 uint8_t movComandado = 0;   // 0 = MOVC_STOP. Lo aplica el loop.
 
-// ═════════════════════════════════════════════════════════════
-//  FUNCIONES DE MOVIMIENTO (chasis)
-// ═════════════════════════════════════════════════════════════
-//  CORRECCION DEL CABLEADO, POR SOFTWARE (no se toca ningun cable):
-//
-//  En este robot los motores NO estan como daba por hecho el codigo original:
-//     - M1 y M3 giran al REVES de lo que dice run(FORWARD).
-//     - Los lados son M1/M3 contra M2/M4 (no M1/M2 contra M3/M4).
-//
-//  Se dedujo del unico dato en que coincidieron todas las pruebas: la antigua
-//  moveLeft(), que enviaba (M1 atras, M2 adelante, M3 atras, M4 adelante),
-//  hacia AVANZAR el robot. De ahi sale todo lo demas, y explica lo que se veia:
-//     forward() mandaba los 4 hacia adelante -> los dos lados se oponian, o sea
-//     el robot GIRABA sobre su eje (que sobre el suelo se ve como "tambalea").
-//
-//  Abajo, cada movimiento declara lo que hay que MANDAR a cada motor para que
-//  el robot haga de verdad lo que dice el nombre de la funcion.
-//  Si algun dia se recablea, solo hay que corregir estas seis lineas.
-// ═════════════════════════════════════════════════════════════
-
-//  Si al probar resulta que "girar izquierda" y "girar derecha" salen
-//  cambiados, pon esto en true y quedan intercambiados. Es lo unico que no se
-//  puede deducir de las pruebas hechas (se sabia que giraba, no hacia que lado).
 const bool INVERTIR_GIRO = false;
 
 // Manda un sentido a un motor.  -1 = atras, +1 = adelante, 0 = suelto.
@@ -356,15 +233,6 @@ void arcoLadoB(int8_t s) { patron(0, s, 0, s); }     // lado M2/M4
 
 void stopMoving();   // definida mas abajo (necesita el control de repeticion)
 
-// ═════════════════════════════════════════════════════════════
-//  APLICAR UN MOVIMIENTO SIN REPETIR ORDENES
-// ═════════════════════════════════════════════════════════════
-//  POR QUE: cada setSpeed()/run() es una transaccion I2C con el shield. Al
-//  quitar los delay() del bucle para que el robot responda al instante, el
-//  bucle pasa a dar miles de vueltas por segundo; si en cada una se
-//  reenviaran las 8 ordenes I2C, el bus se saturaria y el robot respondería
-//  PEOR, no mejor. Guardando cual es el movimiento que YA esta puesto, solo
-//  se habla con el shield cuando de verdad cambia algo.
 #define MOVC_STOP    0
 #define MOVC_FWD     1
 #define MOVC_BACK    2
@@ -499,39 +367,7 @@ void handlePS2Servos() {
       Servo4->writeServo(Servo4->readDegrees() + 1);
   }
 }
-
-// ═════════════════════════════════════════════════════════════
-//  ENCODERS DE LOS MOTORES  (libreria oficial QGPMaker_Encoder)
-// ═════════════════════════════════════════════════════════════
-//  Se usa la libreria del fabricante del shield en vez de leer los pines a
-//  mano: ella ya sabe que pines corresponden a cada motor, da la velocidad en
-//  RPM hecha, y no ata el sketch a los registros del ATmega (el codigo previo
-//  usaba PCINT/PINB/PIND, que solo existen en AVR).
-//
-//     QGPMaker_Encoder encoderN(N);   // N = numero del motor (M1..M4)
-//     encoderN.read()                 // posicion acumulada (int32_t)
-//     encoderN.write(0)               // poner a cero (calibrar)
-//     encoderN.getRPM()               // velocidad de giro en RPM
-//
-//  SOLO SE USAN DOS ENCODERS: M1 y M2. Uno por cada lado del chasis.
-//
-//  POR QUE UNO POR LADO Y NO MAS: los motores van emparejados por lados
-//  (ver arcoLadoA/arcoLadoB mas arriba):
-//        lado A = M1 y M3        lado B = M2 y M4
-//  Los dos motores de un mismo lado giran SIEMPRE juntos, asi que su encoder
-//  mide lo mismo. Con M1 + M2 ya se tiene el recorrido de cada lado, que es
-//  todo lo que hace falta para odometria (avance = media, giro = diferencia).
-//  M4 no aportaba un dato nuevo: solo repetia el de M2.
-//
-//  M3 NO SE PUEDE USAR, y esa es la razon de fondo: su header (Encoder3) ocupa
-//  los pines D2 y D3, y D2 es donde va el SERVO DISPENSADOR. Si se conectara
-//  el encoder de M3, su salida y la salida del servo estarian empujando la
-//  misma linea: dos drivers peleando por un cable. Ademas de no funcionar,
-//  puede danar el pin. Por eso M3 queda fuera por diseno, no por olvido.
-//    -> NO conectes nada al header Encoder3.
-//
-//  Al dejar M4 fuera, D4 y D5 quedan LIBRES. D5 era ademas el pin del servo
-//  tilt de la camara: ahora se puede montar el pan/tilt sin sacrificar un
+ar un
 //  encoder de los que se usan.
 QGPMaker_Encoder encoder1(1);   // motor M1  (lado A)  [header Encoder1: D8,D9]
 QGPMaker_Encoder encoder2(2);   // motor M2  (lado B)  [header Encoder2: D6,D7]
@@ -547,9 +383,7 @@ void reiniciarEncoders() {
   encoder2.write(0);
 }
 
-// Se responde SIEMPRE con los cuatro campos para no romper a quien ya lea
-// estas lineas (Python espera cuatro). Los de M3 y M4 van a 0 porque esos
-// encoders no estan habilitados: M3 choca con el servo y M4 era redundante.
+
 void responderEncoders() {
   Serial.print(F("ENC,"));
   Serial.print(encoder1.read());
