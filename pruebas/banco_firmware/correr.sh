@@ -63,16 +63,17 @@ python3 comprobar_prototipos.py "$TRIAJE" "$PANEL"
 
 mkdir -p .build
 echo "Compilando el banco del triaje..."
-$CXX $COMUN -x c++ "$TRIAJE" banco_triaje.cpp shim/shim.cpp \
+$CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$TRIAJE" banco_triaje.cpp \
+     shim/shim.cpp shim_red/red_shim.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_triaje
 
 echo "Compilando el banco del panel..."
-$CXX $COMUN $JSONDEF -Ishim_panel -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
-     shim/shim.cpp shim_panel/panel_shim.cpp \
+$CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
+     shim/shim.cpp shim_red/red_shim.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar yacalibrado normal diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado"}
+CASOS=${1:-"calibrar yacalibrado normal wifi wifibarrido sinwifi apicaida redymedida diagnostico sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0

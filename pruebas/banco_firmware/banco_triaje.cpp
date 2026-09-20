@@ -5,6 +5,7 @@
 #include <U8g2lib.h>
 #include <MAX30105.h>
 #include <nvs_flash.h>
+#include <WiFi.h>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,17 @@ static std::string pantalla() {
   return l;
 }
 static void volcar(const char *etq) { printf("   [pantalla %s] %s\n", etq, pantalla().c_str()); }
+
+// Espera a que un texto DESAPAREZCA de la pantalla
+static bool esperarSinTexto(const char *frag, uint32_t msMax) {
+  const uint32_t t0 = millis();
+  while (millis() - t0 < msMax) {
+    if (!pantallaContiene(frag)) return true;
+    esperar(100);
+  }
+  printf("      (<%s> seguia en pantalla tras %u ms)\n", frag, msMax);
+  return false;
+}
 
 static bool esperarTexto(const char *frag, uint32_t msMax) {
   const uint32_t t0 = millis();
@@ -105,6 +117,15 @@ static bool atenderAsistente(uint32_t msMax = 90000) {
   return true;
 }
 
+// Entradas del menu del firmware, en orden
+enum { M_CHEQUEO = 0, M_MEDIBOT, M_HISTORIAL, M_DIAG, M_CALIBRAR, M_ABOUT };
+
+// Desde el menu (seleccion en la primera entrada), abre la que se pida.
+static void abrirDelMenu(int indice) {
+  for (int i = 0; i < indice; i++) DOWN();
+  OK();
+}
+
 // Llega al menu y deja la seleccion en la primera entrada (sin pulsar OK).
 static void lanzarChequeoNo() {
   atenderAsistente();
@@ -130,6 +151,7 @@ int main(int argc, char **argv) {
   sensorSim.bpm = bpmReal;
   sensorSim.spo2 = spo2Real;
   sensorSim.dedo = false;
+  g_medibotIp = (uint32_t)IPAddress(192, 168, 1, 77);
   if (caso == "sinsensor" || caso == "sensorlento") sensorSim.presente = false;
   if (caso == "max30100")  sensorSim.partId = 0x11;
   if (caso == "sinmemoria") { g_nvsRota = true; g_nvsReparable = false; }
@@ -189,27 +211,103 @@ int main(int argc, char **argv) {
     comprobar(pantallaContiene("4 de 4 botones OK"),
               "calibra los 4 botones del teclado");
     comprobar(esperarTexto("Auto-Chequeo", 8000), "al terminar deja el menu listo");
-    DOWN(); esperar(300);
+    DOWN();
     volcar("menu");
-    comprobar(pantallaContiene("Diagnostico") && pantallaContiene("Calibrar teclado"),
-              "el menu llega a Diagnostico y a Calibrar teclado");
-    OK();
+    comprobar(pantallaContiene("MEDIBOT (red)") && pantallaContiene("Historial"),
+              "el menu tiene la entrada de MEDIBOT");
+    DOWN(); OK();
     comprobar(esperarTexto("HISTORIAL", 3000), "OK entra en la opcion elegida");
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "ATRAS vuelve");
   } else if (caso == "yacalibrado") {
-    comprobar(esperarTexto("MEDIBOT v6.0", 3000), "arranca en el autodiagnostico");
+    comprobar(esperarTexto("MEDIBOT v6.1", 3000), "arranca en el autodiagnostico");
     comprobar(!pantallaContiene("CALIBRAR TECLADO"),
               "con la calibracion guardada NO se repite el asistente");
     esperar(3000);
     OK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "los botones guardados funcionan");
-    DOWN(); DOWN(); DOWN(); OK();
+    abrirDelMenu(M_CALIBRAR);
     comprobar(esperarTexto("CALIBRAR TECLADO", 3000),
               "desde el menu se puede repetir la calibracion");
+  } else if (caso == "wifi") {
+    // Conexion completa: engancha a la WiFi MEDIBOT, localiza la Raspberry
+    // por mDNS y enseña los datos que sirve /api/esp32.
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("MEDIBOT", 4000), "el menu abre la pantalla de red");
+    comprobar(WiFi.ssidPedida == "MEDIBOT" && WiFi.passPedida == "MEDIBOTCDB",
+              "se conecta a la red MEDIBOT con su contrasena");
+    comprobar(esperarTexto("192.168.1.77:5000", 20000),
+              "localiza la Raspberry y enseña su direccion");
+    esperar(2500);
+    volcar("datos");
+    comprobar(pantallaContiene("Sistema: ON   Caras: 3"), "muestra los datos de la API");
+    comprobar(pantallaContiene("FPS: 28 / 27   Rojos: 2"), "y los contadores de vision");
+    printf("   [medibot] empieza a grabar y detecta 7 caras\n");
+    g_apiGrabando = true; g_apiDetecciones = 7;
+    esperar(3000);
+    volcar("datos actualizados");
+    comprobar(pantallaContiene("Caras: 7") && pantallaContiene("Grabando: SI"),
+              "los datos se refrescan solos");
+    DOWN(); esperar(400);
+    volcar("segunda pagina");
+    comprobar(pantallaContiene("Red: MEDIBOT"), "la segunda pagina dice a que red esta");
+    comprobar(pantallaContiene("Este ESP32: 192.168.1.45"), "y que IP le ha tocado");
+    BACK();
+    comprobar(esperarTexto("Auto-Chequeo", 4000), "se sale al menu");
+  } else if (caso == "wifibarrido") {
+    // Sin mDNS (lo normal si no se toca la Raspberry): hay que barrer la
+    // subred hasta dar con ella, comprobando la identidad de cada IP.
+    g_mdnsResponde = false;
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("Explorando la red", 30000), "al fallar mDNS barre la subred");
+    volcar("barriendo");
+    comprobar(esperarTexto("192.168.1.77:5000", 120000), "y acaba encontrando a MEDIBOT");
+    volcar("encontrado");
+    comprobar(g_ipsProbadas.load() > 10, "ha probado las IPs una a una");
+    comprobar(esperarTexto("Sistema:", 5000), "y ya lee la API");
+  } else if (caso == "sinwifi") {
+    g_wifiHayRed = false;
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("Sin WiFi", 25000), "avisa de que no hay red");
+    volcar("sin wifi");
+    comprobar(pantallaContiene("Se reintenta solo"), "y dice que lo seguira intentando");
+    printf("   [red] se enciende el router\n");
+    g_wifiHayRed = true;
+    comprobar(esperarTexto("192.168.1.77:5000", 60000),
+              "cuando aparece la red se conecta solo, sin reiniciar");
+  } else if (caso == "apicaida") {
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("192.168.1.77:5000", 20000), "primero localiza a MEDIBOT");
+    esperar(2000);
+    printf("   [medibot] se apaga Vision_MEDIBOT.py\n");
+    g_medibotVivo = false;
+    comprobar(esperarSinTexto("Sistema:", 30000),
+              "se entera de que la API ha dejado de responder");
+    volcar("api caida");
+    printf("   [medibot] se vuelve a encender\n");
+    g_medibotVivo = true;
+    comprobar(esperarTexto("Sistema:", 120000), "y la recupera sola, sin tocar nada");
+  } else if (caso == "redymedida") {
+    // La red no puede estorbar a la medida: mientras se mide, el nucleo 0 es
+    // del sensor, y al terminar la conexion sigue viva.
+    lanzarChequeo();
+    esperarTexto("Coloque su dedo", 4000);
+    esperar(2500);
+    sensorSim.dedo = true;
+    comprobar(esperarTexto("TUS RESULTADOS", 45000), "la medida termina con la red activa");
+    comprobar(abs(numeroAntes(" bpm") - bpmReal) <= 2, "y el pulso sale bien");
+    comprobar(sensorSim.perdidas.load() == 0, "sin perder muestras del sensor");
+    OK();                                  // resultados -> menu
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("192.168.1.77:5000", 25000),
+              "y al salir la conexion con MEDIBOT sigue");
   } else if (caso == "diagnostico") {
     lanzarChequeoNo();
-    DOWN(); DOWN(); OK();
+    abrirDelMenu(M_DIAG);
     comprobar(esperarTexto("DIAGNOSTICO", 4000), "el menu abre la pantalla de diagnostico");
     esperar(1500);
     volcar("diagnostico sin dedo");
@@ -300,7 +398,7 @@ int main(int argc, char **argv) {
     comprobar(pantallaContiene("Pulso"), "la segunda pagina explica el resultado");
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "BACK vuelve al menu");
-    DOWN(); esperar(300); OK();
+    abrirDelMenu(M_HISTORIAL);
     comprobar(esperarTexto("HISTORIAL", 3000), "el historial se abre");
     comprobar(pantallaContiene("Latidos"), "el historial guardo la medida");
     volcar("historial");

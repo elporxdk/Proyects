@@ -1,8 +1,8 @@
-# MEDIBOT v6.0 — Guía de calibración
+# MEDIBOT v6.1 — Guía de calibración
 
-Triaje con **un solo sensor**: el MAX30102 (pulso y SpO₂). Todo lo ajustable
-está en el bloque **`1. CONFIGURACION`** del sketch `medibot_triaje.ino`. Este
-documento explica qué medir y dónde ponerlo.
+Triaje con **un solo sensor** —el MAX30102 (pulso y SpO₂)— más conexión WiFi
+con MEDIBOT. Todo lo ajustable está en el bloque **`1. CONFIGURACION`** del
+sketch `medibot_triaje.ino`. Este documento explica qué medir y dónde ponerlo.
 
 > El equipo **no mide temperatura**. Ni la señal PPG (rojo/IR), ni el pulso, ni
 > la SpO₂ contienen información de temperatura corporal: cualquier valor
@@ -61,8 +61,65 @@ una medida se reinicia solo y continúa.
 |---|---|
 | `U8g2` (olikraus) | pantalla ST7920 128x64 por SPI hardware |
 | `SparkFun MAX3010x Pulse and Proximity Sensor Library` | MAX30102 / MAX30105 |
+| `ArduinoJson` (Benoit Blanchon) | leer la API de MEDIBOT |
 
-`Preferences` viene con el core de ESP32 (guarda la calibración del teclado).
+`Preferences`, `WiFi`, `ESPmDNS` y `HTTPClient` vienen con el core de ESP32.
+
+## La red: se conecta y busca MEDIBOT solo
+
+Nada más encender se conecta a la WiFi y localiza la Raspberry. Los datos de
+su API se ven en **Menú → `MEDIBOT (red)`**:
+
+```
+MEDIBOT
+192.168.1.77:5000
+Sistema: ON   Caras: 3
+FPS: 28 / 27   Rojos: 2
+Grabando: no   WiFi -57 dBm
+```
+
+Con `ARRIBA`/`ABAJO` pasas a la segunda página (a qué red está conectado, qué
+IP le ha tocado, posición de la cara y cuándo llegó el último dato).
+
+**La red que busca** está en el bloque `1.6` del sketch:
+
+```cpp
+#define WIFI_SSID         "MEDIBOT"
+#define WIFI_PASS         "MEDIBOTCDB"
+```
+
+**Cómo encuentra la Raspberry** (sin tocar nada en ella):
+
+1. **mDNS** — servicio `_medibot._tcp` y, si no, `raspberrypi.local`.
+2. **Barrido** de la subred, 4 IPs por vuelta, con barra de progreso.
+
+En los dos casos **comprueba la identidad** antes de dar una IP por buena:
+pide `/api/esp32` (puerto 5000) o `HEAD /` (5001) y mira las cabeceras
+`X-Medibot-Build` / `X-Pillbox-Build`, que `Vision_MEDIBOT.py` y
+`Pastillero.py` ya firman en todas sus respuestas. Sin eso acabarías leyendo
+el router.
+
+Para que el mDNS sea instantáneo, opcionalmente en la Pi:
+
+```xml
+<!-- /etc/avahi/services/medibot.service  →  sudo systemctl restart avahi-daemon -->
+<service-group>
+  <name replace-wildcards="yes">MEDIBOT en %h</name>
+  <service><type>_medibot._tcp</type><port>5000</port></service>
+</service-group>
+```
+
+**No se rinde nunca:** si no hay WiFi o MEDIBOT está apagado, lo dice y
+reintenta cada 20 s, así que encender el router o la Raspberry después basta.
+Si la API deja de responder cinco veces seguidas da por hecho que ha cambiado
+de IP y la vuelve a buscar. `OK` en esa pantalla fuerza un reintento inmediato.
+
+**La red se para mientras mides.** Las tareas de WiFi tienen prioridad alta en
+el núcleo 0, que es donde se capturan las muestras del sensor: durante el
+auto-chequeo la búsqueda se detiene y continúa al terminar.
+
+El ESP32 sólo va en **2,4 GHz** y tiene que estar en la **misma subred** que la
+Pi. Si el router tiene aislamiento de clientes, no funciona nada de esto.
 
 El MAX30100 **no** funciona con la librería MAX3010x (es otro chip, PART ID
 `0x11`); el firmware lo detecta y lo avisa por Serial y en la pantalla de

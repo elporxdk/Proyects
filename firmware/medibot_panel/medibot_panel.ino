@@ -51,8 +51,8 @@
 #define I2C_SCL_PIN       22
 
 // --- 1.2 WIFI Y MEDIBOT ----------------------------------------------
-#define WIFI_SSID         "TU_RED_WIFI"
-#define WIFI_PASS         "TU_CONTRASENA"
+#define WIFI_SSID         "MEDIBOT"
+#define WIFI_PASS         "MEDIBOTCDB"
 #define WIFI_TIMEOUT_MS   15000UL
 
 #define MEDIBOT_PORT_MAIN 5000      // Vision_MEDIBOT.py  -> X-Medibot-Build

@@ -42,7 +42,8 @@ la primera función del fichero** (en MEDIBOT, en el bloque de tipos).
 |---|---|
 | `medibot_triaje.ino`, `medibot_panel.ino` | **el código de verdad**, sin tocar |
 | `spo2_algorithm.cpp` (Maxim/SparkFun) | **el de verdad**, de la librería instalada |
-| Arduino, U8g2, Wire, Preferences, WiFi… | sustitutos mínimos en `shim/` y `shim_panel/` |
+| Arduino, U8g2, Wire, Preferences | sustitutos mínimos en `shim/` |
+| WiFi, mDNS, HTTP y la API de MEDIBOT | simulados en `shim_red/`: se puede apagar la red, quitar el mDNS, mover la Raspberry de IP o tirarle la API |
 | MAX30102 | simulado: genera una PPG sintética con BPM y SpO2 elegidos, y puede "colgarse" o desaparecer del bus |
 | Bus I2C | simulado con su banco de registros: el escaneo y la verificación por relectura son reales |
 | NVS (Preferences) | simulada en un fichero, y se puede romper para probar el aviso |
@@ -67,6 +68,11 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 | `diagnostico` | la pantalla de Diagnostico enseña el sensor, el bus I2C y el IR en vivo, y refleja el dedo al ponerlo |
 | `sinmemoria` | con la NVS rota, el asistente avisa de que **no** se ha guardado en vez de repetirse sin explicar nada |
 | `botonpulsado` | se entra al asistente **manteniendo un botón**: el reposo se mide al soltar y la tabla guardada es la buena |
+| `wifi` | se conecta a la red `MEDIBOT`, localiza la Raspberry por mDNS y enseña los datos de `/api/esp32`, refrescándolos solos |
+| `wifibarrido` | sin mDNS, barre la subred IP a IP comprobando identidades hasta dar con MEDIBOT |
+| `sinwifi` | sin red avisa y reintenta: cuando el router aparece, se conecta **sin reiniciar** |
+| `apicaida` | si la API deja de responder lo detecta, la vuelve a buscar y la recupera sola |
+| `redymedida` | midiendo con la red activa: el pulso sale bien y **no se pierde ni una muestra** |
 | `panel/normal`, `panel/botonpulsado` | lo mismo en el firmware del panel |
 
 ## Por qué existe

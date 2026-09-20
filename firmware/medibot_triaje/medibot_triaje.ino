@@ -1,8 +1,11 @@
 /* =====================================================================
- *  MEDIBOT v6.0  |  ESP32 + ST7920 128x64 (U8g2) + MAX30102
+ *  MEDIBOT v6.1  |  ESP32 + ST7920 128x64 (U8g2) + MAX30102 + WiFi
  * =====================================================================
- *  Core 0 : adquisicion de la senal PPG (pulso y SpO2), no bloqueante.
+ *  Core 0 : sensor PPG y red (nunca a la vez), siempre sin bloquear.
  *  Core 1 : teclado analogico, maquina de estados, animaciones y UI.
+ *
+ *  Se conecta a la WiFi de MEDIBOT, localiza la Raspberry sola (mDNS y, si
+ *  no, barriendo la subred) y muestra en vivo los datos de su API.
  *
  *  TODO LO QUE HAY QUE CALIBRAR ESTA EN EL BLOQUE "1. CONFIGURACION".
  *  Ver firmware/medibot_triaje/CALIBRACION.md para el procedimiento.
@@ -21,6 +24,10 @@
 //  muchas mas cuentas, por lo que devuelve un pulso erroneo.
 #include <Preferences.h>       // memoria no volatil: calibracion del teclado
 #include <nvs_flash.h>         // para recuperar la NVS si viene corrupta
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 // =====================================================================
 // 1. CONFIGURACION
@@ -221,7 +228,35 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define BEAT_MAX_INTERVAL_MS (60000UL / HR_MIN_BPM)   // 1500 ms a 40 BPM
 
 // ---------------------------------------------------------------------
-// 1.6 INTERFAZ Y TIEMPOS
+// 1.6 RED: WIFI Y BUSQUEDA DE MEDIBOT
+// ---------------------------------------------------------------------
+//  La red la lleva el nucleo 0 y NUNCA a la vez que la medida: las tareas de
+//  WiFi tienen prioridad alta en ese nucleo y se comerian las muestras del
+//  sensor. Mientras se mide, la red se queda quieta; al terminar, sigue.
+//
+//  Como encuentra la Raspberry sin tocar nada en ella:
+//    1. mDNS: servicio _medibot._tcp y, si no, el nombre raspberrypi.local
+//    2. barrido de la subred, 4 IPs por vuelta
+//  En los dos casos COMPRUEBA la identidad antes de dar una IP por buena:
+//  pide /api/esp32 (puerto 5000) o HEAD / (5001) y mira las cabeceras
+//  X-Medibot-Build / X-Pillbox-Build, que Vision_MEDIBOT.py y Pastillero.py
+//  ya firman en todas sus respuestas. Sin eso acabarias leyendo el router.
+#define WIFI_SSID         "MEDIBOT"
+#define WIFI_PASS         "MEDIBOTCDB"
+#define WIFI_TIMEOUT_MS   15000UL   // sin enganchar en este tiempo -> Sin WiFi
+#define WIFI_RETRY_MS     20000UL   // y se reintenta cada tanto, solo
+
+#define MEDIBOT_PORT_MAIN 5000      // Vision_MEDIBOT.py  -> X-Medibot-Build
+#define MEDIBOT_PORT_ALT  5001      // Pastillero.py      -> X-Pillbox-Build
+#define MEDIBOT_MDNS_SVC  "medibot" // _medibot._tcp (opcional en la Pi)
+#define MEDIBOT_MDNS_HOST "raspberrypi"
+#define MEDIBOT_API       "/api/esp32"
+#define JSON_POLL_MS      1000UL    // refresco de los datos en vivo
+#define SWEEP_TIMEOUT_MS  180       // ms de espera por IP en el barrido
+#define JSON_FAILS_RESCAN 5         // fallos seguidos -> MEDIBOT cambio de IP
+
+// ---------------------------------------------------------------------
+// 1.7 INTERFAZ Y TIEMPOS
 // ---------------------------------------------------------------------
 #define UI_FRAME_MS           40      // 25 fps
 #define LCD_BUS_CLOCK         600000UL// ST7920: 100 kHz daba ~80 ms por frame
@@ -242,6 +277,7 @@ enum AppState : uint8_t {
   STATE_SIGNAL_ERROR,
   STATE_HISTORY,
   STATE_DIAG,
+  STATE_MEDIBOT,
   STATE_ABOUT,
   STATE_KEYPAD_WIZARD
 };
@@ -251,8 +287,28 @@ enum Emotion : uint8_t {
   EMOTION_HAPPY,  EMOTION_SAD,    EMOTION_LOADING
 };
 
-// Modo que el nucleo 1 (UI) pide al nucleo 0 (sensores)
-enum SensorMode : uint8_t { SENS_IDLE, SENS_PPG };
+// Trabajo que el nucleo 1 (UI) pide al nucleo 0. Nunca dos a la vez.
+enum SensorMode : uint8_t { SENS_IDLE, SENS_PPG, SENS_NET };
+
+// Etapas de la conexion, en orden
+enum NetStage : uint8_t { NET_OFF, NET_WIFI, NET_MDNS, NET_SWEEP, NET_FOUND, NET_FAIL };
+
+// Estado de la red. Va APARTE de Vitals a proposito: Vitals se borra entero
+// en cada medida y la conexion no tiene por que perderse por eso.
+struct NetInfo {
+  uint8_t  etapa;
+  uint8_t  progreso;      // 0..100 del barrido
+  uint32_t ip;            // 0 = aun no localizado
+  uint32_t ipPropia;      // la que le ha dado el router a este ESP32
+  uint16_t puerto;
+  int8_t   rssi;
+  char     msg[24];
+  // datos de /api/esp32
+  bool     jsonOk;
+  uint32_t jsonMs;
+  int      sistema, detecciones, rojos, fps1, fps2, caraX, caraY;
+  bool     grabando;
+};
 
 // Estado del detector de latidos. El algoritmo esta en el bloque 4.3; el tipo
 // tiene que declararse AQUI, antes de la primera funcion del fichero, porque
@@ -321,8 +377,8 @@ bool      isBlinking     = false;
 uint32_t  nextBlinkMs    = 0;
 uint32_t  blinkEndsMs    = 0;
 
-const char *MENU_ITEMS[] = { "Auto-Chequeo", "Historial", "Diagnostico",
-                             "Calibrar teclado", "Sobre Medibot" };
+const char *MENU_ITEMS[] = { "Auto-Chequeo", "MEDIBOT (red)", "Historial",
+                             "Diagnostico", "Calibrar teclado", "Sobre Medibot" };
 const int   MENU_N = sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]);
 #define MENU_VISIBLES 4
 
@@ -353,6 +409,7 @@ volatile uint8_t  hwI2cFirst = 0;      // direccion del primero
 bool  nvsOk = false;                   // la memoria no volatil responde
 
 // --- Comunicacion entre nucleos ---
+static NetInfo       g_net;
 static Vitals        g_vitals;
 static portMUX_TYPE  g_vitalsMux  = portMUX_INITIALIZER_UNLOCKED;
 volatile SensorMode  g_sensorMode = SENS_IDLE;
@@ -374,14 +431,18 @@ void     keypadWizardStart();
 bool     keypadWizardStep(uint32_t now);
 void     processInputs(Button btn);
 Vitals   vitalsGet();
+NetInfo  netGet();
 bool     vitalsVigentes(const Vitals &v);
 void     sensorRequest(SensorMode m);
+void     sensorReposo();
+void     netForzarBusqueda();
 void     sensorTaskCode(void *pv);
 void     evaluateDiagnoses();
 void     saveReport();
 void     drawAvatar(Emotion emo, int frame, int cx, int cy, float s);
 void     drawCenteredStr(int y, const char *text);
 void     drawProgressBar(int x, int y, int w, int h, uint8_t pct);
+void     drawSpinner(int cx, int cy, int r, int frame);
 void     drawHeart(int cx, int cy, int r);
 void     drawFingerIcon(int cx, int cy, int frame);
 void     drawBootScreen();
@@ -389,6 +450,7 @@ void     drawMenu();
 void     drawAbout();
 void     drawHistoryUI();
 void     drawDiagScreen();
+void     drawMedibotScreen();
 void     drawTriageResult();
 void     drawSignalError();
 void     drawWizardScreen();
@@ -1041,6 +1103,16 @@ Vitals vitalsGet() {
 // ahora mismo (ver el comentario del campo Vitals::epoch).
 bool vitalsVigentes(const Vitals &v) { return v.epoch == g_modeEpoch; }
 
+void sensorReposo() { sensorRequest(SENS_NET); }
+
+NetInfo netGet() {
+  NetInfo copy;
+  portENTER_CRITICAL(&g_vitalsMux);
+  copy = g_net;
+  portEXIT_CRITICAL(&g_vitalsMux);
+  return copy;
+}
+
 static void vitalsClear() {
   portENTER_CRITICAL(&g_vitalsMux);
   memset((void *)&g_vitals, 0, sizeof(g_vitals));
@@ -1050,6 +1122,10 @@ static void vitalsClear() {
 // La UI es la unica que cambia de modo; el nucleo 0 detecta el cambio por el
 // contador de epoca y reinicia sus acumuladores. Asi el nucleo 0 NUNCA toca
 // la maquina de estados (esa era la carrera de datos del codigo original).
+// Fuera de una medida el nucleo 0 se dedica a la red: asi la conexion con
+// MEDIBOT se mantiene viva y los datos siguen actualizandose solos.
+void sensorReposo();
+
 void sensorRequest(SensorMode m) {
   portENTER_CRITICAL(&g_vitalsMux);
   memset((void *)&g_vitals, 0, sizeof(g_vitals));
@@ -1255,7 +1331,237 @@ static void ppgUpdate(uint32_t now) {
 }
 
 // ---------------------------------------------------------------------
-// 4.9 Tarea del nucleo 0
+// 4.9 RED: WIFI, BUSQUEDA DE MEDIBOT Y LECTURA DE SU API
+// ---------------------------------------------------------------------
+//  Corre en el nucleo 0, en el modo SENS_NET, y se detiene mientras se mide
+//  (las tareas de WiFi tienen prioridad alta en ese nucleo y se comerian las
+//  muestras del sensor).
+struct NetRT {
+  uint8_t   etapa = NET_OFF;
+  uint16_t  host = 1;
+  uint32_t  t0 = 0;
+  uint32_t  ultimoJson = 0;
+  uint32_t  ultimoFallo = 0;
+  IPAddress ip;
+  uint16_t  puerto = MEDIBOT_PORT_MAIN;
+  uint8_t   fallosJson = 0;
+} nt;
+
+// La UI (nucleo 1) no toca la red: solo deja esta peticion y el nucleo 0 la
+// atiende en su siguiente vuelta.
+volatile bool g_netRetry = false;
+void netForzarBusqueda() { g_netRetry = true; }
+
+static void netMsg(const char *m) {
+  portENTER_CRITICAL(&g_vitalsMux);
+  snprintf(g_net.msg, sizeof(g_net.msg), "%s", m);
+  portEXIT_CRITICAL(&g_vitalsMux);
+  Serial.printf("[RED] %s\n", m);
+}
+
+static void netEtapa(uint8_t e) {
+  nt.etapa = e;
+  portENTER_CRITICAL(&g_vitalsMux);
+  g_net.etapa = e;
+  portEXIT_CRITICAL(&g_vitalsMux);
+}
+
+// Confirma que en esa IP esta MEDIBOT y no el router o una impresora.
+// Vision_MEDIBOT.py y Pastillero.py firman TODAS sus respuestas con una
+// cabecera propia: es la huella perfecta y no hay que tocar la Raspberry.
+static bool huellaMedibot(IPAddress ip, uint16_t puerto) {
+  HTTPClient http;
+  http.setConnectTimeout(500);
+  http.setTimeout(900);
+  http.setReuse(false);
+  const char *cabeceras[] = { "X-Medibot-Build", "X-Pillbox-Build" };
+  const char *ruta = (puerto == MEDIBOT_PORT_MAIN) ? MEDIBOT_API : "/";
+  if (!http.begin(ip.toString(), puerto, ruta)) return false;
+  http.collectHeaders(cabeceras, 2);
+  const int code = (puerto == MEDIBOT_PORT_MAIN) ? http.GET() : http.sendRequest("HEAD");
+  const bool ok = (code == 200) &&
+                  (http.hasHeader("X-Medibot-Build") || http.hasHeader("X-Pillbox-Build"));
+  http.end();
+  return ok;
+}
+
+static bool netProbarIP(IPAddress ip) {
+  if (huellaMedibot(ip, MEDIBOT_PORT_MAIN)) { nt.ip = ip; nt.puerto = MEDIBOT_PORT_MAIN; return true; }
+  if (huellaMedibot(ip, MEDIBOT_PORT_ALT))  { nt.ip = ip; nt.puerto = MEDIBOT_PORT_ALT;  return true; }
+  return false;
+}
+
+static void netEncontrado() {
+  netEtapa(NET_FOUND);
+  portENTER_CRITICAL(&g_vitalsMux);
+  g_net.ip = (uint32_t)nt.ip;
+  g_net.puerto = nt.puerto;
+  g_net.progreso = 100;
+  portEXIT_CRITICAL(&g_vitalsMux);
+  Serial.printf("[RED] MEDIBOT en %s:%u\n", nt.ip.toString().c_str(), (unsigned)nt.puerto);
+  netMsg("MEDIBOT localizado");
+}
+
+static void netLeerJson() {
+  if (nt.puerto != MEDIBOT_PORT_MAIN) {      // el Pastillero no tiene /api/esp32
+    portENTER_CRITICAL(&g_vitalsMux); g_net.jsonOk = false; portEXIT_CRITICAL(&g_vitalsMux);
+    netMsg("Solo Pastillero (5001)");
+    return;
+  }
+  HTTPClient http;
+  http.setConnectTimeout(600);
+  http.setTimeout(1200);
+  http.setReuse(true);
+  if (!http.begin(nt.ip.toString(), nt.puerto, MEDIBOT_API)) return;
+  const int code = http.GET();
+  bool ok = false;
+  if (code == 200) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, http.getString())) {
+      portENTER_CRITICAL(&g_vitalsMux);
+      g_net.sistema     = doc["s"]  | 0;
+      g_net.detecciones = doc["d"]  | 0;
+      g_net.rojos       = doc["ro"] | 0;
+      g_net.fps1        = doc["f1"] | 0;
+      g_net.fps2        = doc["f2"] | 0;
+      g_net.caraX       = doc["fx"] | 0;
+      g_net.caraY       = doc["fy"] | 0;
+      g_net.grabando    = ((doc["r"] | 0) != 0);
+      g_net.jsonOk      = true;
+      g_net.jsonMs      = millis();
+      portEXIT_CRITICAL(&g_vitalsMux);
+      ok = true;
+    }
+  }
+  http.end();
+  if (ok) {
+    nt.fallosJson = 0;
+  } else {
+    portENTER_CRITICAL(&g_vitalsMux); g_net.jsonOk = false; portEXIT_CRITICAL(&g_vitalsMux);
+    // Varios fallos seguidos: lo normal es que MEDIBOT haya cambiado de IP
+    // (DHCP), asi que se vuelve a buscar en vez de insistir en la vieja.
+    if (++nt.fallosJson >= JSON_FAILS_RESCAN) {
+      nt.fallosJson = 0;
+      netMsg("Buscando MEDIBOT");
+      netEtapa(NET_MDNS);
+      portENTER_CRITICAL(&g_vitalsMux); g_net.ip = 0; portEXIT_CRITICAL(&g_vitalsMux);
+    }
+  }
+}
+
+static void netArrancar(uint32_t ahora) {
+  if (nt.etapa == NET_FOUND) return;         // ya localizado: solo refrescar
+  nt.t0 = ahora;
+  nt.host = 1;
+  portENTER_CRITICAL(&g_vitalsMux);
+  g_net.progreso = 0; g_net.ip = 0; g_net.jsonOk = false;
+  portEXIT_CRITICAL(&g_vitalsMux);
+  if (WiFi.status() == WL_CONNECTED) {
+    netMsg("Buscando MEDIBOT");
+    netEtapa(NET_MDNS);
+  } else {
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(true);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    netMsg("Conectando a " WIFI_SSID);
+    netEtapa(NET_WIFI);
+  }
+}
+
+static void netTrabajo(uint32_t ahora) {
+  if (g_netRetry) {                          // el usuario ha pulsado OK
+    g_netRetry = false;
+    netEtapa(NET_OFF);
+  }
+  switch (nt.etapa) {
+    case NET_OFF:
+      netArrancar(ahora);
+      break;
+
+    case NET_WIFI:
+      if (WiFi.status() == WL_CONNECTED) {
+        portENTER_CRITICAL(&g_vitalsMux);
+        g_net.rssi = (int8_t)WiFi.RSSI();
+        g_net.ipPropia = (uint32_t)WiFi.localIP();
+        portEXIT_CRITICAL(&g_vitalsMux);
+        Serial.printf("[RED] WiFi OK, IP de este ESP32: %s\n", WiFi.localIP().toString().c_str());
+        netMsg("Buscando MEDIBOT");
+        netEtapa(NET_MDNS);
+        nt.t0 = ahora;
+      } else if (ahora - nt.t0 > WIFI_TIMEOUT_MS) {
+        netMsg("Sin WiFi (" WIFI_SSID ")");
+        netEtapa(NET_FAIL);
+        nt.ultimoFallo = ahora;
+      }
+      break;
+
+    case NET_MDNS: {
+      MDNS.begin("medibot-triaje");
+      const int n = MDNS.queryService(MEDIBOT_MDNS_SVC, "tcp");
+      for (int i = 0; i < n; i++)
+        if (netProbarIP(MDNS.IP(i))) { netEncontrado(); return; }
+      const IPAddress h = MDNS.queryHost(MEDIBOT_MDNS_HOST);
+      if ((uint32_t)h != 0 && netProbarIP(h)) { netEncontrado(); return; }
+      netMsg("Explorando la red");
+      nt.host = 1;
+      netEtapa(NET_SWEEP);
+      break;
+    }
+
+    case NET_SWEEP: {
+      const IPAddress base = WiFi.localIP();
+      for (uint8_t k = 0; k < 4 && nt.host <= 254; k++, nt.host++) {
+        if (nt.host == base[3]) continue;
+        const IPAddress ip(base[0], base[1], base[2], (uint8_t)nt.host);
+        WiFiClient c;
+        if (c.connect(ip, MEDIBOT_PORT_MAIN, SWEEP_TIMEOUT_MS)) {
+          c.stop();
+          if (netProbarIP(ip)) { netEncontrado(); return; }
+        } else if (c.connect(ip, MEDIBOT_PORT_ALT, SWEEP_TIMEOUT_MS)) {
+          c.stop();
+          if (netProbarIP(ip)) { netEncontrado(); return; }
+        }
+      }
+      portENTER_CRITICAL(&g_vitalsMux);
+      g_net.progreso = (uint8_t)((nt.host * 100UL) / 254UL);
+      portEXIT_CRITICAL(&g_vitalsMux);
+      if (nt.host > 254) {
+        netMsg("MEDIBOT no responde");
+        netEtapa(NET_FAIL);
+        nt.ultimoFallo = ahora;
+      }
+      break;
+    }
+
+    case NET_FOUND:
+      if (WiFi.status() != WL_CONNECTED) {
+        netMsg("WiFi caido");
+        netEtapa(NET_FAIL);
+        nt.ultimoFallo = ahora;
+        break;
+      }
+      if (ahora - nt.ultimoJson >= JSON_POLL_MS) {
+        nt.ultimoJson = ahora;
+        netLeerJson();
+        portENTER_CRITICAL(&g_vitalsMux); g_net.rssi = (int8_t)WiFi.RSSI(); portEXIT_CRITICAL(&g_vitalsMux);
+      }
+      break;
+
+    case NET_FAIL:
+      // No se abandona: se reintenta solo cada WIFI_RETRY_MS, asi que encender
+      // el router o la Raspberry despues basta para que aparezca.
+      if (ahora - nt.ultimoFallo >= WIFI_RETRY_MS) {
+        netEtapa(NET_OFF);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------
+// 4.10 Tarea del nucleo 0
 // ---------------------------------------------------------------------
 void sensorTaskCode(void *pv) {
   (void)pv;
@@ -1291,6 +1597,7 @@ void sensorTaskCode(void *pv) {
 #endif
         }
       }
+      if (myMode == SENS_NET) netArrancar(now);
       // A partir de aqui lo que se publique ya pertenece a esta epoca. La UI
       // descarta todo lo que llegue con una epoca distinta, de modo que un
       // resultado (o un fallo) de la medida anterior nunca contamina la nueva.
@@ -1314,6 +1621,9 @@ void sensorTaskCode(void *pv) {
     if (myMode == SENS_PPG) {
       ppgUpdate(now);
       vTaskDelay(2 / portTICK_PERIOD_MS);
+    } else if (myMode == SENS_NET) {
+      netTrabajo(now);
+      vTaskDelay(20 / portTICK_PERIOD_MS);
     } else {
       vTaskDelay(50 / portTICK_PERIOD_MS);
     }
@@ -1327,7 +1637,7 @@ void setState(AppState s) {
   // Diagnostico deja el sensor midiendo para enseñar el IR en vivo; al salir
   // hay que devolverlo a reposo, se salga por donde se salga (boton, tiempo
   // de inactividad o atajo al menu).
-  if (currentState == STATE_DIAG && s != STATE_DIAG) sensorRequest(SENS_IDLE);
+  if (currentState == STATE_DIAG && s != STATE_DIAG) sensorReposo();
   currentState   = s;
   stateEnteredMs = millis();
   animFrame      = 0;
@@ -1350,6 +1660,18 @@ void drawProgressBar(int x, int y, int w, int h, uint8_t pct) {
   u8g2.drawRFrame(x, y, w, h, 2);
   int inner = ((w - 4) * pct) / 100;
   if (inner > 0) u8g2.drawBox(x + 2, y + 2, inner, h - 4);
+}
+
+void drawSpinner(int cx, int cy, int r, int frame) {
+  const int active = (frame / 2) % 8;
+  for (int i = 0; i < 8; i++) {
+    const float a = i * (PI / 4.0f);
+    const int px = cx + (int)(cos(a) * r);
+    const int py = cy + (int)(sin(a) * r);
+    if (i == active)                u8g2.drawDisc(px, py, 2);
+    else if (i == (active + 7) % 8) u8g2.drawDisc(px, py, 1);
+    else                            u8g2.drawPixel(px, py);
+  }
 }
 
 void drawHeart(int cx, int cy, int r) {
@@ -1455,7 +1777,7 @@ void drawAvatar(Emotion emo, int frame, int cx, int cy, float s) {
 // --- PANTALLAS ---
 void drawBootScreen() {
   u8g2.setFont(u8g2_font_helvB08_tr);
-  drawCenteredStr(12, "MEDIBOT v6.0");
+  drawCenteredStr(12, "MEDIBOT v6.1");
   u8g2.drawHLine(0, 15, 128);
 
   u8g2.setFont(u8g2_font_5x7_tr);
@@ -1552,6 +1874,84 @@ void drawHistoryUI() {
   u8g2.drawStr(20, 63, "[UP/DWN] Ver  [BACK] Salir");
 }
 
+// Pantalla de MEDIBOT: mientras busca enseña en que va; cuando lo encuentra,
+// los datos en vivo de /api/esp32. Dos paginas con ARRIBA/ABAJO.
+void drawMedibotScreen() {
+  const NetInfo n = netGet();
+  char buf[34];
+
+  u8g2.setFont(u8g2_font_helvB08_tr);
+  drawCenteredStr(9, "MEDIBOT");
+  u8g2.drawHLine(0, 11, 128);
+  u8g2.setFont(u8g2_font_5x7_tr);
+
+  if (n.etapa != NET_FOUND) {
+    // --- todavia no esta localizado: se cuenta por donde va ---
+    drawCenteredStr(24, n.msg[0] ? n.msg : "Arrancando la red");
+    switch (n.etapa) {
+      case NET_WIFI:
+        drawCenteredStr(36, "Red: " WIFI_SSID);
+        drawSpinner(64, 48, 7, animFrame);
+        break;
+      case NET_MDNS:
+        drawCenteredStr(36, "Preguntando por mDNS");
+        drawSpinner(64, 48, 7, animFrame);
+        break;
+      case NET_SWEEP:
+        snprintf(buf, sizeof(buf), "Mirando IP .%u de 254",
+                 (unsigned)((n.progreso * 254UL) / 100UL));
+        drawCenteredStr(36, buf);
+        drawProgressBar(14, 42, 100, 9, n.progreso);
+        break;
+      case NET_FAIL:
+        drawCenteredStr(36, "Se reintenta solo");
+        drawCenteredStr(46, "Enciende MEDIBOT y espera");
+        break;
+      default:
+        drawSpinner(64, 44, 7, animFrame);
+        break;
+    }
+    u8g2.setFont(u8g2_font_4x6_tr);
+    drawCenteredStr(63, "[OK] Reintentar  [ATRAS] Salir");
+    return;
+  }
+
+  const IPAddress ip(n.ip);
+  if (resultPage == 0) {
+    snprintf(buf, sizeof(buf), "%s:%u", ip.toString().c_str(), (unsigned)n.puerto);
+    drawCenteredStr(21, buf);
+    if (!n.jsonOk) {
+      drawCenteredStr(36, "Conectado, sin datos");
+      drawCenteredStr(46, "(la API no responde)");
+    } else {
+      snprintf(buf, sizeof(buf), "Sistema: %s   Caras: %d",
+               n.sistema ? "ON" : "off", n.detecciones);
+      u8g2.drawStr(2, 32, buf);
+      snprintf(buf, sizeof(buf), "FPS: %d / %d   Rojos: %d", n.fps1, n.fps2, n.rojos);
+      u8g2.drawStr(2, 42, buf);
+      snprintf(buf, sizeof(buf), "Grabando: %s   WiFi %d dBm",
+               n.grabando ? "SI" : "no", (int)n.rssi);
+      u8g2.drawStr(2, 52, buf);
+    }
+    u8g2.setFont(u8g2_font_4x6_tr);
+    drawCenteredStr(63, "[ARR/ABA] Mas  [ATRAS] Salir");
+  } else {
+    snprintf(buf, sizeof(buf), "Red: %s", WIFI_SSID);
+    u8g2.drawStr(2, 22, buf);
+    const IPAddress propia(n.ipPropia);
+    snprintf(buf, sizeof(buf), "Este ESP32: %s", propia.toString().c_str());
+    u8g2.drawStr(2, 32, buf);
+    snprintf(buf, sizeof(buf), "Cara en x=%d y=%d", n.caraX, n.caraY);
+    u8g2.drawStr(2, 42, buf);
+    const uint32_t desde = n.jsonMs ? (millis() - n.jsonMs) / 1000UL : 0;
+    if (n.jsonOk) snprintf(buf, sizeof(buf), "Ultimo dato hace %lus", (unsigned long)desde);
+    else          snprintf(buf, sizeof(buf), "Sin datos de la API");
+    u8g2.drawStr(2, 52, buf);
+    u8g2.setFont(u8g2_font_4x6_tr);
+    drawCenteredStr(63, "[ARR/ABA] Mas  [ATRAS] Salir");
+  }
+}
+
 // Pantalla de diagnostico: todo lo que hace falta para saber si el equipo
 // esta bien conectado, sin abrir el Monitor Serie. El IR en vivo es la clave:
 // sin dedo baja de 10.000 y con el dedo sube de 30.000; si se queda clavado
@@ -1585,8 +1985,12 @@ void drawDiagScreen() {
   snprintf(buf, sizeof(buf), "Tecla: %d mV (reposo %d)", (int)keypadLastMv(), (int)keypad.idleMv);
   u8g2.drawStr(2, 48, buf);
 
-  snprintf(buf, sizeof(buf), "Memoria: %s  Reinicios: %u",
-           nvsOk ? "OK" : "FALLO", (unsigned)v.recoveries);
+  const NetInfo n = netGet();
+  const char *red = (n.etapa == NET_FOUND) ? "MEDIBOT"
+                  : (n.etapa == NET_FAIL)  ? "no"
+                  : (n.etapa == NET_WIFI || n.etapa == NET_OFF) ? "..." : "buscando";
+  snprintf(buf, sizeof(buf), "Mem:%s Reinic:%u Red:%s",
+           nvsOk ? "OK" : "KO", (unsigned)v.recoveries, red);
   u8g2.drawStr(2, 57, buf);
 
   u8g2.setFont(u8g2_font_4x6_tr);
@@ -1706,6 +2110,7 @@ void renderUI() {
     case STATE_ABOUT:   drawAbout();       break;
     case STATE_HISTORY: drawHistoryUI();   break;
     case STATE_DIAG:    drawDiagScreen();  break;
+    case STATE_MEDIBOT: drawMedibotScreen(); break;
     case STATE_KEYPAD_WIZARD: drawWizardScreen(); break;
     case STATE_SIGNAL_ERROR: drawSignalError(); break;
 
@@ -1786,7 +2191,7 @@ void saveReport() {
 }
 
 static void abortMeasurement(const char *motivo) {
-  sensorRequest(SENS_IDLE);
+  sensorReposo();
   snprintf(errorDetail, sizeof(errorDetail), "%s", motivo);
   currentEmotion = EMOTION_SAD;
   setState(STATE_SIGNAL_ERROR);
@@ -1820,13 +2225,14 @@ void processInputs(Button btn) {
             else { patientBPM = 0; patientSpO2 = 0;
                    currentEmotion = EMOTION_LOOK_DOWN; setState(STATE_TRIAGE_FINGER_REQ); }
             break;
-          case 1: historyPage = 0; setState(STATE_HISTORY); break;
-          case 2:
+          case 1: resultPage = 0; setState(STATE_MEDIBOT); break;
+          case 2: historyPage = 0; setState(STATE_HISTORY); break;
+          case 3:
             // Diagnostico enciende el sensor para poder enseñar el IR en vivo
             sensorRequest(SENS_PPG);
             setState(STATE_DIAG);
             break;
-          case 3: keypadWizardStart(); setState(STATE_KEYPAD_WIZARD); break;
+          case 4: keypadWizardStart(); setState(STATE_KEYPAD_WIZARD); break;
           default: aboutPage = 0; setState(STATE_ABOUT); break;
         }
       }
@@ -1840,6 +2246,15 @@ void processInputs(Button btn) {
 
     case STATE_DIAG:
       if (btn == BTN_BACK || btn == BTN_OK) setState(STATE_MENU);
+      break;
+
+    case STATE_MEDIBOT:
+      if (btn == BTN_UP || btn == BTN_DOWN) resultPage = (resultPage == 0) ? 1 : 0;
+      if (btn == BTN_OK && netGet().etapa != NET_FOUND) {
+        netForzarBusqueda();                  // reintento inmediato
+      } else if (btn == BTN_OK || btn == BTN_BACK) {
+        setState(STATE_MENU);
+      }
       break;
 
     case STATE_ABOUT:
@@ -1862,7 +2277,7 @@ void processInputs(Button btn) {
     case STATE_TRIAGE_FINGER_REQ:
     case STATE_TRIAGE_FINGER_READ:
       if (btn == BTN_BACK) {
-        sensorRequest(SENS_IDLE);
+        sensorReposo();
         currentEmotion = EMOTION_NORMAL;
         setState(STATE_MENU);
       }
@@ -1879,7 +2294,7 @@ void processInputs(Button btn) {
 void setup() {
   Serial.begin(115200);
   delay(50);
-  Serial.println(F("\n=== MEDIBOT v6.0 ==="));
+  Serial.println(F("\n=== MEDIBOT v6.1 ==="));
 
   // --- Pantalla (setBusClock ANTES de begin: si no, no surte efecto) ---
   u8g2.setBusClock(LCD_BUS_CLOCK);
@@ -1925,6 +2340,7 @@ void setup() {
   nextBlinkMs = millis() + random(2000, 5000);
 
   xTaskCreatePinnedToCore(sensorTaskCode, "SensorTask", 8192, NULL, 1, &SensorTaskHandle, 0);
+  sensorReposo();          // en cuanto arranca, a conectarse a la WiFi
 
   // Sin calibracion guardada, o con un boton mantenido al encender -> asistente.
   if (!hayCal || teclaMantenida != BTN_NONE) {
@@ -1945,7 +2361,7 @@ void loop() {
   while (Serial.available()) {
     const int c = Serial.read();
     if (c == 'c' || c == 'C') {
-      sensorRequest(SENS_IDLE);
+      sensorReposo();
       keypadWizardStart();
       setState(STATE_KEYPAD_WIZARD);
     }
@@ -2011,7 +2427,7 @@ void loop() {
       if (v.ppgReady) {
         patientBPM  = v.finalBPM;
         patientSpO2 = v.finalSpO2;
-        sensorRequest(SENS_IDLE);
+        sensorReposo();
         evaluateDiagnoses();
         saveReport();
         resultPage = 0;
