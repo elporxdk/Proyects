@@ -27,6 +27,7 @@
 #include <time.h>
 #include <Preferences.h>
 #include <nvs_flash.h>
+#include <esp_system.h>      // esp_reset_reason(): por que se reinicio
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
@@ -177,6 +178,7 @@ KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de segurid
 #define QR_QUIET              2
 
 // --- 1.6 INTERFAZ -----------------------------------------------------
+#define TAREA_STACK           16384    // pila del nucleo 0 (sensor + red)
 #define UI_FRAME_MS           40         // 25 fps
 #define LCD_BUS_CLOCK         600000UL   // setBusClock ANTES de begin()
 #define SPLASH_MS             3200UL
@@ -1184,7 +1186,8 @@ static void netTrabajo(uint32_t ahora) {
 
     case NET_MDNS: {
       if (!horaOk && (uint32_t)time(nullptr) > 1600000000UL) horaOk = true;
-      MDNS.begin("medibot-panel");
+      static bool mdnsListo = false;
+      if (!mdnsListo) mdnsListo = MDNS.begin("medibot-panel");
       const int n = MDNS.queryService(MEDIBOT_MDNS_SVC, "tcp");
       for (int i = 0; i < n; i++) {
         if (netProbarIP(mdnsDireccion(i))) { netEncontrado(); return; }
@@ -1259,9 +1262,18 @@ void tareaTrabajo(void *pv) {
   uint32_t miEpoca = 0xFFFFFFFF;
   WorkMode miModo = WK_IDLE;
   uint32_t ultimoReintentoSensor = 0;
+  uint32_t ultimoAvisoPila = 0;
 
   for (;;) {
     const uint32_t ahora = millis();
+
+    // Si la pila libre baja de 1 KB, falta poco para un reinicio seco
+    if (ahora - ultimoAvisoPila > 5000) {
+      ultimoAvisoPila = ahora;
+      const uint32_t libre = uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
+      if (libre < 1024) Serial.printf("[AVISO] Pila de la tarea al limite: %u bytes\n",
+                                      (unsigned)libre);
+    }
 
     if (g_epoca != miEpoca) {
       miEpoca = g_epoca;
@@ -1892,10 +1904,28 @@ void entradaUsuario(Button b) {
 // =====================================================================
 // 15. SETUP (NUCLEO 1)
 // =====================================================================
+// Por que se reinicio la ultima vez: lo primero que hay que saber si el
+// equipo se queda reiniciandose.
+static const char *motivoReinicio() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "encendido normal";
+    case ESP_RST_EXT:      return "boton de reset";
+    case ESP_RST_SW:       return "reinicio por software";
+    case ESP_RST_PANIC:    return "FALLO DEL PROGRAMA (panic)";
+    case ESP_RST_INT_WDT:  return "WATCHDOG de interrupciones";
+    case ESP_RST_TASK_WDT: return "WATCHDOG de tarea (algo se bloqueo)";
+    case ESP_RST_WDT:      return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "BAJON DE TENSION (alimentacion justa)";
+    default:               return "desconocido";
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(80);
   Serial.println(F("\n=== MEDIBOT PANEL v7.0 ==="));
+  Serial.printf("[ARRANQUE] Ultimo reinicio: %s\n", motivoReinicio());
+  Serial.printf("[ARRANQUE] Memoria libre: %u bytes\n", (unsigned)ESP.getFreeHeap());
 
   // --- Pantalla: setBusClock ANTES de begin() o no surte efecto ---
   u8g2.setBusClock(LCD_BUS_CLOCK);
@@ -1936,7 +1966,10 @@ void setup() {
   ultimaTecla = millis();
   proxParpadeo = millis() + 2500;
 
-  xTaskCreatePinnedToCore(tareaTrabajo, "worker", 8192, NULL, 1, &g_tarea, 0);
+  // 16 KB, no 8: esta tarea hace sensor, WiFi, HTTP, JSON y QR. Con 8 KB se
+  // desborda la pila y eso es un reinicio seco ("A stack overflow in task
+  // worker has been detected" -> Rebooting).
+  xTaskCreatePinnedToCore(tareaTrabajo, "worker", TAREA_STACK, NULL, 1, &g_tarea, 0);
 
   // Sin calibracion, o con un boton mantenido al encender -> asistente.
   // Esa es la via de escape si los rangos guardados quedaron mal y no se

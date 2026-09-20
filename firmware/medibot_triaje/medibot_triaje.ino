@@ -24,6 +24,7 @@
 //  muchas mas cuentas, por lo que devuelve un pulso erroneo.
 #include <Preferences.h>       // memoria no volatil: calibracion del teclado
 #include <nvs_flash.h>         // para recuperar la NVS si viene corrupta
+#include <esp_system.h>      // esp_reset_reason(): por que se reinicio
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
@@ -258,6 +259,7 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 // ---------------------------------------------------------------------
 // 1.7 INTERFAZ Y TIEMPOS
 // ---------------------------------------------------------------------
+#define TAREA_STACK           16384   // pila del nucleo 0 (sensor + red)
 #define UI_FRAME_MS           40      // 25 fps
 #define LCD_BUS_CLOCK         600000UL// ST7920: 100 kHz daba ~80 ms por frame
 #define INACTIVITY_TIMEOUT    30000UL
@@ -351,6 +353,7 @@ struct Vitals {
   uint32_t rawRed;           // Diagnostico para saber si el sensor esta vivo
   uint32_t lastSampleMs;
   uint16_t recoveries;       // veces que ha habido que reiniciar el sensor
+  uint32_t pilaLibre;        // bytes de pila sin usar del nucleo 0
 };
 
 struct Report {
@@ -1507,7 +1510,8 @@ static void netTrabajo(uint32_t ahora) {
       break;
 
     case NET_MDNS: {
-      MDNS.begin("medibot-triaje");
+      static bool mdnsListo = false;
+      if (!mdnsListo) mdnsListo = MDNS.begin("medibot-triaje");
       const int n = MDNS.queryService(MEDIBOT_MDNS_SVC, "tcp");
       for (int i = 0; i < n; i++)
         if (netProbarIP(mdnsDireccion(i))) { netEncontrado(); return; }
@@ -1579,9 +1583,23 @@ void sensorTaskCode(void *pv) {
   uint32_t myEpoch = 0xFFFFFFFF;
   SensorMode myMode = SENS_IDLE;
   uint32_t ultimoReintento = 0;
+  uint32_t ultimoAvisoPila = 0;
 
   for (;;) {
     const uint32_t now = millis();
+
+    // Vigilancia de la pila: se publica lo que queda sin usar. Si baja de
+    // 1 KB es que falta poco para un desbordamiento (= reinicio seco), asi
+    // que ademas se avisa por Serial.
+    if (now - ultimoAvisoPila > 5000) {
+      ultimoAvisoPila = now;
+      const uint32_t libre = uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
+      portENTER_CRITICAL(&g_vitalsMux);
+      g_vitals.pilaLibre = libre;
+      portEXIT_CRITICAL(&g_vitalsMux);
+      if (libre < 1024) Serial.printf("[AVISO] Pila de la tarea al limite: %u bytes\n",
+                                      (unsigned)libre);
+    }
 
     if (g_modeEpoch != myEpoch) {
       myEpoch = g_modeEpoch;
@@ -2000,8 +2018,8 @@ void drawDiagScreen() {
   const char *red = (n.etapa == NET_FOUND) ? "MEDIBOT"
                   : (n.etapa == NET_FAIL)  ? "no"
                   : (n.etapa == NET_WIFI || n.etapa == NET_OFF) ? "..." : "buscando";
-  snprintf(buf, sizeof(buf), "Mem:%s Reinic:%u Red:%s",
-           nvsOk ? "OK" : "KO", (unsigned)v.recoveries, red);
+  snprintf(buf, sizeof(buf), "Mem:%s Red:%s Pila:%u",
+           nvsOk ? "OK" : "KO", red, (unsigned)v.pilaLibre);
   u8g2.drawStr(2, 57, buf);
 
   u8g2.setFont(u8g2_font_4x6_tr);
@@ -2302,10 +2320,30 @@ void processInputs(Button btn) {
 // =====================================================================
 // 8. SETUP (NUCLEO 1)
 // =====================================================================
+// Por que se reinicio la ultima vez. Si el equipo se queda reiniciandose,
+// esta linea dice si fue un fallo del programa, el watchdog o la corriente,
+// que es lo primero que hay que saber y no se ve en el arranque de la ROM.
+static const char *motivoReinicio() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "encendido normal";
+    case ESP_RST_EXT:      return "boton de reset";
+    case ESP_RST_SW:       return "reinicio por software";
+    case ESP_RST_PANIC:    return "FALLO DEL PROGRAMA (panic)";
+    case ESP_RST_INT_WDT:  return "WATCHDOG de interrupciones";
+    case ESP_RST_TASK_WDT: return "WATCHDOG de tarea (algo se bloqueo)";
+    case ESP_RST_WDT:      return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "BAJON DE TENSION (alimentacion justa)";
+    case ESP_RST_DEEPSLEEP:return "salida de deep sleep";
+    default:               return "desconocido";
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(50);
   Serial.println(F("\n=== MEDIBOT v6.1 ==="));
+  Serial.printf("[ARRANQUE] Ultimo reinicio: %s\n", motivoReinicio());
+  Serial.printf("[ARRANQUE] Memoria libre: %u bytes\n", (unsigned)ESP.getFreeHeap());
 
   // --- Pantalla (setBusClock ANTES de begin: si no, no surte efecto) ---
   u8g2.setBusClock(LCD_BUS_CLOCK);
@@ -2350,7 +2388,13 @@ void setup() {
   lastInteraction = millis();
   nextBlinkMs = millis() + random(2000, 5000);
 
-  xTaskCreatePinnedToCore(sensorTaskCode, "SensorTask", 8192, NULL, 1, &SensorTaskHandle, 0);
+  // 16 KB de pila, no 8: esta tarea ya no solo lee el sensor, tambien abre
+  // conexiones HTTP y parsea JSON, y eso gasta pila de sobra para desbordar
+  // los 8 KB que bastaban antes. Un desbordamiento aqui es un reinicio seco
+  // ("A stack overflow in task SensorTask has been detected" -> Rebooting).
+  // Cuanta queda de verdad se ve en Diagnostico y por Serial.
+  xTaskCreatePinnedToCore(sensorTaskCode, "SensorTask", TAREA_STACK, NULL, 1,
+                          &SensorTaskHandle, 0);
   sensorReposo();          // en cuanto arranca, a conectarse a la WiFi
 
   // Sin calibracion guardada, o con un boton mantenido al encender -> asistente.
