@@ -119,6 +119,49 @@ python3 pruebas/banco_firmware/comprobar_criticas.py firmware/medibot_triaje/med
 Si el equipo llega a reiniciarse por un fallo así, arranca en **MODO SEGURO**
 (sin red) y la pantalla de arranque dice en qué paso murió: `Fallo en: red: wifi`.
 
+## La configuración en el navegador
+
+El ESP32 **sirve su propia página**. Con el equipo conectado a la red `MEDIBOT`,
+escribe su IP en cualquier navegador de la misma red:
+
+```
+http://192.168.1.45/          <- la IP sale en el arranque y en Menú → MEDIBOT
+http://medibot-triaje.local/  <- si tu router/sistema resuelve mDNS
+```
+
+La IP se ve en dos sitios sin tocar el cable USB: en la pantalla **Menú →
+`MEDIBOT (red)` → ABAJO**, que la enseña como `Web: http://…/`, y por el Monitor
+Serie al conectarse:
+
+```
+[WEB] Configuracion del equipo en http://192.168.1.45/  (o http://medibot-triaje.local/)
+```
+
+La página enseña, y se refresca sola cada 2 s sin recargar:
+
+| Bloque | Qué sale |
+|---|---|
+| Sensor de pulso | si responde, chip y revisión, velocidad del bus, patillas, infrarrojo en vivo, reinicios |
+| Medida | pulso y SpO₂ en vivo, progreso, si la señal es fiable, y el historial |
+| Red | SSID, IP, puerta de enlace, MAC, señal, en qué punto va la búsqueda, dónde está MEDIBOT y los datos de `/api/esp32` |
+| Teclado | conectado o no, lectura actual, reposo, dispersión y **los rangos calibrados de los 4 botones** |
+| Equipo | tiempo encendido, memoria libre, pila del núcleo 0, motivo del último reinicio, modo seguro |
+| Configuración | muestreo, brillo de los LED, duración de la medida, puertos de búsqueda, refresco de la API |
+
+Y tres botones: **volver a buscar MEDIBOT**, **calibrar el teclado** (abre el
+asistente en la pantalla del equipo) y **reiniciar el ESP32**.
+
+Además de la página hay `http://<ip>/api`, que devuelve lo mismo en JSON por si
+quieres leer el triaje desde otro programa.
+
+### Por qué el servidor vive en el núcleo 1
+
+El núcleo 0 alterna entre leer el sensor y hablar por la red: **mientras mide un
+pulso no atiende a nada más**, así que un servidor ahí se quedaría colgado medio
+minuto en cada chequeo. El núcleo 1 (el del interfaz) está siempre libre, así
+que la página responde incluso a mitad de una medida. Hay un caso del banco de
+pruebas (`web`) que comprueba exactamente eso.
+
 ## Librerías necesarias
 
 | Librería | Para qué |

@@ -31,6 +31,7 @@ CABECERAS = [
     "libraries/WiFi/src/WiFiType.h",
     "libraries/HTTPClient/src/HTTPClient.h",
     "libraries/Preferences/src/Preferences.h",
+    "libraries/WebServer/src/WebServer.h",
 ]
 # Cabeceras que solo existen en una de las dos ramas (el cliente TCP se movio
 # a la libreria Network en la 3.x). Si una no esta, se ignora.
@@ -38,7 +39,8 @@ CABECERAS_OPCIONALES = [
     "libraries/WiFi/src/WiFiClient.h",
     "libraries/Network/src/NetworkClient.h",
 ]
-OBJETOS = {"MDNS": "mDNS", "WiFi": "WiFi", "http": "HTTPClient", "prefs": "Preferences"}
+OBJETOS = {"MDNS": "mDNS", "WiFi": "WiFi", "http": "HTTPClient",
+           "prefs": "Preferences", "webServer": "WebServer"}
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".libs", "esp32api")
 
 

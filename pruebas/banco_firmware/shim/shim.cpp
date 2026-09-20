@@ -307,3 +307,11 @@ EspSim ESP;
 uint32_t uxTaskGetStackHighWaterMark(void *) { return 3000; }
 int g_motivoReinicio = ESP_RST_POWERON;
 int esp_reset_reason() { return g_motivoReinicio; }
+
+// Reinicio simulado: el banco solo apunta que se ha pedido. Reiniciar de
+// verdad seria matar el proceso de pruebas.
+std::atomic<bool> g_reinicioPedido{false};
+void EspSim::restart() {
+  g_reinicioPedido = true;
+  printf("   [esp] se ha pedido un reinicio\n");
+}

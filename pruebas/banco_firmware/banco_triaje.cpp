@@ -19,6 +19,7 @@
 #include <MAX30105.h>
 #include <nvs_flash.h>
 #include <WiFi.h>
+#include <WebServer.h>
 #include <string>
 #include <vector>
 
@@ -53,6 +54,11 @@ static std::string pantalla() {
   for (auto &s : pantallaUltimoFrame()) { l += "\""; l += s; l += "\" "; }
   return l;
 }
+// ¿aparece el fragmento en lo que ha servido el ESP32?
+static bool web(const std::string &pagina, const char *frag) {
+  return pagina.find(frag) != std::string::npos;
+}
+
 static void volcar(const char *etq) { printf("   [pantalla %s] %s\n", etq, pantalla().c_str()); }
 
 // Espera a que un texto DESAPAREZCA de la pantalla
@@ -313,6 +319,63 @@ int main(int argc, char **argv) {
     comprobar(pantallaContiene("Este ESP32: 192.168.1.45"), "y que IP le ha tocado");
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 4000), "se sale al menu");
+  } else if (caso == "web") {
+    // La configuracion del equipo en el navegador. Escribiendo la IP del ESP32
+    // tiene que salir TODO: red, sensor, teclado, memoria y con que ajustes se
+    // compilo. Antes no habia servidor ninguno y el navegador no veia nada.
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("192.168.1.77:5000", 20000), "la red esta lista");
+    BACK();
+    esperar(1000);
+    comprobar(webEncendido(), "el ESP32 levanta el servidor web al tener IP");
+
+    const std::string pag = webPedir("/");
+    comprobar(!pag.empty(), "la IP del ESP32 sirve una pagina");
+    comprobar(web(pag, "<!DOCTYPE html>") && web(pag, "MEDIBOT"),
+              "es una pagina HTML del triaje");
+    comprobar(web(pag, "Sensor de pulso") && web(pag, "0x57"),
+              "cuenta el estado del sensor de pulso");
+    comprobar(web(pag, "SDA GPIO21") && web(pag, "SCL GPIO22"),
+              "dice en que patillas esta el bus I2C");
+    comprobar(web(pag, "Red") && web(pag, "MEDIBOT") && web(pag, "192.168.1.45"),
+              "dice a que red esta y con que IP");
+    comprobar(web(pag, "192.168.1.77:5000"), "y donde ha encontrado a MEDIBOT");
+    comprobar(web(pag, "Teclado") && web(pag, "GPIO34"),
+              "cuenta el estado del teclado");
+    comprobar(web(pag, "Configuracion") && web(pag, "Muestreo del sensor"),
+              "y con que configuracion se compilo");
+    comprobar(web(pag, "Encendido desde") && web(pag, "Memoria libre"),
+              "incluye el estado del propio equipo");
+    printf("   [web] la pagina ocupa %u bytes\n", (unsigned)pag.size());
+
+    const std::string api = webPedir("/api");
+    comprobar(web(api, "\"sensor\"") && web(api, "\"red\"") && web(api, "\"teclado\""),
+              "/api devuelve los valores en JSON para refrescar sin recargar");
+    comprobar(web(api, "\"medibot\":\"192.168.1.77\""),
+              "y el JSON lleva la direccion de MEDIBOT");
+
+    comprobar(webPedir("/loquesea").find("No existe") != std::string::npos,
+              "una direccion que no existe responde con una explicacion");
+
+    // Lo importante de tenerlo en el nucleo 1: la pagina sigue respondiendo
+    // MIENTRAS se esta midiendo. En el nucleo 0 se quedaria colgada 30 s,
+    // porque ese nucleo esta ocupado leyendo el sensor.
+    printf("   [usuario] empieza un auto-chequeo y pone el dedo\n");
+    menuPos = M_MEDIBOT;                 // veniamos de la pantalla de red
+    abrirDelMenu(M_CHEQUEO);
+    comprobar(esperarTexto("Coloque su dedo", 6000), "empieza el auto-chequeo");
+    sensorSim.dedo = true;
+    comprobar(esperarTexto("BPM", 15000), "esta midiendo");
+    const std::string durante = webPedir("/");
+    comprobar(!durante.empty() && web(durante, "Sensor de pulso"),
+              "la pagina responde TAMBIEN mientras el equipo mide");
+    const std::string apiDurante = webPedir("/api");
+    comprobar(web(apiDurante, "\"pulso\""), "y /api sigue dando el pulso en vivo");
+
+    // Accion: reiniciar desde el navegador.
+    webEnviar("/reiniciar");
+    comprobar(g_reinicioPedido.load(), "el boton de reiniciar reinicia el ESP32");
   } else if (caso == "wifibarrido") {
     // Sin mDNS (lo normal si no se toca la Raspberry): hay que barrer la
     // subred hasta dar con ella, comprobando la identidad de cada IP.

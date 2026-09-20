@@ -28,6 +28,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
+#include <WebServer.h>         // la configuracion del equipo en el navegador
 #include <ArduinoJson.h>
 
 // =====================================================================
@@ -278,6 +279,10 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define MEDIBOT_MDNS_SVC  "medibot" // _medibot._tcp (opcional en la Pi)
 #define MEDIBOT_MDNS_HOST "raspberrypi"
 #define MEDIBOT_API       "/api/esp32"
+//  El propio ESP32 sirve una pagina con toda su configuracion: basta escribir
+//  su IP (la que dice el arranque y la pantalla MEDIBOT) en un navegador de la
+//  misma red. Tambien vale http://medibot-triaje.local/
+#define WEB_PUERTO           80
 #define JSON_POLL_MS      1000UL    // refresco de los datos en vivo
 #define SWEEP_TIMEOUT_MS  180       // ms de espera por IP en el barrido
 #define JSON_FAILS_RESCAN 5         // fallos seguidos -> MEDIBOT cambio de IP
@@ -468,6 +473,24 @@ RTC_DATA_ATTR static uint32_t rtcMagia;
 RTC_DATA_ATTR static char     rtcPaso[16];
 bool modoSeguro = false;
 
+// Por que se reinicio la ultima vez. Si el equipo se queda reiniciandose,
+// esta linea dice si fue un fallo del programa, el watchdog o la corriente,
+// que es lo primero que hay que saber y no se ve en el arranque de la ROM.
+static const char *motivoReinicio() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "encendido normal";
+    case ESP_RST_EXT:      return "boton de reset";
+    case ESP_RST_SW:       return "reinicio por software";
+    case ESP_RST_PANIC:    return "FALLO DEL PROGRAMA (panic)";
+    case ESP_RST_INT_WDT:  return "WATCHDOG de interrupciones";
+    case ESP_RST_TASK_WDT: return "WATCHDOG de tarea (algo se bloqueo)";
+    case ESP_RST_WDT:      return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "BAJON DE TENSION (alimentacion justa)";
+    case ESP_RST_DEEPSLEEP:return "salida de deep sleep";
+    default:               return "desconocido";
+  }
+}
+
 static void paso(const char *p) {
   rtcMagia = RTC_MAGIA;
   snprintf(rtcPaso, sizeof(rtcPaso), "%s", p);
@@ -487,6 +510,13 @@ static void paso(const char *p) {
 static NetInfo       g_net;
 static Vitals        g_vitals;
 static portMUX_TYPE  g_vitalsMux  = portMUX_INITIALIZER_UNLOCKED;
+// El nucleo 0 la pone cuando el router ya ha dado IP; el nucleo 1 la mira para
+// arrancar el servidor web. Se hace asi, y no arrancandolo desde el nucleo 0,
+// para que TODO lo del servidor ocurra en un solo nucleo.
+volatile bool        g_wifiListo  = false;
+// El servidor ya escucha. Lo mira tambien la pantalla MEDIBOT, para enseñar la
+// direccion que hay que escribir en el navegador.
+bool                 webArrancado = false;
 volatile SensorMode  g_sensorMode = SENS_IDLE;
 volatile uint32_t    g_modeEpoch  = 0;
 TaskHandle_t         SensorTaskHandle = NULL;
@@ -1708,6 +1738,7 @@ static void netTrabajo(uint32_t ahora) {
         g_net.rssi = rssi;
         g_net.ipPropia = mia;
         portEXIT_CRITICAL(&g_vitalsMux);
+        g_wifiListo = true;               // el nucleo 1 arrancara el servidor web
         Serial.printf("[RED] WiFi OK, IP de este ESP32: %s\n", WiFi.localIP().toString().c_str());
         netMsg("Buscando MEDIBOT");
         netEtapa(NET_MDNS);
@@ -1722,7 +1753,12 @@ static void netTrabajo(uint32_t ahora) {
     case NET_MDNS: {
       paso("red: mdns");
       static bool mdnsListo = false;
-      if (!mdnsListo) mdnsListo = MDNS.begin("medibot-triaje");
+      if (!mdnsListo) {
+        mdnsListo = MDNS.begin("medibot-triaje");
+        // Asi el equipo se puede abrir por nombre (http://medibot-triaje.local/)
+        // sin tener que saberse la IP de memoria.
+        if (mdnsListo) MDNS.addService("http", "tcp", WEB_PUERTO);
+      }
       const int n = MDNS.queryService(MEDIBOT_MDNS_SVC, "tcp");
       for (int i = 0; i < n; i++)
         if (netProbarIP(mdnsDireccion(i))) { netEncontrado(); return; }
@@ -2215,7 +2251,10 @@ void drawMedibotScreen() {
     const IPAddress propia(n.ipPropia);
     snprintf(buf, sizeof(buf), "Este ESP32: %s", propia.toString().c_str());
     u8g2.drawStr(2, 32, buf);
-    snprintf(buf, sizeof(buf), "Cara en x=%d y=%d", n.caraX, n.caraY);
+    // Esta linea es la que hay que leer para abrir la configuracion del equipo
+    // en el movil o el ordenador: es la direccion que se escribe en el navegador.
+    if (webArrancado) snprintf(buf, sizeof(buf), "Web: http://%s/", propia.toString().c_str());
+    else              snprintf(buf, sizeof(buf), "Cara en x=%d y=%d", n.caraX, n.caraY);
     u8g2.drawStr(2, 42, buf);
     const uint32_t desde = n.jsonMs ? (millis() - n.jsonMs) / 1000UL : 0;
     if (n.jsonOk) snprintf(buf, sizeof(buf), "Ultimo dato hace %lus", (unsigned long)desde);
@@ -2572,25 +2611,364 @@ void processInputs(Button btn) {
 }
 
 // =====================================================================
-// 8. SETUP (NUCLEO 1)
+// 8. SERVIDOR WEB (NUCLEO 1): LA CONFIGURACION EN EL NAVEGADOR
 // =====================================================================
-// Por que se reinicio la ultima vez. Si el equipo se queda reiniciandose,
-// esta linea dice si fue un fallo del programa, el watchdog o la corriente,
-// que es lo primero que hay que saber y no se ve en el arranque de la ROM.
-static const char *motivoReinicio() {
-  switch (esp_reset_reason()) {
-    case ESP_RST_POWERON:  return "encendido normal";
-    case ESP_RST_EXT:      return "boton de reset";
-    case ESP_RST_SW:       return "reinicio por software";
-    case ESP_RST_PANIC:    return "FALLO DEL PROGRAMA (panic)";
-    case ESP_RST_INT_WDT:  return "WATCHDOG de interrupciones";
-    case ESP_RST_TASK_WDT: return "WATCHDOG de tarea (algo se bloqueo)";
-    case ESP_RST_WDT:      return "WATCHDOG";
-    case ESP_RST_BROWNOUT: return "BAJON DE TENSION (alimentacion justa)";
-    case ESP_RST_DEEPSLEEP:return "salida de deep sleep";
-    default:               return "desconocido";
+//  Escribiendo la IP del ESP32 en un navegador sale todo lo que el equipo
+//  sabe de si mismo: red, sensor, teclado, memoria, ultima medida y con que
+//  configuracion se compilo. Es la pantalla de Diagnostico entera, sin tener
+//  que estar delante del aparato ni enchufar el cable USB.
+//
+//  Vive en el NUCLEO 1 (el del interfaz), no en el 0. El nucleo 0 alterna
+//  entre leer el sensor y hablar por la red: mientras mide un pulso no
+//  atenderia al navegador y la pagina se quedaria colgada medio minuto. El
+//  nucleo 1 esta siempre libre, asi que responde hasta a mitad de una medida.
+//
+//  Ninguna funcion de aqui toca el bus I2C ni el sensor: solo lee COPIAS del
+//  estado hechas con vitalsGet()/netGet(), que ya hacen el bloqueo bien.
+
+WebServer webServer(WEB_PUERTO);
+
+// Envia un trozo de pagina sin construir un String intermedio: en un ESP32 la
+// memoria es poca y la pagina entera de golpe no cabria comoda.
+static void webTexto(const char *s) { webServer.sendContent(s, strlen(s)); }
+
+static void webFila(const char *clave, const char *valor, const char *id) {
+  char buf[320];
+  if (id && id[0])
+    snprintf(buf, sizeof(buf), "<tr><th>%s</th><td id=\"%s\">%s</td></tr>", clave, id, valor);
+  else
+    snprintf(buf, sizeof(buf), "<tr><th>%s</th><td>%s</td></tr>", clave, valor);
+  webTexto(buf);
+}
+
+static const char *webTextoI2c() {
+  if (hwMaxOk)                          return "con dispositivos";
+  if (hwI2cDiag == I2C_CORTO)           return "una linea clavada a 0 V (cortocircuito)";
+  if (hwI2cDiag == I2C_SIN_PULLUP)      return "lineas al aire: modulo sin conectar o sin 3V3";
+  return "hay 3V3 pero nadie contesta: revisa si SDA y SCL estan cambiadas";
+}
+
+static const char *webTextoEtapa(uint8_t etapa) {
+  switch (etapa) {
+    case NET_OFF:   return "apagada";
+    case NET_WIFI:  return "conectando al WiFi";
+    case NET_MDNS:  return "buscando MEDIBOT (mDNS)";
+    case NET_SWEEP: return "explorando la red IP a IP";
+    case NET_FOUND: return "MEDIBOT localizado";
+    case NET_FAIL:  return "sin conexion (se reintenta solo)";
+    default:        return "-";
   }
 }
+
+// "01:23:45" desde el encendido
+static void webTiempo(char *dst, size_t n, uint32_t ms) {
+  const uint32_t s = ms / 1000;
+  snprintf(dst, n, "%02u:%02u:%02u", (unsigned)(s / 3600),
+           (unsigned)((s / 60) % 60), (unsigned)(s % 60));
+}
+
+// ---------------------------------------------------------------------
+// 8.1 /api : los valores que cambian, en JSON
+// ---------------------------------------------------------------------
+//  La pagina se refresca sola pidiendo esto cada 2 s, asi no hay que recargar
+//  entera ni parpadea. Tambien sirve para leer el triaje desde otro programa.
+static void webApi() {
+  const Vitals  v = vitalsGet();
+  const NetInfo n = netGet();
+  const IPAddress ipMedibot(n.ip);
+  char tiempo[16];
+  webTiempo(tiempo, sizeof(tiempo), millis());
+
+  char buf[768];
+  snprintf(buf, sizeof(buf),
+    "{\"sensor\":{\"ok\":%s,\"id\":%u,\"rev\":%u,\"khz\":%lu,\"ir\":%lu,\"rojo\":%lu,"
+    "\"dedo\":%s,\"reinicios\":%u,\"intentos\":%lu},"
+    "\"pulso\":{\"bpm\":%d,\"spo2\":%d,\"fiable\":%s,\"progreso\":%u},"
+    "\"teclado\":{\"conectado\":%s,\"mv\":%d,\"reposo\":%d,\"dispersion\":%d,\"botones\":%u},"
+    "\"red\":{\"etapa\":%u,\"rssi\":%d,\"ip\":\"%s\",\"medibot\":\"%s\",\"puerto\":%u,"
+    "\"api\":%s,\"sistema\":%d,\"caras\":%d,\"rojos\":%d,\"fps1\":%d,\"fps2\":%d,"
+    "\"grabando\":%s},"
+    "\"equipo\":{\"heap\":%u,\"pila\":%lu,\"encendido\":\"%s\",\"modoseguro\":%s}}",
+    hwMaxOk ? "true" : "false", (unsigned)hwMaxPartId, (unsigned)hwMaxRevId,
+    (unsigned long)(hwMaxBusHz / 1000), (unsigned long)v.rawIR, (unsigned long)v.rawRed,
+    v.fingerPresent ? "true" : "false", (unsigned)v.recoveries,
+    (unsigned long)hwMaxIntentos,
+    v.liveBPM, v.liveSpO2Valid ? v.liveSpO2 : 0,
+    v.signalReliable ? "true" : "false", (unsigned)v.ppgProgress,
+    keypad.desconectado ? "false" : "true", (int)keypadLastMv(), (int)keypad.idleMv,
+    (int)keypad.spread, (unsigned)keypadActiveCount(),
+    (unsigned)n.etapa, (int)n.rssi, IPAddress(n.ipPropia).toString().c_str(),
+    n.ip ? ipMedibot.toString().c_str() : "-", (unsigned)n.puerto,
+    n.jsonOk ? "true" : "false", n.sistema, n.detecciones, n.rojos, n.fps1, n.fps2,
+    n.grabando ? "true" : "false",
+    (unsigned)ESP.getFreeHeap(), (unsigned long)v.pilaLibre, tiempo,
+    modoSeguro ? "true" : "false");
+  webServer.send(200, "application/json", buf);
+}
+
+// ---------------------------------------------------------------------
+// 8.2 / : la pagina
+// ---------------------------------------------------------------------
+static void webPagina() {
+  const Vitals  v = vitalsGet();
+  const NetInfo n = netGet();
+  char b[320], t[16];
+
+  webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  webServer.send(200, "text/html; charset=utf-8", "");
+
+  webTexto(
+    "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<title>MEDIBOT - Triaje</title><style>"
+    ":root{--bg:#0f1115;--card:#171a21;--bd:#262b36;--tx:#e6e9ef;--dim:#98a2b3;"
+    "--ok:#3ddc84;--mal:#ff6b6b;--av:#ffd166}"
+    "*{box-sizing:border-box}"
+    "body{margin:0;padding:16px;background:var(--bg);color:var(--tx);"
+    "font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}"
+    "h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:0 0 10px;color:var(--dim);"
+    "text-transform:uppercase;letter-spacing:.06em}"
+    ".sub{color:var(--dim);margin:0 0 18px;font-size:13px}"
+    ".rej{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;"
+    "max-width:1100px}"
+    ".c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}"
+    "table{width:100%;border-collapse:collapse}"
+    "th{text-align:left;font-weight:400;color:var(--dim);padding:5px 0;width:45%;"
+    "vertical-align:top}"
+    "td{padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;"
+    "word-break:break-word}"
+    ".ok{color:var(--ok)}.mal{color:var(--mal)}.av{color:var(--av)}"
+    "form{display:inline}"
+    "button{background:#222836;color:var(--tx);border:1px solid var(--bd);border-radius:8px;"
+    "padding:9px 14px;margin:4px 6px 0 0;font-size:14px;cursor:pointer}"
+    "button:hover{border-color:#3a4354}"
+    "code{background:#0b0d11;padding:1px 5px;border-radius:4px;font-size:13px}"
+    "</style></head><body>");
+
+  webTexto("<h1>MEDIBOT &middot; Triaje</h1>");
+  snprintf(b, sizeof(b), "<p class=\"sub\">v6.1 &middot; %s &middot; se actualiza solo cada 2 s</p>",
+           modoSeguro ? "<span class=\"av\">MODO SEGURO (arrancado sin red tras un fallo)</span>"
+                      : "funcionamiento normal");
+  webTexto(b);
+  webTexto("<div class=\"rej\">");
+
+  // ---- Sensor de pulso ----
+  webTexto("<div class=\"c\"><h2>Sensor de pulso</h2><table>");
+  if (hwMaxWrong)   snprintf(b, sizeof(b), "<span class=\"mal\">MAX30100: no vale</span>");
+  else if (hwMaxOk) snprintf(b, sizeof(b), "<span class=\"ok\">responde</span>");
+  else              snprintf(b, sizeof(b), "<span class=\"mal\">NO detectado</span>");
+  webFila("Estado", b, "s_ok");
+  snprintf(b, sizeof(b), "0x%02X (ID 0x%02X rev 0x%02X)", MAX_I2C_ADDR, hwMaxPartId, hwMaxRevId);
+  webFila("Chip", b, "s_chip");
+  snprintf(b, sizeof(b), "%lu kHz", (unsigned long)(hwMaxBusHz / 1000));
+  webFila("Velocidad del bus", b, "s_khz");
+  snprintf(b, sizeof(b), "%s (%u en el bus)", webTextoI2c(), (unsigned)hwI2cCount);
+  webFila("Bus I2C", b, "");
+  snprintf(b, sizeof(b), "SDA GPIO%d &middot; SCL GPIO%d", I2C_SDA_PIN, I2C_SCL_PIN);
+  webFila("Patillas", b, "");
+  snprintf(b, sizeof(b), "%lu %s", (unsigned long)v.rawIR, v.fingerPresent ? "(DEDO)" : "(sin dedo)");
+  webFila("Infrarrojo en vivo", b, "s_ir");
+  snprintf(b, sizeof(b), "%u", (unsigned)v.recoveries);
+  webFila("Reinicios del sensor", b, "s_rec");
+  webTexto("</table></div>");
+
+  // ---- Pulso ----
+  webTexto("<div class=\"c\"><h2>Medida</h2><table>");
+  snprintf(b, sizeof(b), "%d BPM", v.liveBPM);
+  webFila("Pulso en vivo", b, "p_bpm");
+  if (v.liveSpO2Valid) snprintf(b, sizeof(b), "%d %%", v.liveSpO2);
+  else                 snprintf(b, sizeof(b), "--");
+  webFila("SpO2 en vivo", b, "p_spo2");
+  snprintf(b, sizeof(b), "%u %%", (unsigned)v.ppgProgress);
+  webFila("Progreso", b, "p_prog");
+  snprintf(b, sizeof(b), "%s", v.signalReliable ? "<span class=\"ok\">si</span>"
+                                                : "<span class=\"dim\">aun no</span>");
+  webFila("Senal fiable", b, "p_fiable");
+  for (int i = 0; i < historyCount && i < 3; i++) {
+    char k[24];
+    snprintf(k, sizeof(k), "Historial %d", i + 1);
+    snprintf(b, sizeof(b), "%d BPM &middot; %d %%", historyReports[i].bpm, historyReports[i].spo2);
+    webFila(k, b, "");
+  }
+  if (historyCount == 0) webFila("Historial", "sin registros aun", "");
+  webTexto("</table></div>");
+
+  // ---- Red ----
+  webTexto("<div class=\"c\"><h2>Red</h2><table>");
+  webFila("Red WiFi", WIFI_SSID, "");
+  webFila("IP de este ESP32", WiFi.localIP().toString().c_str(), "");
+  webFila("Puerta de enlace", WiFi.gatewayIP().toString().c_str(), "");
+  webFila("MAC", WiFi.macAddress().c_str(), "");
+  webFila("Nombre mDNS", "medibot-triaje.local", "");
+  snprintf(b, sizeof(b), "%d dBm", (int)n.rssi);
+  webFila("Senal WiFi", b, "r_rssi");
+  webFila("Busqueda", webTextoEtapa(n.etapa), "r_etapa");
+  if (n.ip) snprintf(b, sizeof(b), "%s:%u", IPAddress(n.ip).toString().c_str(), (unsigned)n.puerto);
+  else      snprintf(b, sizeof(b), "sin localizar");
+  webFila("MEDIBOT", b, "r_ip");
+  snprintf(b, sizeof(b), "%s", n.jsonOk ? "<span class=\"ok\">responde</span>"
+                                        : "<span class=\"mal\">sin datos</span>");
+  webFila("API " MEDIBOT_API, b, "r_api");
+  snprintf(b, sizeof(b), "sistema %d &middot; caras %d &middot; rojos %d",
+           n.sistema, n.detecciones, n.rojos);
+  webFila("Datos de MEDIBOT", b, "r_datos");
+  snprintf(b, sizeof(b), "%d / %d fps %s", n.fps1, n.fps2, n.grabando ? "&middot; GRABANDO" : "");
+  webFila("Camaras", b, "r_fps");
+  webTexto("</table></div>");
+
+  // ---- Teclado ----
+  webTexto("<div class=\"c\"><h2>Teclado</h2><table>");
+  snprintf(b, sizeof(b), "%s", keypad.desconectado
+           ? "<span class=\"mal\">SIN CONECTAR</span>" : "<span class=\"ok\">conectado</span>");
+  webFila("Estado", b, "t_ok");
+  snprintf(b, sizeof(b), "GPIO%d (solo entrada)", KEYPAD_PIN);
+  webFila("Patilla", b, "");
+  snprintf(b, sizeof(b), "%d mV", (int)keypadLastMv());
+  webFila("Lectura ahora", b, "t_mv");
+  snprintf(b, sizeof(b), "%d mV", (int)keypad.idleMv);
+  webFila("Nivel de reposo", b, "t_rep");
+  snprintf(b, sizeof(b), "%d mV", (int)keypad.spread);
+  webFila("Dispersion", b, "t_disp");
+  for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++) {
+    if (KEYPAD_MAP[k].mvMin > KEYPAD_MAP[k].mvMax) continue;
+    snprintf(b, sizeof(b), "%d .. %d mV", (int)KEYPAD_MAP[k].mvMin, (int)KEYPAD_MAP[k].mvMax);
+    webFila(buttonName(KEYPAD_MAP[k].id), b, "");
+  }
+  snprintf(b, sizeof(b), "%s", nvsOk ? "<span class=\"ok\">si</span>"
+                                     : "<span class=\"mal\">NO (memoria)</span>");
+  webFila("Se guarda al calibrar", b, "");
+  webTexto("</table></div>");
+
+  // ---- Equipo ----
+  webTexto("<div class=\"c\"><h2>Equipo</h2><table>");
+  webTiempo(t, sizeof(t), millis());
+  webFila("Encendido desde", t, "e_tiempo");
+  snprintf(b, sizeof(b), "%u bytes", (unsigned)ESP.getFreeHeap());
+  webFila("Memoria libre", b, "e_heap");
+  snprintf(b, sizeof(b), "%lu bytes", (unsigned long)v.pilaLibre);
+  webFila("Pila libre (nucleo 0)", b, "e_pila");
+  webFila("Ultimo reinicio", motivoReinicio(), "");
+  if (rtcMagia == RTC_MAGIA) webFila("Se quedo en el paso", rtcPaso, "");
+  snprintf(b, sizeof(b), "%s", modoSeguro ? "<span class=\"av\">SI (sin red)</span>" : "no");
+  webFila("Modo seguro", b, "");
+  webTexto("</table></div>");
+
+  // ---- Configuracion de compilacion ----
+  webTexto("<div class=\"c\"><h2>Configuracion</h2><table>");
+  snprintf(b, sizeof(b), "%d Hz nominales / %d efectivos", MAX_SAMPLE_RATE, PPG_EFFECTIVE_SPS);
+  webFila("Muestreo del sensor", b, "");
+  snprintf(b, sizeof(b), "0x%02X", MAX_LED_BRIGHTNESS);
+  webFila("Brillo de los LED", b, "");
+  snprintf(b, sizeof(b), "%d us &middot; rango %d", MAX_PULSE_WIDTH, MAX_ADC_RANGE);
+  webFila("Pulso / ADC", b, "");
+  snprintf(b, sizeof(b), "%d lecturas validas (corte a %lu s)",
+           PPG_TARGET_READINGS, (unsigned long)(PPG_TIMEOUT_MS / 1000));
+  webFila("Duracion de la medida", b, "");
+  snprintf(b, sizeof(b), "puertos %d y %d", MEDIBOT_PORT_MAIN, MEDIBOT_PORT_ALT);
+  webFila("Busqueda de MEDIBOT", b, "");
+  snprintf(b, sizeof(b), "cada %lu ms", (unsigned long)JSON_POLL_MS);
+  webFila("Refresco de la API", b, "");
+  webTexto("</table></div>");
+
+  webTexto("</div>");   // fin de la rejilla
+
+  // ---- Acciones ----
+  webTexto(
+    "<div class=\"c\" style=\"margin-top:14px;max-width:1100px\"><h2>Acciones</h2>"
+    "<form method=\"POST\" action=\"/buscar\"><button>Volver a buscar MEDIBOT</button></form>"
+    "<form method=\"POST\" action=\"/calibrar\"><button>Calibrar el teclado</button></form>"
+    "<form method=\"POST\" action=\"/reiniciar\"><button>Reiniciar el ESP32</button></form>"
+    "</div>");
+
+  // ---- Refresco sin recargar ----
+  webTexto(
+    "<script>"
+    "function t(i,v){var e=document.getElementById(i);if(e)e.innerHTML=v;}"
+    "async function r(){try{var d=await(await fetch('/api')).json();"
+    "t('s_ir',d.sensor.ir+(d.sensor.dedo?' (DEDO)':' (sin dedo)'));"
+    "t('s_rec',d.sensor.reinicios);"
+    "t('s_ok',d.sensor.ok?'<span class=\"ok\">responde</span>'"
+    ":'<span class=\"mal\">NO detectado</span>');"
+    "t('p_bpm',d.pulso.bpm+' BPM');"
+    "t('p_spo2',d.pulso.spo2?d.pulso.spo2+' %':'--');"
+    "t('p_prog',d.pulso.progreso+' %');"
+    "t('p_fiable',d.pulso.fiable?'<span class=\"ok\">si</span>':'aun no');"
+    "t('t_ok',d.teclado.conectado?'<span class=\"ok\">conectado</span>'"
+    ":'<span class=\"mal\">SIN CONECTAR</span>');"
+    "t('t_mv',d.teclado.mv+' mV');t('t_disp',d.teclado.dispersion+' mV');"
+    "t('r_rssi',d.red.rssi+' dBm');t('r_ip',d.red.medibot);"
+    "t('r_api',d.red.api?'<span class=\"ok\">responde</span>'"
+    ":'<span class=\"mal\">sin datos</span>');"
+    "t('r_datos','sistema '+d.red.sistema+' &middot; caras '+d.red.caras"
+    "+' &middot; rojos '+d.red.rojos);"
+    "t('r_fps',d.red.fps1+' / '+d.red.fps2+' fps'+(d.red.grabando?' &middot; GRABANDO':''));"
+    "t('e_tiempo',d.equipo.encendido);t('e_heap',d.equipo.heap+' bytes');"
+    "t('e_pila',d.equipo.pila+' bytes');"
+    "}catch(e){}}"
+    "setInterval(r,2000);r();"
+    "</script></body></html>");
+
+  webServer.sendContent("");       // fin del envio por trozos
+}
+
+// ---------------------------------------------------------------------
+// 8.3 Acciones
+// ---------------------------------------------------------------------
+//  Corren en el nucleo 1, dentro de loop(), asi que pueden tocar el interfaz
+//  igual que lo haria una pulsacion de teclado.
+static void webVolver(const char *aviso) {
+  char b[512];
+  snprintf(b, sizeof(b),
+    "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+    "<meta http-equiv=\"refresh\" content=\"2;url=/\"></head>"
+    "<body style=\"background:#0f1115;color:#e6e9ef;font:15px system-ui;padding:24px\">"
+    "%s<p><a style=\"color:#3ddc84\" href=\"/\">volver</a></p></body></html>", aviso);
+  webServer.send(200, "text/html; charset=utf-8", b);
+}
+
+static void webAccionBuscar() {
+  g_netRetry = true;
+  webVolver("<p>Buscando MEDIBOT otra vez...</p>");
+}
+
+static void webAccionCalibrar() {
+  sensorReposo();
+  keypadWizardStart();
+  setState(STATE_KEYPAD_WIZARD);
+  webVolver("<p>Asistente abierto <b>en la pantalla del equipo</b>. "
+            "Sigue las instrucciones alli.</p>");
+}
+
+static void webAccionReiniciar() {
+  webVolver("<p>Reiniciando...</p>");
+  delay(300);
+  ESP.restart();
+}
+
+static void webNoEncontrado() {
+  webServer.send(404, "text/plain; charset=utf-8",
+                 "No existe. La pagina del triaje esta en /");
+}
+
+// Se arranca una sola vez, desde loop() (nucleo 1), cuando el WiFi ya tiene
+// IP. Hacerlo desde el nucleo 0 dejaria a los dos nucleos tocando el mismo
+// servidor, que es justo lo que no queremos.
+static void webArrancar() {
+  webServer.on("/", webPagina);
+  webServer.on("/api", webApi);
+  webServer.on("/buscar", HTTP_POST, webAccionBuscar);
+  webServer.on("/calibrar", HTTP_POST, webAccionCalibrar);
+  webServer.on("/reiniciar", HTTP_POST, webAccionReiniciar);
+  webServer.onNotFound(webNoEncontrado);
+  webServer.begin();
+  webArrancado = true;
+  Serial.printf("[WEB] Configuracion del equipo en http://%s/  (o http://medibot-triaje.local/)\n",
+                WiFi.localIP().toString().c_str());
+}
+
+// =====================================================================
+// 9. SETUP (NUCLEO 1)
+// =====================================================================
 
 void setup() {
   Serial.begin(115200);
@@ -2689,12 +3067,19 @@ void setup() {
 }
 
 // =====================================================================
-// 9. LOOP (NUCLEO 1): SOLO UI, SIN NINGUN delay() BLOQUEANTE
+// 10. LOOP (NUCLEO 1): SOLO UI, SIN NINGUN delay() BLOQUEANTE
 // =====================================================================
 void loop() {
   const uint32_t now = millis();
 
-  // --- 9.1 Consola: 'c' abre el asistente de calibracion del teclado ---
+  // --- 10.0 Servidor web: se arranca en cuanto hay IP y se atiende siempre ---
+  //  handleClient() no bloquea cuando no hay nadie pidiendo nada, asi que
+  //  puede ir en cada vuelta sin estropear las animaciones. Y al estar aqui,
+  //  en el nucleo 1, la pagina sigue respondiendo mientras el nucleo 0 mide.
+  if (g_wifiListo && !webArrancado) webArrancar();
+  if (webArrancado) webServer.handleClient();
+
+  // --- 10.1 Consola: 'c' abre el asistente de calibracion del teclado ---
   while (Serial.available()) {
     const int c = Serial.read();
     if (c == 'c' || c == 'C') {

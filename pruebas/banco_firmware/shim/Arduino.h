@@ -117,5 +117,13 @@ enum { ESP_RST_UNKNOWN = 0, ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW, ESP_RST_PA
        ESP_RST_BROWNOUT, ESP_RST_SDIO };
 extern int g_motivoReinicio;     // el banco decide como fue el ultimo reinicio
 int esp_reset_reason();
-struct EspSim { uint32_t getFreeHeap() { return 210000; } };
+struct EspSim {
+  uint32_t getFreeHeap() { return 210000; }
+  void restart();                 // en el banco solo se apunta, no se reinicia nada
+};
 extern EspSim ESP;
+extern std::atomic<bool> g_reinicioPedido;
+
+// El firmware usa el String de Arduino en las funciones de red. En el PC basta
+// con std::string: tiene c_str(), concatenacion y construccion desde const char*.
+typedef std::string String;

@@ -86,3 +86,97 @@ std::string HTTPClient::getString() {
            g_apiFps1.load(), g_apiFps2.load());
   return b;
 }
+
+// =====================================================================
+//  Servidor web simulado
+// =====================================================================
+//  El firmware llama a webServer.handleClient() desde loop(), o sea desde el
+//  hilo del interfaz. El banco encola una peticion desde SU hilo y espera a
+//  que ese loop la atienda: exactamente el mismo camino que en la placa.
+#include <WebServer.h>
+#include <map>
+#include <mutex>
+#include <condition_variable>
+
+namespace {
+struct Ruta { int metodo; WebServer::THandlerFunction fn; };
+std::map<std::string, Ruta>   g_rutas;
+WebServer::THandlerFunction   g_noEncontrado;
+std::mutex                    g_webMtx;
+std::condition_variable       g_webCv;
+bool        g_webArrancado = false;
+bool        g_pendiente = false, g_servida = false;
+std::string g_rutaPed, g_cuerpo;
+int         g_metodoPed = HTTP_GET, g_codigo = 0;
+}  // namespace
+
+void WebServer::begin() {
+  std::lock_guard<std::mutex> l(g_webMtx);
+  g_webArrancado = true;
+}
+
+void WebServer::on(const char *ruta, THandlerFunction fn) {
+  std::lock_guard<std::mutex> l(g_webMtx);
+  g_rutas[ruta] = Ruta{HTTP_ANY, fn};
+}
+
+void WebServer::on(const char *ruta, HTTPMethod metodo, THandlerFunction fn) {
+  std::lock_guard<std::mutex> l(g_webMtx);
+  g_rutas[ruta] = Ruta{metodo, fn};
+}
+
+void WebServer::onNotFound(THandlerFunction fn) {
+  std::lock_guard<std::mutex> l(g_webMtx);
+  g_noEncontrado = fn;
+}
+
+void WebServer::send(int codigo, const char *, const String &cuerpo) {
+  g_codigo = codigo;
+  g_cuerpo += cuerpo.c_str();
+}
+
+void WebServer::sendContent(const String &trozo) { g_cuerpo += trozo.c_str(); }
+void WebServer::sendContent(const char *trozo, size_t n) { g_cuerpo.append(trozo, n); }
+
+void WebServer::handleClient() {
+  WebServer::THandlerFunction fn;
+  {
+    std::lock_guard<std::mutex> l(g_webMtx);
+    if (!g_pendiente) return;
+    rutaActual_ = g_rutaPed;
+    metodoActual_ = g_metodoPed;
+    auto it = g_rutas.find(g_rutaPed);
+    if (it != g_rutas.end() &&
+        (it->second.metodo == HTTP_ANY || it->second.metodo == g_metodoPed)) {
+      fn = it->second.fn;
+    } else {
+      fn = g_noEncontrado;
+    }
+    g_cuerpo.clear();
+    g_codigo = 0;
+  }
+  if (fn) fn();                       // fuera del cerrojo: el handler es largo
+  {
+    std::lock_guard<std::mutex> l(g_webMtx);
+    g_pendiente = false;
+    g_servida = true;
+  }
+  g_webCv.notify_all();
+}
+
+static std::string webPeticion(const char *ruta, int metodo) {
+  std::unique_lock<std::mutex> l(g_webMtx);
+  if (!g_webArrancado) return "";
+  g_rutaPed = ruta;
+  g_metodoPed = metodo;
+  g_servida = false;
+  g_pendiente = true;
+  // 4 s de reloj real de sobra: el loop() del interfaz pasa cada pocos ms.
+  g_webCv.wait_for(l, std::chrono::seconds(4), [] { return g_servida; });
+  return g_servida ? g_cuerpo : std::string();
+}
+
+std::string webPedir(const char *ruta)  { return webPeticion(ruta, HTTP_GET); }
+std::string webEnviar(const char *ruta) { return webPeticion(ruta, HTTP_POST); }
+bool webEncendido() { std::lock_guard<std::mutex> l(g_webMtx); return g_webArrancado; }
+int  webCodigo()    { std::lock_guard<std::mutex> l(g_webMtx); return g_codigo; }
