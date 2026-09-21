@@ -25,6 +25,7 @@
 
 void setup();
 void loop();
+bool qrGenerar(const char *txt);      // del firmware, para probar la guarda
 
 static std::atomic<bool> corriendo{true};
 static void hiloUI() { while (corriendo.load()) loop(); }
@@ -569,6 +570,14 @@ int main(int argc, char **argv) {
     // final de la lista y "Auto-Chequeo" queda fuera de pantalla.
     comprobar(esperarTexto("Codigo QR", 5000) && pantallaContiene("Calibrar teclado"),
               "ATRAS vuelve al menu");
+
+    // Guarda de capacidad. Un QR version 2 admite 32 bytes; pasarse NO da
+    // error en la libreria, genera un codigo que se lee MAL (el ultimo
+    // caracter sale cambiado), asi que el limite se comprueba en qrGenerar().
+    comprobar(qrGenerar("http://192.168.1.77:5000"), "un texto que cabe se codifica");
+    comprobar(qrGenerar("12345678901234567890123456789012"), "32 bytes justos: cabe");
+    comprobar(!qrGenerar("123456789012345678901234567890123"),
+              "33 bytes se RECHAZAN en vez de dar un QR que se lee mal");
   } else if (caso == "busalaire" || caso == "buscorto") {
     // El sensor no responde Y ADEMAS el bus esta electricamente muerto. El
     // firmware tiene que decir QUE pasa (cable suelto / cortocircuito), no

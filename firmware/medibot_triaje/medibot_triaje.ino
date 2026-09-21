@@ -29,7 +29,7 @@
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <WebServer.h>         // la configuracion del equipo en el navegador
-#include "qrcode.h"            // libreria QRCode (ricmoo): el QR en la pantalla
+#include "medibot_qr.h"        // codificador QR incluido en el sketch (ver ese fichero)
 #include <ArduinoJson.h>
 
 // =====================================================================
@@ -332,6 +332,10 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define QR_VERSION            2          // 25x25 modulos, hasta 32 bytes
 #define QR_PIXELS_POR_MODULO  2          // (25+2+2)*2 = 58 px: cabe en los 64
 #define QR_QUIET              2
+// Capacidad de un QR version 2 con correccion baja en modo byte: 32 bytes.
+// Pasarse NO da error en la libreria: genera un QR que se lee MAL (el ultimo
+// caracter sale cambiado), asi que el limite se comprueba aqui.
+#define QR_MAX_BYTES          32
 
 // ---------------------------------------------------------------------
 // 1.7 INTERFAZ Y TIEMPOS
@@ -2497,6 +2501,12 @@ void drawDiagScreen() {
 // ---- Codigo QR ----
 bool qrGenerar(const char *txt) {
   if (qrListo && strcmp(txt, qrTexto) == 0) return true;
+  if (strlen(txt) > QR_MAX_BYTES) {          // ver QR_MAX_BYTES: no avisa sola
+    Serial.printf("[QR] \"%s\" no cabe en un QR version %d (%u de %d bytes)\n",
+                  txt, QR_VERSION, (unsigned)strlen(txt), QR_MAX_BYTES);
+    qrListo = false;
+    return false;
+  }
   if (qrcode_getBufferSize(QR_VERSION) > (int)sizeof(qrDatos)) return false;
   if (qrcode_initText(&qrCodigo, qrDatos, QR_VERSION, ECC_LOW, txt) != 0) {
     qrListo = false;

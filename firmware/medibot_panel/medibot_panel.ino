@@ -32,7 +32,7 @@
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include "qrcode.h"
+#include "medibot_qr.h"   // codificador QR incluido en el sketch
 #include "MAX30105.h"
 #include "spo2_algorithm.h"
 //  NO se usa "heartRate.h" (checkForBeat): trunca la muestra IR a 16 bits y
@@ -214,6 +214,11 @@ KeyDef keyMapDefecto[5];          // copia de la tabla de arriba (red de segurid
 #define QR_VERSION            2          // 25x25 modulos, hasta 32 bytes
 #define QR_PIXELS_POR_MODULO  2
 #define QR_QUIET              2
+// Capacidad de un QR version 2 con correccion baja en modo byte: 32 bytes.
+// Pasarse NO da error en la libreria: genera un QR que se lee MAL (el ultimo
+// caracter sale cambiado), asi que el limite se comprueba aqui.
+#define QR_MAX_BYTES          32
+
 
 // --- 1.6 INTERFAZ -----------------------------------------------------
 #define TAREA_STACK           16384    // pila del nucleo 0 (sensor + red)
@@ -1496,6 +1501,12 @@ void tareaTrabajo(void *pv) {
 // =====================================================================
 bool qrGenerar(const char *txt) {
   if (qrListo && strcmp(txt, qrTexto) == 0) return true;
+  if (strlen(txt) > QR_MAX_BYTES) {          // ver QR_MAX_BYTES: no avisa sola
+    Serial.printf("[QR] \"%s\" no cabe en un QR version %d (%u de %d bytes)\n",
+                  txt, QR_VERSION, (unsigned)strlen(txt), QR_MAX_BYTES);
+    qrListo = false;
+    return false;
+  }
   if (qrcode_getBufferSize(QR_VERSION) > (int)sizeof(qrDatos)) return false;
   if (qrcode_initText(&qrCodigo, qrDatos, QR_VERSION, ECC_LOW, txt) != 0) {
     qrListo = false;

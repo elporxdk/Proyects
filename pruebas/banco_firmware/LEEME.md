@@ -131,7 +131,7 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 | `calibruido` | calibrar con ±55 mV de ruido: centra los 4 botones con ≤2 mV de error, los rangos salen de ±325 mV o más, y **los cuatro botones siguen funcionando con el ruido puesto** |
 | `ruidoteclado` | **el bloqueo de la cara**: teclado conectado y ADC ruidoso (lo que mete el WiFi en la placa real) → no se da por desconectado, el menú responde y OK sobre la cara arranca la medida |
 | `botonmedir` | el pulsador físico de MEDIR (GPIO32) arranca el chequeo desde la cara, no interrumpe una medida en curso, el resultado tiene su página en QR, y el botón *Medir* de la web también arranca |
-| `qr` | Menú → Código QR codifica la web de este ESP32 y, en la otra página, la dirección de MEDIBOT |
+| `qr` | Menú → Código QR codifica la web de este ESP32 y, en la otra página, la dirección de MEDIBOT; y la **guarda de 32 bytes** rechaza lo que no cabe en vez de generar un código que se lee mal |
 | `panel/calibruido` | lo mismo en el firmware del panel |
 | `panel/normal`, `panel/botonpulsado`, `panel/tecladosuelto` | lo mismo en el firmware del panel |
 

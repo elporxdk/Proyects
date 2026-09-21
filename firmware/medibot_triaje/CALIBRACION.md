@@ -155,6 +155,24 @@ Hay **cuatro** formas, y todas hacen exactamente lo mismo (`empezarMedida()`):
 
 ## El código QR
 
+> **No hay que instalar ninguna librería de QR.** El codificador va dentro del
+> propio sketch, en `medibot_qr.h` / `medibot_qr.cpp`, y el IDE de Arduino los
+> compila solos por estar junto al `.ino`.
+>
+> Va así a propósito: el core ESP32 3.x **ya trae un fichero llamado
+> `qrcode.h`** (el componente de Espressif, con `esp_qrcode_generate()`), de
+> modo que un `#include "qrcode.h"` se resuelve a *ése* y no a la librería de
+> ricmoo aunque la instales, y el sketch no compila:
+>
+> ```
+> error: 'QRCode' does not name a type
+> error: 'qrcode_getModule' ... did you mean 'esp_qrcode_get_module'?
+> ```
+>
+> Con el codificador dentro y con otro nombre no hay choque ni nada que
+> instalar. Es la librería de Richard Moore (MIT), sin tocar salvo el nombre
+> del `#include`; su licencia va íntegra en la cabecera del fichero.
+
 Menú → **`Codigo QR`**. Dos páginas (ARRIBA/ABAJO cambia):
 
 - **Este equipo**: la dirección de la página de configuración (`http://<ip>/`), para abrirla con el móvil sin teclearla. Si aún no hay WiFi lo dice.
@@ -164,9 +182,16 @@ Y al terminar un auto-chequeo, la **tercera página** de resultados (ABAJO dos
 veces) lleva el resultado en QR (`MEDIBOT 72bpm SpO2 98%`), para llevárselo en
 el móvil sin apuntarlo.
 
-Es QR versión 2 (25×25 módulos, hasta 32 bytes) a 2 px por módulo: 58 px, que
-es lo que cabe en los 64 de alto. Si el móvil no lo lee, la pantalla es de las
-azules (píxel blanco sobre fondo oscuro): pon `QR_INVERTIDO 1` y recompila.
+Es QR versión 2 (25×25 módulos) a 2 px por módulo: 58 px, que es lo que cabe
+en los 64 de alto. Si el móvil no lo lee, la pantalla es de las azules (píxel
+blanco sobre fondo oscuro): pon `QR_INVERTIDO 1` y recompila.
+
+**El límite son 32 bytes** y hay que respetarlo: pasarse **no da error** en la
+librería, genera un código que se lee *mal* (el último carácter sale cambiado).
+Por eso `qrGenerar()` comprueba la longitud y lo rechaza avisando por Serial
+(`[QR] "..." no cabe en un QR version 2 (33 de 32 bytes)`). Las direcciones más
+largas que puede producir el equipo se quedan cortas de sobra:
+`http://255.255.255.255:65535` son 28.
 
 ## La configuración en el navegador
 
@@ -218,7 +243,6 @@ pruebas (`web`) que comprueba exactamente eso.
 | `U8g2` (olikraus) | pantalla ST7920 128x64 por SPI hardware |
 | `SparkFun MAX3010x Pulse and Proximity Sensor Library` | MAX30102 / MAX30105 |
 | `ArduinoJson` (Benoit Blanchon) | leer la API de MEDIBOT |
-| `QRCode` (Richard Moore, *ricmoo*) | el código QR en la pantalla |
 
 `Preferences`, `WiFi`, `ESPmDNS` y `HTTPClient` vienen con el core de ESP32.
 Vale tanto con el core **2.x** como con el **3.x**: alguna API cambió de nombre

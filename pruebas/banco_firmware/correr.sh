@@ -92,11 +92,13 @@ mkdir -p .build
 echo "Compilando el banco del triaje..."
 $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$TRIAJE" banco_triaje.cpp \
      shim/shim.cpp shim_red/red_shim.cpp \
+     -x c++ "$(dirname "$TRIAJE")/medibot_qr.cpp" \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_triaje
 
 echo "Compilando el banco del panel..."
 $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      shim/shim.cpp shim_red/red_shim.cpp \
+     -x c++ "$(dirname "$PANEL")/medibot_qr.cpp" \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
