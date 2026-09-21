@@ -162,8 +162,33 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define WIZ_ESTABLE_MS       700     // pulsacion mantenida para darla por buena
 #define WIZ_SALTO_MS         12000   // si no se pulsa, se omite ese boton
 #define WIZ_UMBRAL_MV        150     // diferencia minima con el reposo
-#define WIZ_TOLER_MV         45      // cuanto puede moverse y seguir "estable"
+#define WIZ_TOLER_MV         90      // cuanto puede moverse y seguir "estable"
 #define WIZ_SOLTAR_MS        12000   // gracia esperando a que se suelte el teclado
+
+//  CUANTAS VECES SE MIDE CADA BOTON
+//  Antes el asistente se quedaba con UNA lectura: el valor que hubiera en el
+//  instante en que la pulsacion se daba por estable. Un pico del ADC en ese
+//  momento desplazaba el centro del boton y el rango salia torcido.
+//  Ahora se acumulan WIZ_MUESTRAS lecturas mientras el boton sigue pulsado, y
+//  cada una de ellas es ya la mediana de WIZ_SUBMUESTRAS conversiones del ADC:
+//      64 x 25 = 1600 conversiones por boton
+//  De ese monton se sacan dos cosas: la MEDIANA (el centro, inmune a picos) y
+//  la DISPERSION real de ese boton (percentil 10 a 90), que es la que decide
+//  cuanto margen necesita. A 10 ms por lectura son ~0,7 s aguantando la tecla.
+#define WIZ_SUBMUESTRAS      25      // conversiones del ADC por lectura
+#define WIZ_MUESTRAS         64      // lecturas acumuladas por boton
+#define WIZ_MIN_MUESTRAS     24      // con menos de estas, el boton no vale
+
+//  ANCHO DE LOS RANGOS  --> "que no se me escape ninguna pulsacion"
+//  Cada boton se queda con TODO el sitio que haya hasta su vecino mas cercano
+//  (otro boton o el propio reposo), menos una franja de guarda. Cuanto mas
+//  ancho, mas tolerante es a que la tension se mueva con la temperatura, la
+//  tension de alimentacion o un cable largo.
+#define WIZ_MARGEN_MAX       400     // semiancho maximo del rango, en mV
+#define WIZ_MARGEN_MIN       120     // por debajo se avisa de que va justo
+#define WIZ_MARGEN_ABS_MIN   30      // por debajo el boton se descarta
+#define WIZ_SEPARACION       20      // franja de guarda entre dos rangos
+#define WIZ_DISP_FACTOR      3       // el rango debe cubrir 3x lo que baila
 #define NVS_NS               "medibot"
 #define CAL_MAGIC            0x4B34   // cambia al cambiar el formato: una
                                       // calibracion de 5 botones se descarta
@@ -617,6 +642,45 @@ static int16_t keypadReadRawMv() {
   return (int16_t)((s[m - 1] + s[m] + s[m + 1]) / 3);
 }
 
+// Lectura PROFUNDA, solo para el asistente: mediana de WIZ_SUBMUESTRAS
+// conversiones seguidas. Devuelve tambien la dispersion (el recorrido entre el
+// percentil 10 y el 90), que es lo que dice cuanto baila esa tension.
+static int16_t keypadReadDeepMv(int16_t *dispersion) {
+  int16_t s[WIZ_SUBMUESTRAS];
+  uint32_t acc = 0;
+  for (uint8_t i = 0; i < WIZ_SUBMUESTRAS; i++) {
+    const int bruto = analogRead(KEYPAD_PIN);
+    acc += bruto;
+#if USE_ESP_ADC_CAL
+    s[i] = (int16_t)analogReadMilliVolts(KEYPAD_PIN);
+#else
+    s[i] = (int16_t)((bruto * ADC_FULLSCALE_MV) / (float)ADC_MAX_COUNTS);
+#endif
+  }
+  keypad.counts = (uint16_t)(acc / WIZ_SUBMUESTRAS);
+  qsort(s, WIZ_SUBMUESTRAS, sizeof(int16_t), cmpI16);
+  if (dispersion) {
+    const uint8_t bajo = WIZ_SUBMUESTRAS / 10;             // percentil 10
+    const uint8_t alto = WIZ_SUBMUESTRAS - 1 - bajo;       // percentil 90
+    *dispersion = (int16_t)(s[alto] - s[bajo]);
+  }
+  return s[WIZ_SUBMUESTRAS / 2];
+}
+
+// Mediana y dispersion (percentil 10 a 90) de un monton de lecturas ya
+// tomadas. Es lo que convierte las WIZ_MUESTRAS de un boton en dos numeros:
+// donde esta y cuanto se mueve.
+static int16_t medianaYDispersion(int16_t *v, uint8_t n, int16_t *dispersion) {
+  if (n == 0) { if (dispersion) *dispersion = 0; return 0; }
+  qsort(v, n, sizeof(int16_t), cmpI16);
+  if (dispersion) {
+    const uint8_t bajo = n / 10;
+    const uint8_t alto = (uint8_t)(n - 1 - bajo);
+    *dispersion = (int16_t)(v[alto] - v[bajo]);
+  }
+  return v[n / 2];
+}
+
 // Clasificacion: rangos independientes + histeresis + guarda de reposo.
 // Devuelve BTN_NONE si la tension cae en zona muerta, si esta pegada al
 // reposo, o si (por una tabla mal puesta) encajase en dos botones a la vez:
@@ -841,11 +905,16 @@ struct Asistente {
   uint32_t estableDesde;
   int16_t  ultimo;
   int16_t  centro[BTN_COUNT];
+  int16_t  disp[BTN_COUNT];      // cuanto baila cada boton (percentil 10-90)
+  int16_t  ancho[BTN_COUNT];     // semiancho que se le ha dado al rango
   bool     hecho[BTN_COUNT];
   uint8_t  capturados;
   bool     guardado;
   bool     esperandoSoltar;
   char     aviso[30];
+  int16_t  muestras[WIZ_MUESTRAS];   // lecturas acumuladas del boton en curso
+  uint8_t  nMuestras;
+  int16_t  dispReposo;
 } wiz;
 
 void keypadWizardStart() {
@@ -859,7 +928,8 @@ void keypadWizardStart() {
 
 // Devuelve true cuando ha terminado (y ya ha guardado)
 bool keypadWizardStep(uint32_t now) {
-  const int16_t mv = keypadReadRawMv();
+  int16_t dispAhora = 0;
+  const int16_t mv = keypadReadDeepMv(&dispAhora);   // mediana de 25 conversiones
   keypad.ema = KEY_EMA_ALPHA * mv + (1.0f - KEY_EMA_ALPHA) * keypad.ema;
   keypad.mv = (int16_t)keypad.ema;
 
@@ -882,26 +952,47 @@ bool keypadWizardStep(uint32_t now) {
       // el propio reposo cae dentro de un rango.
       const bool pareceBoton = (keypadClassify(keypad.mv, BTN_NONE) != BTN_NONE);
       wiz.esperandoSoltar = pareceBoton && (now - wiz.t0 < WIZ_SOLTAR_MS);
-      if (!wiz.esperandoSoltar && now - wiz.estableDesde >= WIZ_REPOSO_MS) {
-        keypad.idleMv = keypad.mv;
+      if (wiz.esperandoSoltar || now - wiz.estableDesde < WIZ_REPOSO_MS) {
+        wiz.nMuestras = 0;              // aun no esta quieto: se empieza de cero
+        break;
+      }
+      // El reposo tambien se mide muchas veces: es la referencia contra la que
+      // se compara TODO lo demas, asi que una sola lectura no basta.
+      if (wiz.nMuestras < WIZ_MUESTRAS) wiz.muestras[wiz.nMuestras++] = mv;
+      if (wiz.nMuestras >= WIZ_MUESTRAS) {
+        keypad.idleMv = medianaYDispersion(wiz.muestras, wiz.nMuestras, &wiz.dispReposo);
+        wiz.nMuestras = 0;
         wiz.fase = 1; wiz.paso = 0; wiz.t0 = now; wiz.estableDesde = now;
-        Serial.printf("[ASISTENTE] Reposo = %d mV\n", (int)keypad.idleMv);
+        Serial.printf("[ASISTENTE] Reposo = %d mV (%u lecturas, baila %d mV)\n",
+                      (int)keypad.idleMv, (unsigned)WIZ_MUESTRAS, (int)wiz.dispReposo);
       }
       break;
     }
 
     case 1: {                                        // ---- capturar un boton ----
+      const Button b = BTN_ORDEN[wiz.paso];
       const bool pulsado = difAbs(keypad.mv, keypad.idleMv) >= WIZ_UMBRAL_MV;
-      if (pulsado && (now - wiz.estableDesde >= WIZ_ESTABLE_MS)) {
-        const Button b = BTN_ORDEN[wiz.paso];
-        wiz.centro[b] = keypad.mv;
+
+      // Si se suelta a mitad, lo acumulado no sirve: mezclaria la tension del
+      // boton con la del reposo y el centro saldria entre los dos.
+      if (!pulsado) wiz.nMuestras = 0;
+      else if (now - wiz.estableDesde >= WIZ_ESTABLE_MS && wiz.nMuestras < WIZ_MUESTRAS)
+        wiz.muestras[wiz.nMuestras++] = mv;
+
+      const bool seAcaboElTiempo = (now - wiz.t0 >= WIZ_SALTO_MS);
+      if (wiz.nMuestras >= WIZ_MUESTRAS ||
+          (seAcaboElTiempo && wiz.nMuestras >= WIZ_MIN_MUESTRAS)) {
+        wiz.centro[b] = medianaYDispersion(wiz.muestras, wiz.nMuestras, &wiz.disp[b]);
         wiz.hecho[b]  = true;
         wiz.capturados++;
-        Serial.printf("[ASISTENTE] %-7s = %d mV (ADC %u)\n", buttonName(b),
-                      (int)keypad.mv, (unsigned)keypad.counts);
+        Serial.printf("[ASISTENTE] %-7s = %d mV  (%u lecturas, baila %d mV)\n",
+                      buttonName(b), (int)wiz.centro[b],
+                      (unsigned)wiz.nMuestras, (int)wiz.disp[b]);
+        wiz.nMuestras = 0;
         wiz.fase = 2; wiz.t0 = now;
-      } else if (now - wiz.t0 >= WIZ_SALTO_MS) {
-        Serial.printf("[ASISTENTE] %s omitido (sin pulsacion)\n", buttonName(BTN_ORDEN[wiz.paso]));
+      } else if (seAcaboElTiempo) {
+        Serial.printf("[ASISTENTE] %s omitido (sin pulsacion sostenida)\n", buttonName(b));
+        wiz.nMuestras = 0;
         wiz.fase = 2; wiz.t0 = now;
       }
       break;
@@ -916,8 +1007,12 @@ bool keypadWizardStep(uint32_t now) {
       break;
 
     case 3:                                          // ---- calcular y guardar ----
-      // Cada boton recibe medio hueco hasta su vecino mas cercano (otro boton
-      // capturado o el propio reposo), con tope de 250 mV y minimo de 40 mV.
+      // A cada boton se le da TODO el sitio que haya hasta su vecino mas
+      // cercano (otro boton capturado o el propio reposo), menos una franja de
+      // guarda: cuanto mas ancho el rango, mas tolera que la tension se mueva
+      // con la temperatura, la alimentacion o un cable largo. Solo se recorta
+      // si choca con el vecino, y se avisa si queda mas estrecho de lo que
+      // pide la dispersion que se acaba de medir en ese mismo boton.
       for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++) { KEYPAD_MAP[k].mvMin = 1; KEYPAD_MAP[k].mvMax = 0; }
       wiz.aviso[0] = '\0';
       for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++) {
@@ -930,16 +1025,30 @@ bool keypadWizardStep(uint32_t now) {
           const int16_t d = difAbs(wiz.centro[b], wiz.centro[o]);
           if (d < hueco) hueco = d;
         }
-        int16_t medio = hueco / 2 - 25;
-        if (medio > 250) medio = 250;
-        if (medio < 40) {
+        int16_t medio = hueco / 2 - WIZ_SEPARACION;      // todo lo que cabe
+        if (medio > WIZ_MARGEN_MAX) medio = WIZ_MARGEN_MAX;
+        if (medio < WIZ_MARGEN_ABS_MIN) {
           snprintf(wiz.aviso, sizeof(wiz.aviso), "%s se confunde", buttonName(b));
           Serial.printf("[ASISTENTE] %s descartado: solo %d mV hasta su vecino\n",
                         buttonName(b), (int)hueco);
           continue;                                  // se queda desactivado
         }
+        // Lo que ese boton NECESITA para no escaparse: lo que baila, con
+        // factor de seguridad. Si no cabe, el boton sigue valiendo, pero se
+        // dice para que quien calibre sepa que va justo.
+        const int16_t necesario = (int16_t)((wiz.disp[b] * WIZ_DISP_FACTOR) / 2);
+        if (medio < necesario || medio < WIZ_MARGEN_MIN) {
+          snprintf(wiz.aviso, sizeof(wiz.aviso), "%s va justo (%d mV)",
+                   buttonName(b), (int)medio);
+          Serial.printf("[ASISTENTE] %s: rango de +-%d mV, y baila %d mV. Va justo.\n",
+                        buttonName(b), (int)medio, (int)wiz.disp[b]);
+        }
+        wiz.ancho[b] = medio;
         KEYPAD_MAP[k].mvMin = wiz.centro[b] - medio;
         KEYPAD_MAP[k].mvMax = wiz.centro[b] + medio;
+        Serial.printf("[ASISTENTE] %-7s rango %d..%d mV (centro %d, +-%d)\n",
+                      buttonName(b), (int)KEYPAD_MAP[k].mvMin, (int)KEYPAD_MAP[k].mvMax,
+                      (int)wiz.centro[b], (int)medio);
       }
       if (keypadActiveCount() == 0) {
         // Ningun boton utilizable: no se guarda nada (no habria que guardar) y
@@ -2371,22 +2480,43 @@ void drawWizardScreen() {
         drawCenteredStr(42, "y espera...");
       } else {
         drawCenteredStr(28, "No toques nada");
-        drawCenteredStr(40, "midiendo reposo...");
-        drawProgressBar(14, 45, 100, 9,
-                        (uint8_t)((millis() - wiz.estableDesde) * 100UL / WIZ_REPOSO_MS));
+        // Dos tramos: primero esperar a que la lectura se quede quieta, y
+        // despues acumular las WIZ_MUESTRAS lecturas del reposo.
+        if (wiz.nMuestras == 0) {
+          drawCenteredStr(40, "midiendo reposo...");
+          const uint32_t quieto = millis() - wiz.estableDesde;
+          drawProgressBar(14, 45, 100, 9,
+                          (uint8_t)(quieto >= WIZ_REPOSO_MS ? 100
+                                    : (quieto * 100UL / WIZ_REPOSO_MS)));
+        } else {
+          snprintf(buf, sizeof(buf), "promediando %u/%u",
+                   (unsigned)wiz.nMuestras, (unsigned)WIZ_MUESTRAS);
+          drawCenteredStr(40, buf);
+          drawProgressBar(14, 45, 100, 9,
+                          (uint8_t)((uint32_t)wiz.nMuestras * 100UL / WIZ_MUESTRAS));
+        }
       }
       break;
     case 1: {
-      drawCenteredStr(26, "Pulsa y manten:");
+      drawCenteredStr(26, wiz.nMuestras ? "SIGUE PULSANDO:" : "Pulsa y manten:");
       u8g2.setFont(u8g2_font_helvB08_tr);
       drawCenteredStr(40, buttonName(BTN_ORDEN[wiz.paso]));
       u8g2.setFont(u8g2_font_4x6_tr);
-      const uint32_t transcurrido = millis() - wiz.t0;
-      const unsigned resta = (transcurrido < WIZ_SALTO_MS)
-                             ? (unsigned)((WIZ_SALTO_MS - transcurrido) / 1000) : 0u;
-      snprintf(buf, sizeof(buf), "%u/%u  se omite en %us",
-               (unsigned)(wiz.paso + 1), (unsigned)BTN_ORDEN_N, resta);
-      drawCenteredStr(50, buf);
+      if (wiz.nMuestras) {
+        // Ya esta midiendo: lo que importa es que no suelte hasta el final.
+        snprintf(buf, sizeof(buf), "midiendo %u/%u",
+                 (unsigned)wiz.nMuestras, (unsigned)WIZ_MUESTRAS);
+        drawCenteredStr(48, buf);
+        drawProgressBar(24, 50, 80, 6,
+                        (uint8_t)((uint32_t)wiz.nMuestras * 100UL / WIZ_MUESTRAS));
+      } else {
+        const uint32_t transcurrido = millis() - wiz.t0;
+        const unsigned resta = (transcurrido < WIZ_SALTO_MS)
+                               ? (unsigned)((WIZ_SALTO_MS - transcurrido) / 1000) : 0u;
+        snprintf(buf, sizeof(buf), "%u/%u  se omite en %us",
+                 (unsigned)(wiz.paso + 1), (unsigned)BTN_ORDEN_N, resta);
+        drawCenteredStr(50, buf);
+      }
       break;
     }
     case 2: drawCenteredStr(34, "Suelta el boton"); break;
@@ -2398,6 +2528,20 @@ void drawWizardScreen() {
       if (wiz.guardado)        drawCenteredStr(40, "Guardado en memoria");
       else if (wiz.aviso[0])   drawCenteredStr(40, wiz.aviso);
       else                     drawCenteredStr(40, "Sin guardar");
+      if (wiz.guardado) {
+        // El rango mas estrecho de los cuatro: es el que decide si alguna
+        // pulsacion se puede escapar.
+        int16_t peor = 0;
+        for (uint8_t k = 0; k < KEYPAD_MAP_SIZE; k++) {
+          const Button b = KEYPAD_MAP[k].id;
+          if (!wiz.hecho[b] || wiz.ancho[b] <= 0) continue;
+          if (peor == 0 || wiz.ancho[b] < peor) peor = wiz.ancho[b];
+        }
+        u8g2.setFont(u8g2_font_4x6_tr);
+        snprintf(buf, sizeof(buf), "margen minimo +-%d mV", (int)peor);
+        drawCenteredStr(50, buf);
+        u8g2.setFont(u8g2_font_6x10_tr);
+      }
       if (!wiz.guardado) {
         u8g2.setFont(u8g2_font_4x6_tr);
         drawCenteredStr(50, "Se repetira al encender");
@@ -3187,6 +3331,10 @@ void loop() {
       currentState != STATE_BOOT && currentState != STATE_KEYPAD_WIZARD &&
       (now - lastInteraction > INACTIVITY_TIMEOUT)) {
     currentEmotion = EMOTION_NORMAL;
+    // Al quedarse solo, el menu vuelve al principio: el siguiente que llegue
+    // se lo encuentra en la primera entrada y no donde lo dejo el anterior.
+    mainMenuSelection = 0;
+    mainMenuTop = 0;
     setState(STATE_IDLE_FACE);
   }
 

@@ -297,6 +297,69 @@ vez de dejarte sin teclado.
 > guardando una tabla en la que el reposo real cuenta como tecla pulsada, o sea
 > un teclado inservible.
 
+### Cuántas veces se mide cada botón
+
+Cada botón se mide **1600 veces**, no una:
+
+```
+64 lecturas  ×  25 conversiones del ADC cada una  =  1600 por botón
+```
+
+Cada lectura es ya la mediana de 25 conversiones seguidas, y de las 64 lecturas
+se sacan dos cosas:
+
+- la **mediana** → el centro del botón, inmune a un pico suelto del ADC;
+- la **dispersión** (percentil 10 a 90) → cuánto baila ese botón en concreto,
+  que es lo que dice cuánto margen necesita.
+
+Se tarda unos **0,7 s aguantando cada tecla**; la pantalla lo indica con
+`SIGUE PULSANDO` y una barra `midiendo 40/64`. **Si sueltas a mitad se descarta
+lo acumulado** y vuelve a empezar: mezclar la tensión del botón con la del
+reposo dejaría el centro entre los dos.
+
+Antes se guardaba **una sola lectura**, la que hubiera en el instante exacto en
+que la pulsación se daba por estable. Medido en el banco de pruebas con ±55 mV
+de ruido (lo que da un cable dupont largo):
+
+| | Antes (1 lectura) | Ahora (1600) |
+|---|---|---|
+| ARRIBA (real 2500 mV) | 2492 | **2502** |
+| OK (real 1500 mV) | 1491 | **1500** |
+| ATRÁS (real 700 mV) | 699 | **702** |
+| Reposo (real 3200 mV) | 3191 | **3200** |
+
+Y con la tabla vieja los botones **fallaban** al navegar con ese mismo ruido;
+con la nueva funcionan los cuatro.
+
+### Cómo de anchos salen los rangos
+
+A cada botón se le da **todo el sitio que haya** hasta su vecino más cercano
+(otro botón o el propio reposo), menos una franja de guarda de 20 mV. Cuanto
+más ancho el rango, más tolera que la tensión se mueva con la temperatura, la
+alimentación o un cable largo.
+
+| Ajuste | Valor | Qué hace |
+|---|---|---|
+| `WIZ_MARGEN_MAX` | 400 mV | tope del semiancho (antes eran 250) |
+| `WIZ_SEPARACION` | 20 mV | franja de guarda entre dos rangos |
+| `WIZ_MARGEN_MIN` | 120 mV | por debajo se avisa de que va justo |
+| `WIZ_MARGEN_ABS_MIN` | 30 mV | por debajo el botón se descarta |
+| `WIZ_DISP_FACTOR` | 3 | el rango debería cubrir 3× lo que baila |
+
+Con el teclado a 3V3 salen así:
+
+```
+ABAJO   -314..336 mV   (centro 11,   +-325)
+ATRAS    377..1027 mV  (centro 702,  +-325)
+OK      1121..1879 mV  (centro 1500, +-379)
+ARRIBA  2173..2831 mV  (centro 2502, +-329)
+```
+
+Al terminar, el asistente enseña el **margen mínimo** de los cuatro: es el que
+decide si alguna pulsación se puede escapar. Si algún botón queda más estrecho
+de lo que pide su propia dispersión, lo dice (`OK va justo (85 mV)`) en vez de
+callarse.
+
 ### Por qué antes no funcionaban
 
 Con umbrales fijos basta con que el **reposo** de tu módulo no esté donde el

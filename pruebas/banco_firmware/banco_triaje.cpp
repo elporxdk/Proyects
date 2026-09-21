@@ -117,7 +117,10 @@ static bool atenderAsistente(uint32_t msMax = 90000) {
   std::string ultimo;
   while (millis() - t0 < msMax) {
     if (pantallaContiene("botones OK")) break;          // resumen final
-    if (pantallaContiene("Pulsa y manten")) {
+    // El asistente pide la tecla ("Pulsa y manten") y, una vez empieza a
+    // acumular muestras, cambia el rotulo a "SIGUE PULSANDO". En los dos casos
+    // hay que mantener el boton: soltarlo a mitad tira las muestras.
+    if (pantallaContiene("Pulsa y manten") || pantallaContiene("SIGUE PULSANDO")) {
       const std::string b = botonPedido();
       if (!b.empty() && b != ultimo) {
         printf("   [asistente] pide %s\n", b.c_str());
@@ -188,6 +191,9 @@ int main(int argc, char **argv) {
   if (caso == "buscorto") {            // una linea del bus tocando GND
     sensorSim.presente = false;
     g_i2cLineas = LIN_CORTO;
+  }
+  if (caso == "calibruido") {          // cable largo: la lectura no para quieta
+    g_adcRuido = 55;
   }
   if (caso == "tecladosuelto") {       // nada enchufado en el GPIO34
     g_adcMv = 150;                     // cerca de 0 V...
@@ -440,6 +446,35 @@ int main(int argc, char **argv) {
     comprobar(pantallaContiene("DEDO"), "al poner el dedo lo refleja en vivo");
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "se sale al menu");
+  } else if (caso == "calibruido") {
+    // Calibrar con el ADC ruidoso, que es lo que pasa con cables largos o una
+    // alimentacion floja. Antes el asistente se quedaba con UNA lectura: el
+    // valor que hubiera justo en el instante en que daba la pulsacion por
+    // estable. Ahora promedia 64 lecturas de 25 conversiones cada una.
+    comprobar(atenderAsistente(), "el asistente termina aunque la lectura tenga ruido");
+    comprobar(pantallaContiene("4 de 4 botones OK"), "captura los 4 botones pese al ruido");
+    comprobar(pantallaContiene("Guardado en memoria"), "y los guarda");
+
+    // Lo que se acaba de pedir: rangos ANCHOS. Se enseña el mas estrecho de
+    // los cuatro, que es el que decide si alguna pulsacion se puede escapar.
+    const int margen = numeroTras("margen minimo +-");
+    printf("   [calibracion] el rango mas estrecho es de +-%d mV\n", margen);
+    comprobar(margen >= 300, "los rangos salen anchos (antes el tope eran +-250 mV)");
+
+    comprobar(esperarTexto("Auto-Chequeo", 12000), "el menu queda operativo");
+    // Y los cuatro botones responden CON EL RUIDO todavia puesto: de nada
+    // sirve calibrar bien si luego la lectura se sale del rango.
+    menuPos = 0;
+    UP();
+    OK();
+    comprobar(esperarTexto("INFO MEDIBOT", 5000), "ARRIBA y OK funcionan con ruido");
+    BACK();
+    comprobar(esperarTexto("Calibrar teclado", 5000), "ATRAS funciona con ruido");
+    DOWN();
+    esperar(600);
+    volcar("menu con ruido");
+    comprobar(pantallaContiene("Auto-Chequeo") || pantallaContiene("Calibrar teclado"),
+              "ABAJO funciona con ruido");
   } else if (caso == "busalaire" || caso == "buscorto") {
     // El sensor no responde Y ADEMAS el bus esta electricamente muerto. El
     // firmware tiene que decir QUE pasa (cable suelto / cortocircuito), no

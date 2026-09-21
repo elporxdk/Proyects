@@ -100,11 +100,15 @@ $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico web sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado busalaire buscorto tecladosuelto"}
+CASOS=${1:-"calibrar calibruido yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico web sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado busalaire buscorto tecladosuelto"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0
 for caso in $CASOS; do
+  # Los casos que prueban el ASISTENTE necesitan la placa "de fabrica": con una
+  # calibracion ya guardada el asistente no se abre solo y no habria nada que
+  # probar. Los demas se apoyan en lo que dejo el anterior, a proposito.
+  case "$caso" in calibrar|calibruido) rm -f .build/nvs.medibot ;; esac
   if ./.build/banco_triaje "$caso" 72 98 > ".build/salida_$caso.txt" 2>&1; then
     echo "  OK    triaje/$caso"
   else
@@ -116,7 +120,7 @@ done
 
 if [ -z "$1" ]; then
   rm -f .build/nvs.medibot
-  for pcaso in normal botonpulsado tecladosuelto; do
+  for pcaso in normal botonpulsado tecladosuelto calibruido; do
     rm -f .build/nvs.medibot
     if ./.build/banco_panel 72 "$pcaso" > ".build/salida_panel_$pcaso.txt" 2>&1; then
       echo "  OK    panel/$pcaso"

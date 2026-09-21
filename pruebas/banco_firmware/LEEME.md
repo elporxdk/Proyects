@@ -128,6 +128,8 @@ El reloj va acelerado (`g_speedup` en `shim/shim.cpp`), así que una medida de
 | `buscorto` | SDA o SCL tocando GND: lo distingue del caso anterior y lo dice |
 | `tecladosuelto` | GPIO34 al aire: **no** abre el asistente, **no** navega solo, y al enchufar el teclado la selección sigue donde estaba |
 | `web` | la IP del ESP32 sirve la página de configuración entera, `/api` la da en JSON, y **ambas siguen respondiendo mientras el equipo mide** |
+| `calibruido` | calibrar con ±55 mV de ruido: centra los 4 botones con ≤2 mV de error, los rangos salen de ±325 mV o más, y **los cuatro botones siguen funcionando con el ruido puesto** |
+| `panel/calibruido` | lo mismo en el firmware del panel |
 | `panel/normal`, `panel/botonpulsado`, `panel/tecladosuelto` | lo mismo en el firmware del panel |
 
 ## Por qué existe

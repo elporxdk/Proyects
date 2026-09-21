@@ -54,7 +54,10 @@ static void atenderAsistente() {
   const uint32_t t0 = millis();
   while (millis() - t0 < 90000) {
     if (pantallaContiene("botones OK")) break;
-    if (pantallaContiene("Pulsa y manten")) {
+    // El asistente pide la tecla ("Pulsa y manten") y, una vez empieza a
+    // acumular muestras, cambia el rotulo a "SIGUE PULSANDO". En los dos casos
+    // hay que mantener el boton: soltarlo a mitad tira las muestras.
+    if (pantallaContiene("Pulsa y manten") || pantallaContiene("SIGUE PULSANDO")) {
       int mv = -1;
       for (auto &s : pantallaUltimoFrame()) if (mvDeBoton(s) > 0) mv = mvDeBoton(s);
       if (mv > 0) g_adcMv = mv;
@@ -74,6 +77,8 @@ int main(int argc, char **argv) {
   sensorSim.dedo = false;
   if (botonPulsado) g_adcMv = 2500;          // ARRIBA mantenido al encender
   if (tecladoSuelto) { g_adcMv = 150; g_adcRuido = 200; }   // GPIO34 al aire
+  const bool calibRuido = (caso == "calibruido");
+  if (calibRuido) g_adcRuido = 55;          // cable largo: la lectura no para quieta
   printf("== PANEL: auto-chequeo con pulso simulado de %d BPM%s ==\n", bpmReal,
          botonPulsado ? " (boton mantenido al encender)" : "");
   setup();
@@ -99,6 +104,12 @@ int main(int argc, char **argv) {
     g_adcMv = 3200;
   }
   if (!tecladoSuelto) atenderAsistente();
+  if (calibRuido) {
+    // Calibrar con la lectura bailando: el asistente promedia 64 lecturas de
+    // 25 conversiones, asi que el centro sale bien y el rango ancho.
+    comprobar(pantallaContiene("4 de 4 botones OK"), "captura los 4 botones pese al ruido");
+    comprobar(pantallaContiene("Guardado en memoria"), "y los guarda");
+  }
   if (botonPulsado) {
     comprobar(pantallaContiene("4 de 4 botones OK"),
               "mide el reposo DESPUES de soltar y captura los 4 botones");
