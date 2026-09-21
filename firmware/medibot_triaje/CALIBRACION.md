@@ -1,4 +1,4 @@
-# MEDIBOT v6.1 — Guía de calibración
+# MEDIBOT — Guía de calibración del triaje
 
 Triaje con **un solo sensor** —el MAX30102 (pulso y SpO₂)— más conexión WiFi
 con MEDIBOT. Todo lo ajustable está en el bloque **`1. CONFIGURACION`** del

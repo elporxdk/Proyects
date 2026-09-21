@@ -1,5 +1,5 @@
 /* =====================================================================
- *  MEDIBOT v6.1  |  ESP32 + ST7920 128x64 (U8g2) + MAX30102 + WiFi
+ *  MEDIBOT - Triaje  |  ESP32 + ST7920 128x64 (U8g2) + MAX30102 + WiFi
  * =====================================================================
  *  Core 0 : sensor PPG y red (nunca a la vez), siempre sin bloquear.
  *  Core 1 : teclado analogico, maquina de estados, animaciones y UI.
@@ -2251,7 +2251,7 @@ void drawAvatar(Emotion emo, int frame, int cx, int cy, float s) {
 // --- PANTALLAS ---
 void drawBootScreen() {
   u8g2.setFont(u8g2_font_helvB08_tr);
-  drawCenteredStr(11, "MEDIBOT v6.1");
+  drawCenteredStr(11, "AUTODIAGNOSTICO");
   u8g2.drawHLine(0, 13, 128);
 
   u8g2.setFont(u8g2_font_5x7_tr);
@@ -3031,38 +3031,62 @@ static void webTiempo(char *dst, size_t n, uint32_t ms) {
 // ---------------------------------------------------------------------
 //  La pagina se refresca sola pidiendo esto cada 2 s, asi no hay que recargar
 //  entera ni parpadea. Tambien sirve para leer el triaje desde otro programa.
+//  Se manda por trozos y no con un solo snprintf: son muchos campos y un
+//  buffer unico se quedaria corto en cuanto se añada uno mas.
 static void webApi() {
   const Vitals  v = vitalsGet();
   const NetInfo n = netGet();
-  const IPAddress ipMedibot(n.ip);
-  char tiempo[16];
-  webTiempo(tiempo, sizeof(tiempo), millis());
+  char b[420], t[16];
+  webTiempo(t, sizeof(t), millis());
 
-  char buf[768];
-  snprintf(buf, sizeof(buf),
+  webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  webServer.send(200, "application/json", "");
+
+  snprintf(b, sizeof(b),
     "{\"sensor\":{\"ok\":%s,\"id\":%u,\"rev\":%u,\"khz\":%lu,\"ir\":%lu,\"rojo\":%lu,"
-    "\"dedo\":%s,\"reinicios\":%u,\"intentos\":%lu},"
-    "\"pulso\":{\"bpm\":%d,\"spo2\":%d,\"fiable\":%s,\"progreso\":%u},"
-    "\"teclado\":{\"conectado\":%s,\"mv\":%d,\"reposo\":%d,\"dispersion\":%d,\"botones\":%u},"
-    "\"red\":{\"etapa\":%u,\"rssi\":%d,\"ip\":\"%s\",\"medibot\":\"%s\",\"puerto\":%u,"
-    "\"api\":%s,\"sistema\":%d,\"caras\":%d,\"rojos\":%d,\"fps1\":%d,\"fps2\":%d,"
-    "\"grabando\":%s},"
-    "\"equipo\":{\"heap\":%u,\"pila\":%lu,\"encendido\":\"%s\",\"modoseguro\":%s}}",
+    "\"dedo\":%s,\"reinicios\":%u,\"intentos\":%lu,\"bus\":%u,\"disp\":%u},",
     hwMaxOk ? "true" : "false", (unsigned)hwMaxPartId, (unsigned)hwMaxRevId,
     (unsigned long)(hwMaxBusHz / 1000), (unsigned long)v.rawIR, (unsigned long)v.rawRed,
     v.fingerPresent ? "true" : "false", (unsigned)v.recoveries,
-    (unsigned long)hwMaxIntentos,
+    (unsigned long)hwMaxIntentos, (unsigned)hwI2cDiag, (unsigned)hwI2cCount);
+  webTexto(b);
+
+  snprintf(b, sizeof(b),
+    "\"pulso\":{\"bpm\":%d,\"spo2\":%d,\"fiable\":%s,\"progreso\":%u,"
+    "\"perfusion\":%d,\"ultimo\":%d,\"final_bpm\":%d,\"final_spo2\":%d},",
     v.liveBPM, v.liveSpO2Valid ? v.liveSpO2 : 0,
     v.signalReliable ? "true" : "false", (unsigned)v.ppgProgress,
+    (int)(v.perfusion * 100.0f), patientBPM, v.finalBPM, v.finalSpO2);
+  webTexto(b);
+
+  snprintf(b, sizeof(b),
+    "\"teclado\":{\"conectado\":%s,\"mv\":%d,\"reposo\":%d,\"dispersion\":%d,"
+    "\"botones\":%u,\"memoria\":%s},",
     keypad.desconectado ? "false" : "true", (int)keypadLastMv(), (int)keypad.idleMv,
-    (int)keypad.spread, (unsigned)keypadActiveCount(),
+    (int)keypad.spread, (unsigned)keypadActiveCount(), nvsOk ? "true" : "false");
+  webTexto(b);
+
+  const IPAddress ipMedibot(n.ip);
+  snprintf(b, sizeof(b),
+    "\"red\":{\"etapa\":%u,\"rssi\":%d,\"ip\":\"%s\",\"medibot\":\"%s\",\"puerto\":%u,"
+    "\"api\":%s,\"sistema\":%d,\"caras\":%d,\"rojos\":%d,\"fps1\":%d,\"fps2\":%d,"
+    "\"grabando\":%s,\"progreso\":%u,\"canal\":%d,\"caraX\":%d,\"caraY\":%d},",
     (unsigned)n.etapa, (int)n.rssi, IPAddress(n.ipPropia).toString().c_str(),
     n.ip ? ipMedibot.toString().c_str() : "-", (unsigned)n.puerto,
     n.jsonOk ? "true" : "false", n.sistema, n.detecciones, n.rojos, n.fps1, n.fps2,
-    n.grabando ? "true" : "false",
-    (unsigned)ESP.getFreeHeap(), (unsigned long)v.pilaLibre, tiempo,
-    modoSeguro ? "true" : "false");
-  webServer.send(200, "application/json", buf);
+    n.grabando ? "true" : "false", (unsigned)n.progreso,
+    (WiFi.status() == WL_CONNECTED) ? WiFi.channel() : 0, n.caraX, n.caraY);
+  webTexto(b);
+
+  snprintf(b, sizeof(b),
+    "\"equipo\":{\"heap\":%u,\"heap_min\":%u,\"pila\":%lu,\"encendido\":\"%s\","
+    "\"modoseguro\":%s,\"cpu\":%u}}",
+    (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
+    (unsigned long)v.pilaLibre, t, modoSeguro ? "true" : "false",
+    (unsigned)ESP.getCpuFreqMHz());
+  webTexto(b);
+
+  webServer.sendContent("");
 }
 
 // ---------------------------------------------------------------------
@@ -3080,14 +3104,23 @@ static void webPagina() {
     "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
     "<title>MEDIBOT - Triaje</title><style>"
+    //  Los colores son variables: el tema oscuro es el de partida y el claro
+    //  solo las redefine. Asi cambiar de tema es cambiar un atributo, sin
+    //  tocar una sola regla mas.
     ":root{--bg:#0f1115;--card:#171a21;--bd:#262b36;--tx:#e6e9ef;--dim:#98a2b3;"
+    "--btn:#222836;--btnbd:#3a4354;--code:#0b0d11;"
     "--ok:#3ddc84;--mal:#ff6b6b;--av:#ffd166}"
+    "[data-tema=\"claro\"]{--bg:#f4f6fa;--card:#ffffff;--bd:#d7dce5;--tx:#16191f;"
+    "--dim:#5d6672;--btn:#eef1f6;--btnbd:#b9c2d0;--code:#eef1f6;"
+    "--ok:#0f8a4a;--mal:#c62828;--av:#9a6b00}"
     "*{box-sizing:border-box}"
     "body{margin:0;padding:16px;background:var(--bg);color:var(--tx);"
     "font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}"
     "h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:0 0 10px;color:var(--dim);"
     "text-transform:uppercase;letter-spacing:.06em}"
     ".sub{color:var(--dim);margin:0 0 18px;font-size:13px}"
+    ".cab{display:flex;align-items:flex-start;justify-content:space-between;"
+    "gap:12px;max-width:1100px}"
     ".rej{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;"
     "max-width:1100px}"
     ".c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}"
@@ -3098,17 +3131,34 @@ static void webPagina() {
     "word-break:break-word}"
     ".ok{color:var(--ok)}.mal{color:var(--mal)}.av{color:var(--av)}"
     "form{display:inline}"
-    "button{background:#222836;color:var(--tx);border:1px solid var(--bd);border-radius:8px;"
-    "padding:9px 14px;margin:4px 6px 0 0;font-size:14px;cursor:pointer}"
-    "button:hover{border-color:#3a4354}"
-    "code{background:#0b0d11;padding:1px 5px;border-radius:4px;font-size:13px}"
+    "button{background:var(--btn);color:var(--tx);border:1px solid var(--bd);"
+    "border-radius:8px;padding:9px 14px;margin:4px 6px 0 0;font-size:14px;cursor:pointer}"
+    "button:hover{border-color:var(--btnbd)}"
+    "code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:13px}"
     "</style></head><body>");
 
-  webTexto("<h1>MEDIBOT &middot; Triaje</h1>");
-  snprintf(b, sizeof(b), "<p class=\"sub\">v6.1 &middot; %s &middot; se actualiza solo cada 2 s</p>",
+  webTexto("<div class=\"cab\"><div><h1>MEDIBOT &middot; Triaje</h1>");
+  snprintf(b, sizeof(b), "<p class=\"sub\">%s &middot; se actualiza solo cada 2 s</p>",
            modoSeguro ? "<span class=\"av\">MODO SEGURO (arrancado sin red tras un fallo)</span>"
                       : "funcionamiento normal");
   webTexto(b);
+  webTexto("</div><button id=\"tema\" onclick=\"cambiarTema()\">Tema</button></div>");
+  // Se aplica aqui, antes de pintar nada mas: si se hiciera al final, la
+  // pagina daria un fogonazo con el tema que no toca. Se recuerda el elegido
+  // en el navegador y, si no hay ninguno, se sigue el del sistema.
+  webTexto(
+    "<script>"
+    "function pintarTema(t){document.documentElement.dataset.tema=t;"
+    "var b=document.getElementById('tema');"
+    "if(b)b.textContent=(t=='claro'?'Modo oscuro':'Modo claro');}"
+    "function temaGuardado(){try{return localStorage.getItem('medibot_tema');}"
+    "catch(e){return null;}}"
+    "function cambiarTema(){var t=document.documentElement.dataset.tema=='claro'"
+    "?'oscuro':'claro';try{localStorage.setItem('medibot_tema',t);}catch(e){}"
+    "pintarTema(t);}"
+    "pintarTema(temaGuardado()||((window.matchMedia&&"
+    "window.matchMedia('(prefers-color-scheme: light)').matches)?'claro':'oscuro'));"
+    "</script>");
   webTexto("<div class=\"rej\">");
 
   // ---- Sensor de pulso ----
@@ -3129,6 +3179,12 @@ static void webPagina() {
   webFila("Infrarrojo en vivo", b, "s_ir");
   snprintf(b, sizeof(b), "%u", (unsigned)v.recoveries);
   webFila("Reinicios del sensor", b, "s_rec");
+  snprintf(b, sizeof(b), "%lu", (unsigned long)hwMaxIntentos);
+  webFila("Intentos de deteccion", b, "s_int");
+  snprintf(b, sizeof(b), "%lu", (unsigned long)v.rawRed);
+  webFila("Luz roja en vivo", b, "s_rojo");
+  snprintf(b, sizeof(b), "%d Hz nominales / %d efectivos", MAX_SAMPLE_RATE, PPG_EFFECTIVE_SPS);
+  webFila("Muestreo", b, "");
   webTexto("</table></div>");
 
   // ---- Pulso ----
@@ -3143,6 +3199,14 @@ static void webPagina() {
   snprintf(b, sizeof(b), "%s", v.signalReliable ? "<span class=\"ok\">si</span>"
                                                 : "<span class=\"dim\">aun no</span>");
   webFila("Senal fiable", b, "p_fiable");
+  // Indice de perfusion: cuanta senal de pulso hay respecto a la luz continua.
+  // Por debajo del minimo la medida no se da por buena.
+  snprintf(b, sizeof(b), "%d,%02d %% (min %d,%02d)", (int)v.perfusion,
+           (int)(v.perfusion * 100) % 100, (int)MIN_PERFUSION_INDEX,
+           (int)(MIN_PERFUSION_INDEX * 100) % 100);
+  webFila("Indice de perfusion", b, "p_perf");
+  snprintf(b, sizeof(b), "%d BPM &middot; %d %%", patientBPM, patientSpO2);
+  webFila("Ultima medida guardada", b, "p_ult");
   for (int i = 0; i < historyCount && i < 3; i++) {
     char k[24];
     snprintf(k, sizeof(k), "Historial %d", i + 1);
@@ -3173,6 +3237,26 @@ static void webPagina() {
   webFila("Datos de MEDIBOT", b, "r_datos");
   snprintf(b, sizeof(b), "%d / %d fps %s", n.fps1, n.fps2, n.grabando ? "&middot; GRABANDO" : "");
   webFila("Camaras", b, "r_fps");
+  snprintf(b, sizeof(b), "x=%d y=%d", n.caraX, n.caraY);
+  webFila("Cara detectada", b, "r_cara");
+  if (n.jsonMs) {
+    const uint32_t desde = (millis() >= n.jsonMs) ? (millis() - n.jsonMs) / 1000UL : 0;
+    snprintf(b, sizeof(b), "hace %lu s", (unsigned long)desde);
+  } else {
+    snprintf(b, sizeof(b), "nunca");
+  }
+  webFila("Ultimo dato recibido", b, "r_edad");
+  if (WiFi.status() == WL_CONNECTED) {
+    webFila("Mascara de red", WiFi.subnetMask().toString().c_str(), "");
+    webFila("DNS", WiFi.dnsIP().toString().c_str(), "");
+    snprintf(b, sizeof(b), "%d", WiFi.channel());
+    webFila("Canal WiFi", b, "r_canal");
+    webFila("Punto de acceso", WiFi.BSSIDstr().c_str(), "");
+  }
+  if (n.etapa == NET_SWEEP) {
+    snprintf(b, sizeof(b), "%u %%", (unsigned)n.progreso);
+    webFila("Barrido de la red", b, "r_barrido");
+  }
   webTexto("</table></div>");
 
   // ---- Teclado ----
@@ -3193,6 +3277,8 @@ static void webPagina() {
     snprintf(b, sizeof(b), "%d .. %d mV", (int)KEYPAD_MAP[k].mvMin, (int)KEYPAD_MAP[k].mvMax);
     webFila(buttonName(KEYPAD_MAP[k].id), b, "");
   }
+  snprintf(b, sizeof(b), "%u de %u", (unsigned)keypadActiveCount(), (unsigned)KEYPAD_MAP_SIZE);
+  webFila("Botones utilizables", b, "t_n");
   snprintf(b, sizeof(b), "%s", nvsOk ? "<span class=\"ok\">si</span>"
                                      : "<span class=\"mal\">NO (memoria)</span>");
   webFila("Se guarda al calibrar", b, "");
@@ -3204,8 +3290,23 @@ static void webPagina() {
   webFila("Encendido desde", t, "e_tiempo");
   snprintf(b, sizeof(b), "%u bytes", (unsigned)ESP.getFreeHeap());
   webFila("Memoria libre", b, "e_heap");
+  snprintf(b, sizeof(b), "%u de %u bytes", (unsigned)ESP.getFreeHeap(),
+           (unsigned)ESP.getHeapSize());
+  webFila("Memoria libre / total", b, "e_heap2");
+  snprintf(b, sizeof(b), "%u bytes", (unsigned)ESP.getMinFreeHeap());
+  webFila("Minimo que ha llegado a quedar", b, "e_heapmin");
   snprintf(b, sizeof(b), "%lu bytes", (unsigned long)v.pilaLibre);
   webFila("Pila libre (nucleo 0)", b, "e_pila");
+  snprintf(b, sizeof(b), "%s rev %u", ESP.getChipModel(), (unsigned)ESP.getChipRevision());
+  webFila("Chip", b, "");
+  snprintf(b, sizeof(b), "%u MHz", (unsigned)ESP.getCpuFreqMHz());
+  webFila("Velocidad de la CPU", b, "e_cpu");
+  snprintf(b, sizeof(b), "%u KB", (unsigned)(ESP.getFlashChipSize() / 1024));
+  webFila("Memoria flash", b, "");
+  snprintf(b, sizeof(b), "%u KB usados, %u KB libres",
+           (unsigned)(ESP.getSketchSize() / 1024),
+           (unsigned)(ESP.getFreeSketchSpace() / 1024));
+  webFila("Programa", b, "");
   webFila("Ultimo reinicio", motivoReinicio(), "");
   if (rtcMagia == RTC_MAGIA) webFila("Se quedo en el paso", rtcPaso, "");
   snprintf(b, sizeof(b), "%s", modoSeguro ? "<span class=\"av\">SI (sin red)</span>" : "no");
@@ -3264,6 +3365,12 @@ static void webPagina() {
     "t('r_fps',d.red.fps1+' / '+d.red.fps2+' fps'+(d.red.grabando?' &middot; GRABANDO':''));"
     "t('e_tiempo',d.equipo.encendido);t('e_heap',d.equipo.heap+' bytes');"
     "t('e_pila',d.equipo.pila+' bytes');"
+    "t('s_int',d.sensor.intentos);t('s_rojo',d.sensor.rojo);"
+    "t('p_perf',(d.pulso.perfusion/100).toFixed(2)+' %');"
+    "t('p_ult',d.pulso.final_bpm+' BPM &middot; '+d.pulso.final_spo2+' %');"
+    "t('t_n',d.teclado.botones+' de 4');"
+    "t('r_cara','x='+d.red.caraX+' y='+d.red.caraY);"
+    "t('e_heapmin',d.equipo.heap_min+' bytes');t('e_cpu',d.equipo.cpu+' MHz');"
     "}catch(e){}}"
     "setInterval(r,2000);r();"
     "</script></body></html>");
@@ -3344,7 +3451,7 @@ static void webArrancar() {
 void setup() {
   Serial.begin(115200);
   delay(50);
-  Serial.println(F("\n=== MEDIBOT v6.1 ==="));
+  Serial.println(F("\n=== MEDIBOT - Triaje ==="));
 
   const int motivo = esp_reset_reason();
   const bool huboFallo = (motivo == ESP_RST_PANIC || motivo == ESP_RST_TASK_WDT ||

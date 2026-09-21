@@ -1,13 +1,13 @@
-# MediBot Repository
+# MEDIBOT
 
-Welcome to the **MediBot** codebase repository. Below is an overview of the folder structure and components:
+Código del proyecto MEDIBOT. Qué hay en cada carpeta:
 
-* **`firmware/`**: Arduino source code and firmware versions.
-* **`herramientas/`**: Simulation and debugging tools for offline hardware testing.
-* **`legado/`**: Legacy code and previous script implementations.
-* **`medibot/`**: Core scripts for Raspberry Pi (Raspbian) and communication logic with Arduino.
-* **`pruebas/`**: Test scripts and debugging modules.
-* **`verificador-whatsapp/`**: WhatsApp bot integration powered by the Claude API.
+* **`firmware/`**: el código de las placas (Arduino / ESP32).
+* **`herramientas/`**: utilidades de simulación y depuración sin hardware.
+* **`legado/`**: versiones antiguas de los scripts.
+* **`medibot/`**: los scripts de la Raspberry Pi y la comunicación con el Arduino.
+* **`pruebas/`**: bancos de pruebas y módulos de depuración.
+* **`verificador-whatsapp/`**: comprueba con `whatsapp-web.js` qué números de la lista de doctores tienen WhatsApp.
 
 ## Qué se graba en cada placa
 

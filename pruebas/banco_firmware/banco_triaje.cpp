@@ -162,7 +162,7 @@ static void lanzarChequeoNo() {
   atenderAsistente();
   // La pantalla de autodiagnostico dura mas cuando hay un fallo que contar,
   // asi que se espera a que desaparezca en vez de a un tiempo fijo.
-  esperarSinTexto("MEDIBOT v6.1", 12000);
+  esperarSinTexto("AUTODIAGNOSTICO", 12000);
   esperar(400);
   // Sobre la cara de reposo, OK arranca la medida: para ir al menu se
   // despierta con cualquier OTRA tecla.
@@ -274,7 +274,7 @@ int main(int argc, char **argv) {
     BACK();
     comprobar(esperarTexto("Auto-Chequeo", 3000), "ATRAS vuelve");
   } else if (caso == "yacalibrado") {
-    comprobar(esperarTexto("MEDIBOT v6.1", 3000), "arranca en el autodiagnostico");
+    comprobar(esperarTexto("AUTODIAGNOSTICO", 3000), "arranca en el autodiagnostico");
     comprobar(!pantallaContiene("CALIBRAR TECLADO"),
               "con la calibracion guardada NO se repite el asistente");
     esperar(3000);
@@ -363,6 +363,25 @@ int main(int argc, char **argv) {
               "y con que configuracion se compilo");
     comprobar(web(pag, "Encendido desde") && web(pag, "Memoria libre"),
               "incluye el estado del propio equipo");
+
+    // Modo claro / oscuro: los dos juegos de colores y el boton para cambiar.
+    comprobar(web(pag, "data-tema") && web(pag, "--bg:#0f1115")
+              && web(pag, "--bg:#f4f6fa"),
+              "trae los dos temas, oscuro y claro");
+    comprobar(web(pag, "cambiarTema()") && web(pag, "medibot_tema"),
+              "el boton de tema cambia y recuerda la eleccion");
+    comprobar(web(pag, "prefers-color-scheme"),
+              "y de partida respeta el tema del sistema");
+
+    // Informacion ampliada: datos que antes no salian en ningun sitio.
+    comprobar(web(pag, "Chip") && web(pag, "ESP32") && web(pag, "Velocidad de la CPU"),
+              "identifica la placa (chip, revision, CPU)");
+    comprobar(web(pag, "Memoria flash") && web(pag, "Programa"),
+              "dice cuanta flash hay y cuanto ocupa el programa");
+    comprobar(web(pag, "Mascara de red") && web(pag, "DNS") && web(pag, "Canal WiFi"),
+              "detalla la red: mascara, DNS y canal");
+    comprobar(web(pag, "Indice de perfusion"), "y la calidad de la senal del sensor");
+    comprobar(!web(pag, "v6.1"), "no queda ningun numero de version por la pagina");
     printf("   [web] la pagina ocupa %u bytes\n", (unsigned)pag.size());
 
     const std::string api = webPedir("/api");
@@ -370,6 +389,8 @@ int main(int argc, char **argv) {
               "/api devuelve los valores en JSON para refrescar sin recargar");
     comprobar(web(api, "\"medibot\":\"192.168.1.77\""),
               "y el JSON lleva la direccion de MEDIBOT");
+    comprobar(web(api, "\"perfusion\"") && web(api, "\"heap_min\"") && web(api, "\"cpu\""),
+              "el JSON tambien trae los datos nuevos, para el refresco en vivo");
 
     comprobar(webPedir("/loquesea").find("No existe") != std::string::npos,
               "una direccion que no existe responde con una explicacion");
@@ -513,8 +534,8 @@ int main(int argc, char **argv) {
     // cara de reposo, sin tocar el menu. Y el boton "Medir" de la web igual.
     // Primero que APAREZCA la pantalla de arranque y luego que se vaya: si se
     // espera solo a que se vaya, antes del primer frame ya "se ha ido".
-    esperarTexto("MEDIBOT v6.1", 4000);
-    esperarSinTexto("MEDIBOT v6.1", 12000);
+    esperarTexto("AUTODIAGNOSTICO", 4000);
+    esperarSinTexto("AUTODIAGNOSTICO", 12000);
     esperar(500);
     printf("   [usuario] pulsa el boton fisico de MEDIR\n");
     g_pinNivel[32] = LOW;  esperar(300);  g_pinNivel[32] = HIGH;
@@ -604,7 +625,7 @@ int main(int argc, char **argv) {
     // solo y luego navegaba el menu como si hubiera un fantasma pulsando.
     comprobar(!esperarTexto("CALIBRAR TECLADO", 6000),
               "con el teclado desconectado NO se abre el asistente");
-    esperarSinTexto("MEDIBOT v6.1", 12000);
+    esperarSinTexto("AUTODIAGNOSTICO", 12000);
 
     // Se conecta el teclado: a partir de aqui el equipo tiene que responder.
     printf("   [hardware] se conecta el teclado\n");

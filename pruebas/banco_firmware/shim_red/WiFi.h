@@ -49,6 +49,9 @@ class WiFiSim {
   IPAddress localIP();
   IPAddress gatewayIP() { return IPAddress(192, 168, 1, 1); }
   IPAddress subnetMask() { return IPAddress(255, 255, 255, 0); }
+  IPAddress dnsIP() { return IPAddress(192, 168, 1, 1); }
+  String    BSSIDstr() { return String("AA:BB:CC:DD:EE:FF"); }
+  int32_t   channel() { return 6; }
   String    macAddress() { return String("A0:B7:65:11:22:33"); }
   std::string ssidPedida, passPedida;
   uint32_t    t0 = 0;

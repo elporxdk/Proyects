@@ -124,6 +124,14 @@ extern int g_motivoReinicio;     // el banco decide como fue el ultimo reinicio
 int esp_reset_reason();
 struct EspSim {
   uint32_t getFreeHeap() { return 210000; }
+  uint32_t getHeapSize() { return 320000; }
+  uint32_t getMinFreeHeap() { return 180000; }
+  uint32_t getFlashChipSize() { return 4u * 1024u * 1024u; }
+  uint32_t getSketchSize() { return 900000; }
+  uint32_t getFreeSketchSpace() { return 400000; }
+  uint32_t getCpuFreqMHz() { return 240; }
+  uint8_t  getChipRevision() { return 3; }
+  const char *getChipModel() { return "ESP32-D0WD"; }
   void restart();                 // en el banco solo se apunta, no se reinicia nada
 };
 extern EspSim ESP;
