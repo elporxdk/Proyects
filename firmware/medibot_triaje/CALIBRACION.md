@@ -36,7 +36,9 @@ datos.
 
 **3. El Monitor Serie a 115200.** Al arrancar imprime el escaneo del bus, el
 identificador del chip, a qué velocidad ha enganchado y si la configuración se
-ha podido releer.
+ha podido releer. Y en marcha, **cada tecla que el firmware da por pulsada**
+(`[TECLA] OK (1547 mV)`) y **cada cambio de pantalla** (`[UI] -> menu`): si el
+equipo "hace cosas raras", esas dos líneas dicen si es el teclado o el programa.
 
 ### Los fallos típicos y qué significan
 
@@ -47,6 +49,8 @@ ha podido releer.
 | `I2C: hay 3V3, SDA/SCL?` | El módulo **sí** tiene corriente (hay pull-ups) pero nadie contesta en 0x57: lo más probable es SDA y SCL cambiadas de sitio, o que el chip no sea un MAX30102 |
 | `[I2C] N direccion(es) que cambian en cada vuelta` | Direcciones fantasma (0x03, 0x46, 0x51…) distintas en cada escaneo. **No hay ningún dispositivo**: es ruido de un pin flotando |
 | `Tecla: SIN CONECTAR (GPIO34)` | El teclado no está enchufado. Mientras lo esté, se ignoran las pulsaciones para que el equipo no navegue solo |
+| La cara dice `Teclado sin conectar (GPIO34)` | Lo mismo, visto desde la cara de reposo. Solo salta si la lectura **baila y además anda cerca de 0 V**: un teclado conectado descansa a ~3,2 V y no puede darse por desconectado por mucho ruido que meta el ADC |
+| El menú no responde pero el asistente sí mide los botones | Era un fallo del firmware (ya corregido): la detección de "desconectado" miraba solo el ruido y, en la placa real con el WiFi encendido, saltaba con el ruido normal del ADC y silenciaba el teclado. Ahora exige además que la lectura esté cerca de 0 V |
 | `Sensor: MAX30100 no vale` | Es el chip antiguo (ID `0x11`). La librería MAX3010x no lo soporta: hace falta un MAX30102 o MAX30105 |
 | `Sensor: NO DETECTADO` con `I2C: 1 disp.` | Hay algo en el bus pero no contesta como MAX30102: mal contacto o módulo defectuoso |
 | `[MAX] Sin respuesta a 400 kHz` | Cables largos o sin pull-ups. El firmware baja solo a 100 kHz y sigue |
@@ -119,6 +123,51 @@ python3 pruebas/banco_firmware/comprobar_criticas.py firmware/medibot_triaje/med
 Si el equipo llega a reiniciarse por un fallo así, arranca en **MODO SEGURO**
 (sin red) y la pantalla de arranque dice en qué paso murió: `Fallo en: red: wifi`.
 
+## Si la interfaz se queda "bloqueada en la cara"
+
+Era un fallo del firmware, ya corregido, y conviene entenderlo: el menú se caía
+solo a la cara de reposo **en casi cada pulsación**, así que parecía que no
+respondía.
+
+La causa: el tiempo de inactividad se calculaba `now - lastInteraction` con
+enteros **sin signo**. `lastInteraction` se apunta con `millis()` dentro del
+manejo de teclas, que se lee unos microsegundos *después* que el `now` del
+principio del bucle. Cuando el milisegundo cambiaba justo en medio,
+`lastInteraction` quedaba 1 ms **por delante** de `now`, y la resta sin signo
+se desbordaba a ~4.290 millones — muchísimo más que el tope de 30 s —, así que
+el temporizador saltaba al instante y mandaba a la cara de reposo.
+
+Ahora se calcula con guarda: si `lastInteraction` va por delante de `now`, el
+tiempo inactivo es 0. (En el Monitor Serie se ve cada cambio de pantalla con
+`[UI] -> menu` y cada tecla con `[TECLA] OK (1547 mV)`, por si vuelve a pasar
+algo raro.)
+
+## Cómo se empieza una medida
+
+Hay **cuatro** formas, y todas hacen exactamente lo mismo (`empezarMedida()`):
+
+| Desde dónde | Qué hacer |
+|---|---|
+| La cara de reposo | pulsar **OK**. La cara lo dice abajo: `[OK] Medir   [otro] Menu`. Cualquier otra tecla abre el menú |
+| El menú | `Auto-Chequeo` → OK |
+| Un **pulsador aparte** | entre **GPIO32 y GND**. Usa el pull-up interno: si no se monta, no molesta. Arranca la medida desde cualquier pantalla que no sea una medida en curso, Diagnóstico o el asistente; por Serial sale `[MEDIR] pulsado` en cada pulsación aunque se ignore |
+| El navegador | botón **Medir ahora** en `http://<ip>/` |
+
+## El código QR
+
+Menú → **`Codigo QR`**. Dos páginas (ARRIBA/ABAJO cambia):
+
+- **Este equipo**: la dirección de la página de configuración (`http://<ip>/`), para abrirla con el móvil sin teclearla. Si aún no hay WiFi lo dice.
+- **MEDIBOT**: la dirección de la Raspberry (`http://<ip>:<puerto>`). Si aún no la ha localizado, remite a `Menú → MEDIBOT (red)`.
+
+Y al terminar un auto-chequeo, la **tercera página** de resultados (ABAJO dos
+veces) lleva el resultado en QR (`MEDIBOT 72bpm SpO2 98%`), para llevárselo en
+el móvil sin apuntarlo.
+
+Es QR versión 2 (25×25 módulos, hasta 32 bytes) a 2 px por módulo: 58 px, que
+es lo que cabe en los 64 de alto. Si el móvil no lo lee, la pantalla es de las
+azules (píxel blanco sobre fondo oscuro): pon `QR_INVERTIDO 1` y recompila.
+
 ## La configuración en el navegador
 
 El ESP32 **sirve su propia página**. Con el equipo conectado a la red `MEDIBOT`,
@@ -169,6 +218,7 @@ pruebas (`web`) que comprueba exactamente eso.
 | `U8g2` (olikraus) | pantalla ST7920 128x64 por SPI hardware |
 | `SparkFun MAX3010x Pulse and Proximity Sensor Library` | MAX30102 / MAX30105 |
 | `ArduinoJson` (Benoit Blanchon) | leer la API de MEDIBOT |
+| `QRCode` (Richard Moore, *ricmoo*) | el código QR en la pantalla |
 
 `Preferences`, `WiFi`, `ESPmDNS` y `HTTPClient` vienen con el core de ESP32.
 Vale tanto con el core **2.x** como con el **3.x**: alguna API cambió de nombre

@@ -58,6 +58,11 @@ int  digitalRead(int pin);
 //                    tire de ella hacia arriba.
 enum LineasI2C { LIN_CONECTADO = 0, LIN_AL_AIRE = 1, LIN_CORTO = 2 };
 extern std::atomic<int> g_i2cLineas;
+// Nivel simulado del resto de pines digitales (el pulsador de MEDIR, etc.).
+// Por defecto HIGH: con pull-up interno y nadie pulsando, es lo que se lee.
+extern std::atomic<int> g_pinNivel[40];
+#define SDA_SIM 21
+#define SCL_SIM 22
 #define ADC_11db  3
 #define ADC_6db   2
 #define ADC_2_5db 1

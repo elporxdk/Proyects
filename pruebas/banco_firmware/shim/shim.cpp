@@ -66,7 +66,14 @@ void pinMode(int pin, int mode) {
   if (pin >= 0 && pin < 40) g_modoPin[pin] = mode;
 }
 
+std::atomic<int> g_pinNivel[40];
+static struct PinesAlto { PinesAlto() { for (auto &p : g_pinNivel) p = HIGH; } } g_pinesAlto;
+
 int digitalRead(int pin) {
+  // Solo las lineas del bus I2C siguen la simulacion electrica; cualquier otro
+  // pin devuelve el nivel que le haya puesto el banco.
+  if (pin != SDA_SIM && pin != SCL_SIM)
+    return (pin >= 0 && pin < 40) ? g_pinNivel[pin].load() : HIGH;
   const int estado = g_i2cLineas.load();
   const bool pullupInterno = (pin >= 0 && pin < 40) && (g_modoPin[pin].load() == INPUT_PULLUP);
   switch (estado) {

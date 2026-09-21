@@ -140,15 +140,19 @@ static bool atenderAsistente(uint32_t msMax = 90000) {
 }
 
 // Entradas del menu del firmware, en orden
-enum { M_CHEQUEO = 0, M_MEDIBOT, M_HISTORIAL, M_DIAG, M_CALIBRAR, M_ABOUT };
+enum { M_CHEQUEO = 0, M_MEDIBOT, M_HISTORIAL, M_DIAG, M_CALIBRAR, M_QR, M_ABOUT };
 
 // El menu recuerda donde quedo la seleccion al salir de una pantalla, asi que
 // el banco lleva la cuenta en vez de suponer que esta siempre en la primera.
-static const int MENU_N = 6;
+static const int MENU_N = M_ABOUT + 1;   // atado al enum: 7 entradas
 static int menuPos = 0;
 
 static void abrirDelMenu(int indice) {
-  while (menuPos != indice) { DOWN(); menuPos = (menuPos + 1) % MENU_N; }
+  const int abajo = (indice - menuPos + MENU_N) % MENU_N;
+  const int arriba = (menuPos - indice + MENU_N) % MENU_N;
+  if (abajo <= arriba) for (int i = 0; i < abajo;  i++) DOWN();
+  else                 for (int i = 0; i < arriba; i++) UP();
+  menuPos = indice;
   OK();
 }
 
@@ -159,7 +163,9 @@ static void lanzarChequeoNo() {
   // asi que se espera a que desaparezca en vez de a un tiempo fijo.
   esperarSinTexto("MEDIBOT v6.1", 12000);
   esperar(400);
-  if (!pantallaContiene("Auto-Chequeo")) OK();
+  // Sobre la cara de reposo, OK arranca la medida: para ir al menu se
+  // despierta con cualquier OTRA tecla.
+  if (!pantallaContiene("Auto-Chequeo")) BACK();
   esperarTexto("Auto-Chequeo", 3000);
   menuPos = 0;
 }
@@ -195,6 +201,9 @@ int main(int argc, char **argv) {
   if (caso == "calibruido") {          // cable largo: la lectura no para quieta
     g_adcRuido = 55;
   }
+  if (caso == "ruidoteclado") {        // ADC ruidoso con el teclado PUESTO
+    g_adcRuido = 70;                   // (lo que mete el WiFi en la placa real)
+  }
   if (caso == "tecladosuelto") {       // nada enchufado en el GPIO34
     g_adcMv = 150;                     // cerca de 0 V...
     g_adcRuido = 200;                  // ...y sin parar quieto, como el pin real
@@ -209,7 +218,7 @@ int main(int argc, char **argv) {
               "el arranque avisa de que no hay sensor de pulso");
     volcar("arranque");
     esperar(3000);
-    OK(); esperarTexto("Auto-Chequeo", 3000); OK();
+    BACK(); esperarTexto("Auto-Chequeo", 3000); OK();
     comprobar(esperarTexto("Sensor de pulso ausente", 3000),
               "el menu no deja medir sin sensor y lo explica");
     volcar("error");
@@ -268,7 +277,7 @@ int main(int argc, char **argv) {
     comprobar(!pantallaContiene("CALIBRAR TECLADO"),
               "con la calibracion guardada NO se repite el asistente");
     esperar(3000);
-    OK();
+    BACK();                    // despierta la cara -> menu (OK mediria)
     comprobar(esperarTexto("Auto-Chequeo", 3000), "los botones guardados funcionan");
     menuPos = 0;
     abrirDelMenu(M_CALIBRAR);
@@ -475,6 +484,91 @@ int main(int argc, char **argv) {
     volcar("menu con ruido");
     comprobar(pantallaContiene("Auto-Chequeo") || pantallaContiene("Calibrar teclado"),
               "ABAJO funciona con ruido");
+  } else if (caso == "ruidoteclado") {
+    // EL BLOQUEO DE LA CARA. Con el teclado conectado y calibrado, el ADC de
+    // la placa real mete ruido (mucho mas con el WiFi encendido). La deteccion
+    // de "teclado desconectado" miraba solo cuanto bailaba la lectura, asi que
+    // ese ruido normal la disparaba y silenciaba TODAS las pulsaciones: el
+    // asistente (que no pasa por ahi) media los botones perfectamente y luego
+    // el menu no respondia a nada. Ahora exige ademas que ande cerca de 0 V.
+    lanzarChequeoNo();
+    esperar(3000);
+    comprobar(!pantallaContiene("Teclado sin conectar"),
+              "con ruido pero el teclado puesto NO se da por desconectado");
+    abrirDelMenu(M_DIAG);
+    comprobar(esperarTexto("DIAGNOSTICO", 5000), "el menu responde con el ADC ruidoso");
+    BACK();
+    comprobar(esperarTexto("Auto-Chequeo", 4000), "y se sale al menu");
+    // Y desde la cara de reposo, que es donde se quedaba bloqueado:
+    BACK();                                  // menu -> cara de reposo
+    esperar(800);
+    comprobar(pantallaContiene("[OK] Medir"), "la cara dice como se empieza");
+    OK();                                    // OK sobre la cara = medir
+    comprobar(esperarTexto("Coloque su dedo", 6000),
+              "OK sobre la cara arranca la medida directamente");
+    BACK();
+  } else if (caso == "botonmedir") {
+    // El pulsador fisico de MEDIR (GPIO32 a GND) arranca el chequeo desde la
+    // cara de reposo, sin tocar el menu. Y el boton "Medir" de la web igual.
+    // Primero que APAREZCA la pantalla de arranque y luego que se vaya: si se
+    // espera solo a que se vaya, antes del primer frame ya "se ha ido".
+    esperarTexto("MEDIBOT v6.1", 4000);
+    esperarSinTexto("MEDIBOT v6.1", 12000);
+    esperar(500);
+    printf("   [usuario] pulsa el boton fisico de MEDIR\n");
+    g_pinNivel[32] = LOW;  esperar(300);  g_pinNivel[32] = HIGH;
+    comprobar(esperarTexto("Coloque su dedo", 6000),
+              "el pulsador de MEDIR arranca el auto-chequeo desde la cara");
+    BACK();
+    comprobar(esperarTexto("Auto-Chequeo", 5000), "ATRAS cancela y vuelve al menu");
+    // Con el equipo midiendo, el pulsador no reinicia la medida.
+    menuPos = 0;
+    OK();
+    comprobar(esperarTexto("Coloque su dedo", 6000), "se empieza otra medida");
+    sensorSim.dedo = true;
+    comprobar(esperarTexto("BPM", 15000), "esta midiendo");
+    g_pinNivel[32] = LOW;  esperar(300);  g_pinNivel[32] = HIGH;
+    esperar(800);
+    comprobar(!pantallaContiene("Coloque su dedo"),
+              "el pulsador NO interrumpe una medida en curso");
+    comprobar(esperarTexto("TUS RESULTADOS", 45000), "y la medida termina");
+    // El resultado tambien en QR (tercera pagina).
+    DOWN(); esperar(400); DOWN(); esperar(600);
+    volcar("resultado en QR");
+    comprobar(pantallaContiene("Tu resultado") && pantallaContiene("SpO2"),
+              "hay una pagina con el resultado en codigo QR");
+    OK();
+    comprobar(esperarTexto("Auto-Chequeo", 5000), "OK vuelve al menu");
+    // Desde la web:
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("192.168.1.77:5000", 20000), "la red esta lista");
+    BACK(); esperar(800);
+    webEnviar("/medir");
+    comprobar(esperarTexto("Coloque su dedo", 6000),
+              "el boton Medir de la pagina web arranca el auto-chequeo");
+    BACK();
+  } else if (caso == "qr") {
+    // Menu -> Codigo QR: la direccion de este equipo y la de MEDIBOT.
+    lanzarChequeoNo();
+    abrirDelMenu(M_MEDIBOT);
+    comprobar(esperarTexto("192.168.1.77:5000", 20000), "la red esta lista");
+    BACK(); esperar(800);
+    menuPos = M_MEDIBOT;
+    abrirDelMenu(M_QR);
+    esperar(800);
+    volcar("QR de este equipo");
+    comprobar(pantallaContiene("Este equipo") && pantallaContiene("192.168.1.45"),
+              "el QR codifica la pagina web de este ESP32");
+    DOWN(); esperar(600);
+    volcar("QR de MEDIBOT");
+    comprobar(pantallaContiene("MEDIBOT") && pantallaContiene("192.168.1.77")
+              && pantallaContiene("puerto 5000"),
+              "y la otra pagina codifica la direccion de MEDIBOT");
+    BACK();
+    // Vuelve al menu con "Codigo QR" seleccionado: la ventana visible esta al
+    // final de la lista y "Auto-Chequeo" queda fuera de pantalla.
+    comprobar(esperarTexto("Codigo QR", 5000) && pantallaContiene("Calibrar teclado"),
+              "ATRAS vuelve al menu");
   } else if (caso == "busalaire" || caso == "buscorto") {
     // El sensor no responde Y ADEMAS el bus esta electricamente muerto. El
     // firmware tiene que decir QUE pasa (cable suelto / cortocircuito), no
@@ -508,7 +602,7 @@ int main(int argc, char **argv) {
     g_adcRuido = 0;
     g_adcMv = 3200;
     esperar(1000);
-    OK();
+    BACK();                              // despierta la cara (OK = medir)
     comprobar(esperarTexto("Auto-Chequeo", 5000), "conectado, el menu responde");
     menuPos = 0;
     volcar("menu");

@@ -100,7 +100,7 @@ $CXX $COMUN $JSONDEF -Ishim_red -I"$JSON" -x c++ "$PANEL" banco_panel.cpp \
      "$MAX3010X/spo2_algorithm.cpp" -lpthread -o .build/banco_panel
 
 export MEDIBOT_NVS=.build/nvs
-CASOS=${1:-"calibrar calibruido yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico web sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado busalaire buscorto tecladosuelto"}
+CASOS=${1:-"calibrar calibruido yacalibrado normal modoseguro wifi wifibarrido sinwifi apicaida redymedida diagnostico web sindedo dedofuera sensorcuelga sinsensor sensorlento sinmemoria botonpulsado busalaire buscorto tecladosuelto ruidoteclado botonmedir qr"}
 [ -n "$1" ] || rm -f .build/nvs.medibot     # placa "de fabrica" al empezar
 
 fallos=0

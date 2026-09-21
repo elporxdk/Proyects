@@ -448,8 +448,10 @@ static int16_t leerMvCrudo() {
   kb.cuentas = (uint16_t)(acc / KEY_SAMPLES);
   qsort(s, KEY_SAMPLES, sizeof(int16_t), cmpI16);
   // Muestras tomadas una detras de otra: si salen desperdigadas, el pin no
-  // esta sujeto a nada. Lo usa tecladoLeer() para saber si hay teclado.
-  kb.spread = (int16_t)(s[KEY_SAMPLES - 1] - s[0]);
+  // esta sujeto a nada. Lo usa tecladoLeer() para saber si hay teclado. Se
+  // descartan la mas alta y la mas baja: el ADC del ESP32 suelta de vez en
+  // cuando UNA muestra disparatada (mas con el WiFi encendido).
+  kb.spread = (int16_t)(s[KEY_SAMPLES - 2] - s[1]);
   const uint8_t m = KEY_SAMPLES / 2;
   return (int16_t)((s[m - 1] + s[m] + s[m + 1]) / 3);
 }
@@ -517,9 +519,12 @@ Button tecladoLeer() {
   else kb.ema = KEY_EMA_ALPHA * bruto + (1.0f - KEY_EMA_ALPHA) * kb.ema;
   kb.mv = (int16_t)kb.ema;
 
-  // ¿Sigue el teclado enchufado? Un cable suelto ensucia casi todas las
-  // lecturas de la ventana; pulsar un boton, ninguna.
-  kb.saltos = (kb.saltos << 1) | (kb.spread > KEY_SPREAD_MV ? 1u : 0u);
+  // ¿Sigue el teclado enchufado? Baile Y ADEMAS cerca de 0 V: esa es la firma
+  // de un pin al aire. Un teclado conectado descansa a ~3,2 V, asi que el
+  // ruido normal del ADC (bastante, con el WiFi encendido) nunca puede darlo
+  // por desconectado. Mirando solo el baile, ese ruido silenciaba el teclado.
+  const bool alAire = (kb.spread > KEY_SPREAD_MV) && (bruto < KEY_AIRE_MV);
+  kb.saltos = (kb.saltos << 1) | (alAire ? 1u : 0u);
   const uint8_t bailando = (uint8_t)__builtin_popcount(
       kb.saltos & ((KEY_SALTOS_VENTANA >= 32) ? 0xFFFFFFFFu
                                               : ((1u << KEY_SALTOS_VENTANA) - 1u)));
@@ -2258,7 +2263,12 @@ void loop() {
   const bool ocupado = (estado == ST_CHK_REQ || estado == ST_CHK_READ ||
                         estado == ST_NET_WIFI || estado == ST_NET_SEARCH ||
                         estado == ST_CAL || estado == ST_SPLASH);
-  if (!ocupado && estado != ST_IDLE && (ahora - ultimaTecla > INACTIVITY_MS)) {
+  // Resta a prueba de desbordamiento: ultimaTecla se pone con millis() en el
+  // manejo de teclas, unos microsegundos despues que 'ahora'; si queda por
+  // delante, la resta sin signo se dispararia y el menu se caeria a reposo en
+  // cada pulsacion. Ver la nota larga en el triaje.
+  const uint32_t inactivo = (ahora >= ultimaTecla) ? (ahora - ultimaTecla) : 0;
+  if (!ocupado && estado != ST_IDLE && inactivo > INACTIVITY_MS) {
     pedirModo(WK_IDLE);
     emocion = EMO_NORMAL;
     irA(ST_IDLE);

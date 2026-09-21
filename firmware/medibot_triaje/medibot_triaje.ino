@@ -29,6 +29,7 @@
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <WebServer.h>         // la configuracion del equipo en el navegador
+#include "qrcode.h"            // libreria QRCode (ricmoo): el QR en la pantalla
 #include <ArduinoJson.h>
 
 // =====================================================================
@@ -41,6 +42,12 @@
 #define OLED_CS_PIN        5
 #define OLED_RESET_PIN     19
 #define KEYPAD_PIN         34      // ADC1_CH6. Solo entrada, sin pull-up interno.
+//  BOTON DE MEDIR: un pulsador aparte, entre este pin y GND, que arranca el
+//  auto-chequeo desde cualquier pantalla sin pasar por el menu. Usa el pull-up
+//  interno, asi que si no se monta no molesta (queda siempre en alto). Tambien
+//  vale OK sobre la cara de reposo, y el boton "Medir" de la pagina web.
+#define MEDIR_PIN          32      // pulsador a GND. GPIO32: admite pull-up interno
+#define MEDIR_DEBOUNCE_MS  40
 #define I2C_SDA_PIN        21
 #define I2C_SCL_PIN        22
 
@@ -313,6 +320,20 @@ KeyDef KEYPAD_MAP_DEFECTO[KEYPAD_MAP_SIZE];      // copia de fabrica (red de seg
 #define JSON_FAILS_RESCAN 5         // fallos seguidos -> MEDIBOT cambio de IP
 
 // ---------------------------------------------------------------------
+// 1.6b CODIGO QR
+// ---------------------------------------------------------------------
+//  Menu -> "Codigo QR": la direccion de la pagina de este equipo y la de
+//  MEDIBOT, para abrirlas con el movil sin teclearlas. Y al terminar una
+//  medida, una tercera pagina con el resultado en QR, para llevarselo.
+//  QR_INVERTIDO 1 en paneles AZULES con pixeles blancos (negativos).
+//  QR_INVERTIDO 0 en paneles verde/amarillo con pixeles negros (positivos).
+//  Si el movil no te lo lee, cambia este 0 por un 1 y recompila.
+#define QR_INVERTIDO          0
+#define QR_VERSION            2          // 25x25 modulos, hasta 32 bytes
+#define QR_PIXELS_POR_MODULO  2          // (25+2+2)*2 = 58 px: cabe en los 64
+#define QR_QUIET              2
+
+// ---------------------------------------------------------------------
 // 1.7 INTERFAZ Y TIEMPOS
 // ---------------------------------------------------------------------
 #define TAREA_STACK           16384   // pila del nucleo 0 (sensor + red)
@@ -339,6 +360,7 @@ enum AppState : uint8_t {
   STATE_DIAG,
   STATE_MEDIBOT,
   STATE_ABOUT,
+  STATE_QR,
   STATE_KEYPAD_WIZARD
 };
 
@@ -439,14 +461,22 @@ uint32_t  nextBlinkMs    = 0;
 uint32_t  blinkEndsMs    = 0;
 
 const char *MENU_ITEMS[] = { "Auto-Chequeo", "MEDIBOT (red)", "Historial",
-                             "Diagnostico", "Calibrar teclado", "Sobre Medibot" };
+                             "Diagnostico", "Calibrar teclado", "Codigo QR",
+                             "Sobre Medibot" };
 const int   MENU_N = sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]);
 #define MENU_VISIBLES 4
 
 int  mainMenuSelection = 0;      // indice dentro de MENU_ITEMS
 int  mainMenuTop  = 0;           // primera entrada visible (lista con scroll)
 int  aboutPage    = 0;
-int  resultPage   = 0;
+int  resultPage   = 0;          // resultados: 0 valores | 1 causas | 2 QR
+int  qrPagina     = 0;          // pantalla QR: 0 este equipo | 1 MEDIBOT
+
+// --- QR ya generado (se guarda para no recalcularlo en cada frame) ---
+char     qrTexto[64] = "";
+uint8_t  qrDatos[256];
+QRCode   qrCodigo;
+bool     qrListo = false;
 int  historyPage  = 0;
 
 int   patientBPM  = 0;
@@ -636,8 +666,11 @@ static int16_t keypadReadRawMv() {
   qsort(s, KEY_SAMPLES, sizeof(int16_t), cmpI16);
   // Las muestras se han tomado una detras de otra: si salen desperdigadas es
   // que el pin no esta sujeto a nada. Lo usa keypadPoll() para saber si hay
-  // teclado conectado.
-  keypad.spread = (int16_t)(s[KEY_SAMPLES - 1] - s[0]);
+  // teclado conectado. Se descarta la mas alta y la mas baja: el ADC del
+  // ESP32 suelta de vez en cuando UNA muestra disparatada (mas aun con el
+  // WiFi encendido) y con el recorrido completo esa sola muestra bastaba para
+  // dar la lectura por "desperdigada".
+  keypad.spread = (int16_t)(s[KEY_SAMPLES - 2] - s[1]);
   const uint8_t m = KEY_SAMPLES / 2;
   return (int16_t)((s[m - 1] + s[m] + s[m + 1]) / 3);
 }
@@ -699,6 +732,10 @@ static Button keypadClassify(int16_t mv, Button held) {
 }
 
 // Devuelve UN evento por pulsacion (flanco), o autorepeticion en UP/DOWN.
+static const char *buttonName(Button b) {
+  return (b < BTN_COUNT) ? BTN_NOMBRE[b] : "----";
+}
+
 Button keypadPoll() {
   const uint32_t now = millis();
   const int16_t bruto = keypadReadRawMv();
@@ -708,9 +745,18 @@ Button keypadPoll() {
   keypad.mv = (int16_t)keypad.ema;
 
   // ¿Sigue el teclado enchufado? Se apunta si esta lectura ha salido
-  // desperdigada y se mira cuantas de las ultimas KEY_SALTOS_VENTANA lo han
-  // hecho. Un cable suelto las ensucia casi todas; pulsar un boton, ninguna.
-  keypad.saltos = (keypad.saltos << 1) | (keypad.spread > KEY_SPREAD_MV ? 1u : 0u);
+  // desperdigada Y ADEMAS anda cerca de 0 V, y se mira cuantas de las ultimas
+  // KEY_SALTOS_VENTANA lo han hecho.
+  //
+  // Las dos condiciones a la vez, no solo el baile. Un pin al aire tiene una
+  // firma concreta: flota CERCA DE CERO y no para quieto. Un teclado
+  // conectado descansa a ~3,2 V, asi que por mucho ruido que meta el ADC (y
+  // en la placa real, con el WiFi encendido, mete bastante) NUNCA puede darse
+  // por desconectado. Mirando solo el baile, ese ruido normal bastaba para
+  // silenciar el teclado entero: el asistente (que no pasa por aqui) media los
+  // botones perfectamente y el menu no respondia a nada.
+  const bool alAire = (keypad.spread > KEY_SPREAD_MV) && (bruto < KEY_AIRE_MV);
+  keypad.saltos = (keypad.saltos << 1) | (alAire ? 1u : 0u);
   const uint8_t bailando = (uint8_t)__builtin_popcount(
       keypad.saltos & ((KEY_SALTOS_VENTANA >= 32) ? 0xFFFFFFFFu
                                                   : ((1u << KEY_SALTOS_VENTANA) - 1u)));
@@ -740,6 +786,9 @@ Button keypadPoll() {
         ev = raw;
         keypad.pressStartMs = now;
         keypad.lastRepeatMs = now;
+        // Que tecla ha visto el firmware y con que tension: si el equipo hace
+        // "cosas raras", esta linea dice si es el teclado o es el programa.
+        Serial.printf("[TECLA] %s (%d mV)\n", buttonName(raw), (int)keypad.mv);
       }
     }
   }
@@ -758,9 +807,6 @@ Button keypadPoll() {
 int16_t  keypadLastMv()   { return keypad.mv; }
 uint16_t keypadCounts()   { return keypad.counts; }
 
-static const char *buttonName(Button b) {
-  return (b < BTN_COUNT) ? BTN_NOMBRE[b] : "----";
-}
 
 // Cuantos botones tienen ahora mismo un rango utilizable
 uint8_t keypadActiveCount() {
@@ -849,6 +895,25 @@ bool keypadSaveCalibration() {
   else    Serial.printf("[TECLADO] FALLO al guardar (escritos %u de %u bytes)\n",
                         (unsigned)escritos, (unsigned)sizeof(b));
   return ok;
+}
+
+// Pulsador de MEDIR: devuelve true UNA vez por pulsacion (en el flanco), con
+// antirrebote. Activo a nivel bajo (pull-up interno, pulsador a GND).
+bool botonMedirPulsado() {
+  static bool     estable = false;       // estado ya antirrebotado
+  static bool     crudo   = false;
+  static uint32_t cambio  = 0;
+  const uint32_t now = millis();
+  const bool ahora = (digitalRead(MEDIR_PIN) == LOW);
+  if (ahora != crudo) { crudo = ahora; cambio = now; }
+  if (crudo != estable && now - cambio >= MEDIR_DEBOUNCE_MS) {
+    estable = crudo;
+    // Se apunta cada flanco: asi se sabe por Serial si el pulsador esta bien
+    // cableado aunque la pantalla no haga nada (por ejemplo, midiendo).
+    Serial.println(estable ? F("[MEDIR] pulsado") : F("[MEDIR] soltado"));
+    return estable;                       // solo el flanco de pulsar
+  }
+  return false;
 }
 
 // Al encender: mide el nivel de reposo. Si ese nivel coincide con un boton de
@@ -2038,6 +2103,11 @@ void setState(AppState s) {
   // hay que devolverlo a reposo, se salga por donde se salga (boton, tiempo
   // de inactividad o atajo al menu).
   if (currentState == STATE_DIAG && s != STATE_DIAG) sensorReposo();
+  static const char *const NOMBRES[] = {
+    "arranque", "cara", "menu", "pide dedo", "midiendo", "resultado", "error senal",
+    "historial", "diagnostico", "medibot", "acerca de", "codigo qr", "asistente" };
+  if (s != currentState && (uint8_t)s < sizeof(NOMBRES) / sizeof(NOMBRES[0]))
+    Serial.printf("[UI] -> %s\n", NOMBRES[(uint8_t)s]);
   currentState   = s;
   stateEnteredMs = millis();
   animFrame      = 0;
@@ -2424,9 +2494,99 @@ void drawDiagScreen() {
   drawCenteredStr(64, "[BACK] Salir");
 }
 
+// ---- Codigo QR ----
+bool qrGenerar(const char *txt) {
+  if (qrListo && strcmp(txt, qrTexto) == 0) return true;
+  if (qrcode_getBufferSize(QR_VERSION) > (int)sizeof(qrDatos)) return false;
+  if (qrcode_initText(&qrCodigo, qrDatos, QR_VERSION, ECC_LOW, txt) != 0) {
+    qrListo = false;
+    return false;                                 // no cabe: acorta el texto
+  }
+  snprintf(qrTexto, sizeof(qrTexto), "%s", txt);
+  qrListo = true;
+  return true;
+}
+
+void dibujarQR(int x, int y) {
+  if (!qrListo) return;
+  const uint8_t px = QR_PIXELS_POR_MODULO;
+  const int lado = (qrCodigo.size + QR_QUIET * 2) * px;
+  //  En paneles negativos (azules de pixel blanco) hay que invertirlo: los
+  //  modulos oscuros del QR deben ser pixeles APAGADOS.
+  u8g2.setDrawColor(QR_INVERTIDO ? 1 : 0);
+  u8g2.drawBox(x, y, lado, lado);                 // zona de silencio, clara
+  u8g2.setDrawColor(QR_INVERTIDO ? 0 : 1);
+  for (uint8_t my = 0; my < qrCodigo.size; my++)
+    for (uint8_t mx = 0; mx < qrCodigo.size; mx++)
+      if (qrcode_getModule(&qrCodigo, mx, my))
+        u8g2.drawBox(x + (QR_QUIET + mx) * px, y + (QR_QUIET + my) * px, px, px);
+  u8g2.setDrawColor(1);
+}
+
+// QR a la izquierda y, a la derecha, que es lo que codifica.
+static void dibujarQRConTexto(const char *titulo, const char *l1, const char *l2, const char *pie) {
+  dibujarQR(2, 3);
+  u8g2.setFont(u8g2_font_helvB08_tr);
+  u8g2.drawStr(64, 14, titulo);
+  u8g2.setFont(u8g2_font_4x6_tr);
+  if (l1) u8g2.drawStr(64, 30, l1);
+  if (l2) u8g2.drawStr(64, 38, l2);
+  if (pie) u8g2.drawStr(64, 60, pie);
+}
+
+// Menu -> Codigo QR. Pagina 0: la web de este equipo. Pagina 1: MEDIBOT.
+void drawQRScreen() {
+  char url[40], l1[20], l2[20];
+  const NetInfo n = netGet();
+  if (qrPagina == 0) {
+    if (WiFi.status() != WL_CONNECTED) {
+      u8g2.setFont(u8g2_font_helvB08_tr);
+      drawCenteredStr(10, "CODIGO QR");
+      u8g2.setFont(u8g2_font_6x10_tr);
+      drawCenteredStr(32, "Sin WiFi todavia");
+      drawCenteredStr(44, "(no hay direccion)");
+      u8g2.setFont(u8g2_font_4x6_tr);
+      drawCenteredStr(63, "[UP/DWN] MEDIBOT  [BACK] Salir");
+      return;
+    }
+    const IPAddress mia = WiFi.localIP();
+    snprintf(url, sizeof(url), "http://%s/", mia.toString().c_str());
+    qrGenerar(url);
+    snprintf(l1, sizeof(l1), "%s", mia.toString().c_str());
+    dibujarQRConTexto("Este equipo", "Configuracion en", l1, "[UP/DWN] MEDIBOT");
+  } else {
+    if (n.ip == 0) {
+      u8g2.setFont(u8g2_font_helvB08_tr);
+      drawCenteredStr(10, "CODIGO QR");
+      u8g2.setFont(u8g2_font_6x10_tr);
+      drawCenteredStr(32, "MEDIBOT sin localizar");
+      drawCenteredStr(44, "Menu > MEDIBOT (red)");
+      u8g2.setFont(u8g2_font_4x6_tr);
+      drawCenteredStr(63, "[UP/DWN] Este equipo  [BACK]");
+      return;
+    }
+    const IPAddress ip(n.ip);
+    snprintf(url, sizeof(url), "http://%s:%u", ip.toString().c_str(), (unsigned)n.puerto);
+    qrGenerar(url);
+    snprintf(l1, sizeof(l1), "%s", ip.toString().c_str());
+    snprintf(l2, sizeof(l2), "puerto %u", (unsigned)n.puerto);
+    dibujarQRConTexto("MEDIBOT", l1, l2, "[UP/DWN] Este equipo");
+  }
+}
+
 void drawTriageResult() {
   u8g2.setFont(u8g2_font_helvB08_tr);
   char buf[36];
+  if (resultPage == 2) {
+    // El resultado en QR, para llevarselo en el movil sin apuntarlo.
+    snprintf(buf, sizeof(buf), "MEDIBOT %dbpm SpO2 %d%%", patientBPM, patientSpO2);
+    qrGenerar(buf);
+    char l1[20], l2[20];
+    snprintf(l1, sizeof(l1), "Pulso %d bpm", patientBPM);
+    snprintf(l2, sizeof(l2), "SpO2 %d%%", patientSpO2);
+    dibujarQRConTexto("Tu resultado", l1, l2, "[OK] Inicio");
+    return;
+  }
   if (resultPage == 0) {
     drawCenteredStr(10, "TUS RESULTADOS");
     u8g2.drawHLine(0, 12, 128);
@@ -2452,7 +2612,7 @@ void drawTriageResult() {
     u8g2.drawStr(2, 41, diagnosis2);
     u8g2.setFont(u8g2_font_4x6_tr);
     drawCenteredStr(55, "Orientativo, no es diagnostico");
-    drawCenteredStr(63, "[OK] Inicio  [UP/DWN] Valores");
+    drawCenteredStr(63, "[OK] Inicio  [DWN] Codigo QR");
   }
 }
 
@@ -2566,6 +2726,11 @@ void renderUI() {
 
     case STATE_IDLE_FACE:
       drawAvatar(currentEmotion, animFrame, 64, 32, 1.0f);
+      // Una pista abajo del todo: como se empieza. Y si el teclado se ha dado
+      // por desconectado, que se vea aqui en vez de parecer que "no responde".
+      u8g2.setFont(u8g2_font_4x6_tr);
+      drawCenteredStr(63, keypad.desconectado ? "Teclado sin conectar (GPIO34)"
+                                              : "[OK] Medir   [otro] Menu");
       break;
 
     case STATE_MENU:    drawMenu();        break;
@@ -2624,6 +2789,10 @@ void renderUI() {
     case STATE_TRIAGE_RESULT:
       drawTriageResult();
       break;
+
+    case STATE_QR:
+      drawQRScreen();
+      break;
   }
 
   u8g2.sendBuffer();
@@ -2662,6 +2831,36 @@ static void abortMeasurement(const char *motivo) {
 // =====================================================================
 // 7. ENTRADA DE USUARIO
 // =====================================================================
+// Arranca el auto-chequeo. Lo llaman el menu, OK sobre la cara de reposo, el
+// pulsador de MEDIR y el boton "Medir" de la pagina web: un solo sitio para
+// que todos hagan exactamente lo mismo.
+void empezarMedida() {
+  lastInteraction = millis();
+  needsRedraw = true;
+  if (!hwMaxOk) {
+    snprintf(errorDetail, sizeof(errorDetail), "Sensor de pulso ausente");
+    currentEmotion = EMOTION_SAD;
+    setState(STATE_SIGNAL_ERROR);
+    return;
+  }
+  patientBPM = 0; patientSpO2 = 0;
+  resultPage = 0;
+  currentEmotion = EMOTION_LOOK_DOWN;
+  setState(STATE_TRIAGE_FINGER_REQ);
+}
+
+// ¿Se puede arrancar una medida desde esta pantalla con el pulsador?
+static bool puedeEmpezarMedida() {
+  switch (currentState) {
+    case STATE_IDLE_FACE: case STATE_MENU: case STATE_TRIAGE_RESULT:
+    case STATE_SIGNAL_ERROR: case STATE_HISTORY: case STATE_ABOUT:
+    case STATE_QR: case STATE_MEDIBOT:
+      return true;
+    default:                                 // midiendo, diagnostico, asistente
+      return false;
+  }
+}
+
 void processInputs(Button btn) {
   if (btn == BTN_NONE) return;
   lastInteraction = millis();
@@ -2672,7 +2871,10 @@ void processInputs(Button btn) {
       break;
 
     case STATE_IDLE_FACE:
-      setState(STATE_MENU);
+      // OK sobre la cara = medir, directamente. Es lo que hace casi todo el
+      // mundo al acercarse al equipo; el menu queda para el resto de teclas.
+      if (btn == BTN_OK) empezarMedida();
+      else               setState(STATE_MENU);
       break;
 
     case STATE_MENU:
@@ -2681,12 +2883,7 @@ void processInputs(Button btn) {
       if (btn == BTN_BACK) { currentEmotion = EMOTION_NORMAL; setState(STATE_IDLE_FACE); }
       if (btn == BTN_OK) {
         switch (mainMenuSelection) {
-          case 0:
-            if (!hwMaxOk) { snprintf(errorDetail, sizeof(errorDetail), "Sensor de pulso ausente");
-                            currentEmotion = EMOTION_SAD; setState(STATE_SIGNAL_ERROR); }
-            else { patientBPM = 0; patientSpO2 = 0;
-                   currentEmotion = EMOTION_LOOK_DOWN; setState(STATE_TRIAGE_FINGER_REQ); }
-            break;
+          case 0: empezarMedida(); break;
           case 1: resultPage = 0; setState(STATE_MEDIBOT); break;
           case 2: historyPage = 0; setState(STATE_HISTORY); break;
           case 3:
@@ -2695,9 +2892,15 @@ void processInputs(Button btn) {
             setState(STATE_DIAG);
             break;
           case 4: keypadWizardStart(); setState(STATE_KEYPAD_WIZARD); break;
+          case 5: qrPagina = 0; setState(STATE_QR); break;
           default: aboutPage = 0; setState(STATE_ABOUT); break;
         }
       }
+      break;
+
+    case STATE_QR:
+      if (btn == BTN_UP || btn == BTN_DOWN) qrPagina = (qrPagina == 0) ? 1 : 0;
+      if (btn == BTN_BACK || btn == BTN_OK) setState(STATE_MENU);
       break;
 
     case STATE_HISTORY:
@@ -2730,7 +2933,9 @@ void processInputs(Button btn) {
       break;
 
     case STATE_TRIAGE_RESULT:
-      if (btn == BTN_UP || btn == BTN_DOWN) resultPage = (resultPage == 0) ? 1 : 0;
+      // Tres paginas: valores, posibles causas y el resultado en QR.
+      if (btn == BTN_DOWN) resultPage = (resultPage + 1) % 3;
+      if (btn == BTN_UP)   resultPage = (resultPage + 2) % 3;
       if (btn == BTN_BACK || btn == BTN_OK) { currentEmotion = EMOTION_NORMAL; setState(STATE_MENU); }
       break;
 
@@ -3019,6 +3224,7 @@ static void webPagina() {
   // ---- Acciones ----
   webTexto(
     "<div class=\"c\" style=\"margin-top:14px;max-width:1100px\"><h2>Acciones</h2>"
+    "<form method=\"POST\" action=\"/medir\"><button>Medir ahora</button></form>"
     "<form method=\"POST\" action=\"/buscar\"><button>Volver a buscar MEDIBOT</button></form>"
     "<form method=\"POST\" action=\"/calibrar\"><button>Calibrar el teclado</button></form>"
     "<form method=\"POST\" action=\"/reiniciar\"><button>Reiniciar el ESP32</button></form>"
@@ -3075,6 +3281,16 @@ static void webAccionBuscar() {
   webVolver("<p>Buscando MEDIBOT otra vez...</p>");
 }
 
+static void webAccionMedir() {
+  if (puedeEmpezarMedida()) {
+    empezarMedida();
+    webVolver("<p>Auto-chequeo iniciado: <b>coloca el dedo en el sensor</b>.</p>");
+  } else {
+    webVolver("<p>Ahora mismo no se puede: el equipo esta midiendo, en Diagnostico "
+              "o en el asistente del teclado.</p>");
+  }
+}
+
 static void webAccionCalibrar() {
   sensorReposo();
   keypadWizardStart();
@@ -3100,6 +3316,7 @@ static void webNoEncontrado() {
 static void webArrancar() {
   webServer.on("/", webPagina);
   webServer.on("/api", webApi);
+  webServer.on("/medir", HTTP_POST, webAccionMedir);
   webServer.on("/buscar", HTTP_POST, webAccionBuscar);
   webServer.on("/calibrar", HTTP_POST, webAccionCalibrar);
   webServer.on("/reiniciar", HTTP_POST, webAccionReiniciar);
@@ -3146,6 +3363,7 @@ void setup() {
   analogReadResolution(ADC_BITS);
   analogSetPinAttenuation(KEYPAD_PIN, ADC_ATTENUATION);
   pinMode(KEYPAD_PIN, INPUT);
+  pinMode(MEDIR_PIN, INPUT_PULLUP);   // pulsador de medir (opcional)
 
   memcpy(KEYPAD_MAP_DEFECTO, KEYPAD_MAP, sizeof(KEYPAD_MAP));   // red de seguridad
 
@@ -3249,6 +3467,16 @@ void loop() {
       const Button ev = keypadPoll();
       if (ev != BTN_NONE) processInputs(ev);
     }
+    // El pulsador de MEDIR arranca el chequeo desde cualquier pantalla que no
+    // sea una medida en curso, el diagnostico o el asistente.
+    if (botonMedirPulsado()) {
+      if (puedeEmpezarMedida()) {
+        Serial.println(F("[MEDIR] Pulsador: empieza el auto-chequeo"));
+        empezarMedida();
+      } else {
+        Serial.printf("[MEDIR] Ignorado: el equipo esta ocupado (estado %d)\n", (int)currentState);
+      }
+    }
   }
 
   // --- 9.3 Reloj de animacion (independiente de la logica de estados) ---
@@ -3327,9 +3555,17 @@ void loop() {
   // Raspberry por la red puede pasar del minuto, y probar el sensor con el
   // dedo tambien lleva su rato).
   const bool mirando = (currentState == STATE_DIAG || currentState == STATE_MEDIBOT);
+  // OJO con la resta: lastInteraction se pone con millis() dentro del manejo de
+  // teclas, que se lee UNOS MICROSEGUNDOS DESPUES que el 'now' de arriba. Con
+  // suerte lastInteraction queda 1 ms POR DELANTE de now y la resta sin signo
+  // se desborda a ~4.290 millones > el tope, disparando el timeout en el acto:
+  // el menu se caia solo a la cara casi en cada pulsacion (la interfaz "se
+  // quedaba bloqueada en la cara"). Por eso se calcula el tiempo inactivo con
+  // guarda: si last va por delante de now, el tiempo inactivo es 0.
+  const uint32_t inactivo = (now >= lastInteraction) ? (now - lastInteraction) : 0;
   if (!midida && !mirando && currentState != STATE_IDLE_FACE &&
       currentState != STATE_BOOT && currentState != STATE_KEYPAD_WIZARD &&
-      (now - lastInteraction > INACTIVITY_TIMEOUT)) {
+      inactivo > INACTIVITY_TIMEOUT) {
     currentEmotion = EMOTION_NORMAL;
     // Al quedarse solo, el menu vuelve al principio: el siguiente que llegue
     // se lo encuentra en la primera entrada y no donde lo dejo el anterior.
