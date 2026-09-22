@@ -3110,9 +3110,11 @@ def _sin_cache(respuesta):
     return respuesta
 
 
-#  Microfono de la camara. Se crea uno solo: cada peticion a /audio lanza su
-#  propio arecord y lo mata al terminar, asi que el objeto solo guarda la
-#  configuracion, no el proceso compartido.
+#  Microfono de la camara. Uno solo para todo el servidor: ALSA no deja abrir
+#  el microfono dos veces, asi que hay UNA captura y el objeto la reparte
+#  entre todas las peticiones a /audio (el movil y el PC pueden escuchar a la
+#  vez, y cada uno oye el audio completo). El microfono se suelta cuando se
+#  va el ultimo. Ver medibot_audio.py.
 microfono = medibot_audio.Microfono()
 
 #  URL de la otra interfaz. Vacia = el navegador la deduce del mismo host con

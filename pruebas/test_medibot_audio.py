@@ -15,6 +15,8 @@ import io
 import os
 import struct
 import sys
+import threading
+import time
 import unittest
 import wave
 
@@ -239,7 +241,9 @@ class PruebasMicrofono(unittest.TestCase):
                         "Hay que matar arecord al cortar: si no, se queda "
                         "agarrado al microfono y a la segunda no se oye nada")
 
-    def test_se_cierra_aunque_el_navegador_corte_a_mitad(self):
+    def test_se_cierra_aunque_la_captura_falle(self):
+        """Si arecord truena, la peticion TERMINA (no se queda colgada) y el
+        microfono se suelta. El motivo se guarda para poder explicarlo."""
         class ProcesoQueFalla:
             def __init__(self):
                 self.stdout = self
@@ -258,9 +262,261 @@ class PruebasMicrofono(unittest.TestCase):
         m = ma.Microfono(dispositivo="plughw:1,0")
         falso = ProcesoQueFalla()
         m.abrir = lambda: setattr(m, "proceso", falso)
-        with self.assertRaises(OSError):
-            list(m.trozos())
+        #  No debe colgarse esperando audio que ya no va a llegar.
+        self.assertEqual(len(list(m.trozos())), 1)   # solo la cabecera
         self.assertTrue(falso.terminado, "arecord debe morir igualmente")
+        self.assertIn("el cliente colgo", m.estado()["ultimo_fallo"],
+                      "el motivo del corte tiene que llegar a la web")
+
+    def test_el_motivo_de_arecord_llega_a_la_web(self):
+        """Un microfono ocupado o una camara desenchufada tienen que salir
+        con el error de ALSA, no como un 'no se pudo escuchar' pelado."""
+        class ProcesoQueMuere:
+            def __init__(self):
+                self.stdout = io.BytesIO(b"")        # muere sin dar audio
+                self.stderr = io.BytesIO(
+                    b"arecord: main:830: audio open error: "
+                    b"Device or resource busy\n")
+
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                return 1
+
+        m = ma.Microfono(dispositivo="plughw:1,0")
+        m.abrir = lambda: setattr(m, "proceso", ProcesoQueMuere())
+        list(m.trozos())
+        self.assertIn("Device or resource busy", m.estado()["ultimo_fallo"])
+        #  Y en una Pi de verdad (audio activado y arecord instalado) ESE es
+        #  el motivo que se ensena en la web al pulsar Escuchar.
+        anterior = os.environ.get("MEDIBOT_AUDIO")
+        hay_arecord_real = ma.hay_arecord
+        os.environ["MEDIBOT_AUDIO"] = "1"
+        ma.hay_arecord = lambda: True
+        try:
+            self.assertTrue(m.disponible())
+            self.assertIn("Device or resource busy", m.estado()["motivo"])
+        finally:
+            ma.hay_arecord = hay_arecord_real
+            if anterior is None:
+                os.environ.pop("MEDIBOT_AUDIO", None)
+            else:
+                os.environ["MEDIBOT_AUDIO"] = anterior
+
+
+class PruebasVariosOyentes(unittest.TestCase):
+    """Dos navegadores a la vez: el movil y el PC, o una recarga de pagina
+    (el navegador abre la peticion nueva antes de soltar la vieja).
+
+    Antes las dos peticiones leian del MISMO tubo de arecord, y eso daba tres
+    fallos: cada una se llevaba solo parte de las muestras (audio a saltos),
+    al cerrar una se mataba la captura de la otra, y al que se quedaba le
+    reventaba el generador. Estas pruebas fijan ese comportamiento.
+    """
+
+    class Grifo:
+        """Doble de arecord que entrega audio SOLO cuando se le pide.
+
+        Un doble que suelte audio a toda velocidad haria las pruebas una
+        loteria (segun quien llegue antes se pierde un trozo o no). Con un
+        semaforo, la prueba decide exactamente cuando entra sonido y cuanto,
+        y el resultado es siempre el mismo."""
+
+        TAM = 4096
+
+        def __init__(self):
+            self.stdout = self
+            self.stderr = io.BytesIO()
+            self.permisos = threading.Semaphore(0)
+            self.entregados = 0
+            self.terminado = False
+            self._fin = False
+
+        def dejar_pasar(self, cuantos=1):
+            for _ in range(cuantos):
+                self.permisos.release()
+
+        def cortar(self):
+            """Como una camara desenchufada: se acaba el audio."""
+            self._fin = True
+            self.permisos.release()
+
+        def trozo(self, n):
+            """Trozo numero n, reconocible: relleno con el byte n."""
+            return bytes([n % 251 + 1]) * self.TAM
+
+        def read(self, n):
+            self.permisos.acquire()
+            if self._fin or self.terminado:
+                return b""
+            self.entregados += 1
+            return self.trozo(self.entregados)
+
+        def terminate(self):
+            self.terminado = True
+            self.permisos.release()      # desbloquear al hilo de reparto
+
+        def wait(self, timeout=None):
+            return 0
+
+    def _microfono(self):
+        grifo = self.Grifo()
+        m = ma.Microfono(dispositivo="plughw:1,0")
+        m.abrir = lambda: setattr(m, "proceso", grifo)
+        return m, grifo
+
+    def _esperar(self, condicion, mensaje, limite=5.0):
+        t0 = time.time()
+        while time.time() - t0 < limite:
+            if condicion():
+                return
+            time.sleep(0.01)
+        self.fail(mensaje)
+
+    def test_cada_oyente_recibe_TODO_el_audio(self):
+        """El fallo que se oia: con dos oyentes, cada uno recibia la mitad de
+        las muestras y los dos oian el audio troceado."""
+        m, grifo = self._microfono()
+        a, b = m.trozos(), m.trozos()
+        self.assertTrue(next(a).startswith(b"RIFF"))   # suscrito
+        self.assertTrue(next(b).startswith(b"RIFF"))   # suscrito
+        self.assertEqual(m.estado()["oyentes"], 2)
+
+        grifo.dejar_pasar(8)
+        esperado = [grifo.trozo(i) for i in range(1, 9)]
+        self.assertEqual([next(a) for _ in range(8)], esperado,
+                         "al oyente A le falta audio")
+        self.assertEqual([next(b) for _ in range(8)], esperado,
+                         "al oyente B le falta audio (¿se lo reparten?)")
+        a.close(); b.close()
+
+    def test_una_sola_captura_para_los_dos(self):
+        """ALSA no deja abrir plughw: dos veces: el segundo arecord moriria
+        con 'Device or resource busy'."""
+        m, grifo = self._microfono()
+        abiertas = []
+        abrir_real = m.abrir
+        m.abrir = lambda: (abiertas.append(1), abrir_real())
+        oyentes = [m.trozos() for _ in range(3)]
+        for o in oyentes:
+            next(o)
+        self.assertEqual(sum(abiertas), 1,
+                         "solo el primer oyente abre el microfono")
+        self.assertEqual(m.estado()["oyentes"], 3)
+        for o in oyentes:
+            o.close()
+
+    def test_que_se_vaya_uno_no_corta_al_otro(self):
+        """El fallo de antes: al cerrar una pestana se mataba la captura
+        compartida, al otro se le cortaba el sonido y su peticion reventaba
+        con AttributeError."""
+        m, grifo = self._microfono()
+        queda = m.trozos()
+        next(queda)
+        grifo.dejar_pasar(2)
+        self.assertEqual(next(queda), grifo.trozo(1))
+        self.assertEqual(next(queda), grifo.trozo(2))
+
+        de_paso = m.trozos()          # el segundo entra...
+        next(de_paso)
+        de_paso.close()               # ...y cierra la pestana enseguida
+
+        self.assertFalse(grifo.terminado,
+                         "no hay que soltar el microfono: queda un oyente")
+        grifo.dejar_pasar(2)
+        self.assertEqual(next(queda), grifo.trozo(3),
+                         "al irse el otro oyente se corto el audio")
+        self.assertEqual(next(queda), grifo.trozo(4))
+        queda.close()
+
+    def test_el_microfono_se_suelta_al_irse_el_ULTIMO(self):
+        m, grifo = self._microfono()
+        uno, dos = m.trozos(), m.trozos()
+        next(uno); next(dos)
+        self.assertEqual(m.estado()["oyentes"], 2)
+
+        uno.close()
+        self.assertFalse(grifo.terminado, "aun queda uno escuchando")
+        self.assertEqual(m.estado()["oyentes"], 1)
+
+        dos.close()
+        self.assertTrue(grifo.terminado,
+                        "al irse el ultimo hay que soltar el microfono")
+        self.assertEqual(m.estado()["oyentes"], 0)
+        self.assertIsNone(m.proceso, "no puede quedar un arecord colgando")
+
+    def test_una_recarga_de_pagina_vuelve_a_abrir_el_microfono(self):
+        """Tras irse todos, el siguiente que llegue tiene que abrir una
+        captura NUEVA y no engancharse a la que acaba de morir."""
+        m, primer_grifo = self._microfono()
+        uno = m.trozos(); next(uno); uno.close()
+        self.assertTrue(primer_grifo.terminado)
+
+        segundo_grifo = self.Grifo()
+        m.abrir = lambda: setattr(m, "proceso", segundo_grifo)
+        dos = m.trozos(); next(dos)
+        segundo_grifo.dejar_pasar(1)
+        self.assertEqual(next(dos), segundo_grifo.trozo(1),
+                         "la segunda escucha no suena")
+        dos.close()
+
+    def test_un_oyente_lento_no_atasca_a_los_demas(self):
+        """Un movil con mala cobertura no puede congelar al PC ni llenar el
+        tubo de arecord: se le tiran los trozos viejos y se sigue."""
+        m, grifo = self._microfono()
+        lento, rapido = m.trozos(), m.trozos()
+        next(lento); next(rapido)          # los dos suscritos
+        total = ma.COLA_MAXIMA + 5         # mas de lo que cabe en una cola
+
+        #  El oyente rapido consume a la vez que entra el audio, como un
+        #  navegador de verdad; el lento no consume NADA.
+        recibido = []
+        listo = threading.Event()
+
+        def consumir():
+            for _ in range(total):
+                recibido.append(next(rapido))
+            listo.set()
+
+        hilo = threading.Thread(target=consumir, daemon=True)
+        hilo.start()
+        #  Trozo a trozo, esperando a que el rapido lo recoja: arecord
+        #  entrega el audio a 32 kB/s, no de golpe, y asi la prueba mide lo
+        #  que interesa (que el lento no atasca) y no una carrera.
+        for i in range(1, total + 1):
+            grifo.dejar_pasar(1)
+            self._esperar(lambda i=i: len(recibido) >= i,
+                          f"el oyente rapido se quedo en el trozo {i}")
+
+        self.assertTrue(listo.wait(timeout=10),
+                        f"el oyente lento atasco al rapido: solo le llegaron "
+                        f"{len(recibido)} de {total} trozos")
+        self.assertEqual(recibido, [grifo.trozo(i) for i in range(1, total + 1)],
+                         "el oyente rapido tiene que recibirlo todo igual")
+        self.assertEqual(grifo.entregados, total,
+                         "la captura no puede quedarse parada por el lento")
+
+        #  Al lento se le tiraron los trozos mas viejos (audio de hace dos
+        #  segundos, que ya no sirve), pero sigue recibiendo lo ULTIMO.
+        suyos = [next(lento) for _ in range(ma.COLA_MAXIMA)]
+        self.assertEqual(suyos[-1], grifo.trozo(total),
+                         "el oyente lento tiene que recibir el audio reciente")
+        self.assertNotIn(grifo.trozo(1), suyos,
+                         "al lento se le tiran los trozos viejos, no los nuevos")
+        lento.close(); rapido.close()
+
+    def test_si_se_corta_la_captura_se_enteran_todos(self):
+        """Camara desenchufada: las peticiones tienen que TERMINAR, no
+        quedarse colgadas esperando audio que ya no llega."""
+        m, grifo = self._microfono()
+        a, b = m.trozos(), m.trozos()
+        next(a); next(b)
+        grifo.cortar()
+        self.assertEqual(list(a), [], "la peticion de A no termino")
+        self.assertEqual(list(b), [], "la peticion de B no termino")
+        self.assertEqual(m.estado()["oyentes"], 0)
+        self.assertIsNone(m.proceso)
 
 
 if __name__ == "__main__":

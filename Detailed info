@@ -262,6 +262,13 @@ boton sale desactivado y **dice por que** al pasar el raton.
 | `MEDIBOT_AUDIO_HZ` | `16000` | frecuencia de muestreo |
 | `MEDIBOT_AUDIO_CANALES` | `1` | la C270 es mono |
 
+**Varios escuchando a la vez** (el movil y el PC, o una recarga de pagina):
+ALSA no deja abrir el mismo microfono dos veces, asi que se lanza **un solo**
+`arecord` y se reparte entre todos. Cada uno recibe el audio completo, que
+uno cierre la pestana no corta a los demas, y el microfono se suelta cuando
+se va el ultimo. A quien se le atasque la conexion se le tiran los trozos
+viejos en vez de hacer esperar a los demas.
+
 Se manda **WAV en directo** (`arecord` -> HTTP). Se eligio asi porque
 `alsa-utils` ya viene con Raspberry Pi OS: nada que compilar, ni pyaudio ni
 WebRTC. La autodeteccion prefiere un dispositivo USB, porque la tarjeta 0 de
