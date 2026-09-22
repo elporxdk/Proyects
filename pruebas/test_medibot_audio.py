@@ -252,8 +252,8 @@ class PruebasMicrofono(unittest.TestCase):
         """Se sustituye arecord por un doble: se comprueba el flujo sin
         tarjeta de sonido."""
         class ProcesoFalso:
-            def __init__(self):
-                self.stdout = io.BytesIO(b"\x01\x02" * 4000)
+            def __init__(self, audio):
+                self.stdout = io.BytesIO(audio)
                 self.stderr = io.BytesIO()
                 self.terminado = False
 
@@ -264,13 +264,17 @@ class PruebasMicrofono(unittest.TestCase):
                 return 0
 
         m = ma.Microfono(dispositivo="plughw:1,0")
-        falso = ProcesoFalso()
+        #  Que quepa en el colchon del oyente: de golpe, sin ritmo real, un
+        #  audio mas largo que el colchon se recorta a proposito (ver
+        #  COLCHON_SEGUNDOS). Eso se prueba aparte; aqui interesa el formato.
+        audio = b"\x01\x02" * (ma.TROZO * (ma.COLA_MAXIMA - 1) // 2)
+        falso = ProcesoFalso(audio)
         m.abrir = lambda: setattr(m, "proceso", falso)
 
         trozos = list(m.trozos())
         self.assertTrue(trozos[0].startswith(b"RIFF"))
         self.assertEqual(len(trozos[0]), 44)
-        self.assertEqual(b"".join(trozos[1:]), b"\x01\x02" * 4000)
+        self.assertEqual(b"".join(trozos[1:]), audio)
         self.assertTrue(falso.terminado,
                         "Hay que matar arecord al cortar: si no, se queda "
                         "agarrado al microfono y a la segunda no se oye nada")
@@ -351,7 +355,7 @@ class PruebasVariosOyentes(unittest.TestCase):
         semaforo, la prueba decide exactamente cuando entra sonido y cuanto,
         y el resultado es siempre el mismo."""
 
-        TAM = 4096
+        TAM = ma.TROZO
 
         def __init__(self):
             self.stdout = self
@@ -411,11 +415,13 @@ class PruebasVariosOyentes(unittest.TestCase):
         self.assertTrue(next(b).startswith(b"RIFF"))   # suscrito
         self.assertEqual(m.estado()["oyentes"], 2)
 
-        grifo.dejar_pasar(8)
-        esperado = [grifo.trozo(i) for i in range(1, 9)]
-        self.assertEqual([next(a) for _ in range(8)], esperado,
+        #  Lo que quepa en el colchon: mas de eso se recorta a proposito.
+        cuantos = ma.COLA_MAXIMA - 1
+        grifo.dejar_pasar(cuantos)
+        esperado = [grifo.trozo(i) for i in range(1, cuantos + 1)]
+        self.assertEqual([next(a) for _ in range(cuantos)], esperado,
                          "al oyente A le falta audio")
-        self.assertEqual([next(b) for _ in range(8)], esperado,
+        self.assertEqual([next(b) for _ in range(cuantos)], esperado,
                          "al oyente B le falta audio (¿se lo reparten?)")
         a.close(); b.close()
 
@@ -545,6 +551,171 @@ class PruebasVariosOyentes(unittest.TestCase):
         self.assertEqual(list(b), [], "la peticion de B no termino")
         self.assertEqual(m.estado()["oyentes"], 0)
         self.assertIsNone(m.proceso)
+
+
+class PruebasRetraso(unittest.TestCase):
+    """Que el audio de la camara se oiga AL MOMENTO.
+
+    Iba con mucho retraso y a peor cuanto mas rato llevaba abierto. Eran
+    tres cosas sumandose, y cada una tiene aqui su prueba para que no se
+    vuelvan a colar sin querer."""
+
+    def test_el_colchon_de_cada_oyente_es_pequeno(self):
+        """Era de 2 s: un tiron de wifi lo llenaba, se le soltaban al
+        navegador 2 s de golpe y ese retraso se quedaba puesto para siempre,
+        sumandose tiron tras tiron."""
+        segundos = ma.COLA_MAXIMA * ma.TROZO / 32000.0
+        self.assertLessEqual(segundos, 0.4,
+                             f"el colchon son {segundos:.2f} s: demasiado "
+                             f"retraso si se llena")
+        self.assertGreaterEqual(segundos, 0.1,
+                                "tan corto que cualquier hipo cortaria el audio")
+
+    def test_el_colchon_se_mide_en_segundos_no_en_trozos(self):
+        """Con un numero fijo de trozos, cambiar TROZO movia el retraso sin
+        que se notara al leer el codigo."""
+        self.assertEqual(ma.cola_maxima(16000, 1, 16), ma.COLA_MAXIMA)
+
+        #  Lo que tiene que salir igual son los SEGUNDOS, no el numero de
+        #  trozos: a mas frecuencia, mas trozos para el mismo colchon.
+        def segundos(hz, canales=1):
+            trozos = ma.cola_maxima(hz, canales, 16)
+            return trozos * ma.TROZO / float(hz * canales * 2)
+
+        for hz, canales in ((8000, 1), (16000, 1), (32000, 1), (44100, 2)):
+            with self.subTest(hz=hz, canales=canales):
+                self.assertAlmostEqual(
+                    segundos(hz, canales), ma.COLCHON_SEGUNDOS, delta=0.08,
+                    msg=f"a {hz} Hz el colchon se va a "
+                        f"{segundos(hz, canales):.2f} s")
+        self.assertGreaterEqual(ma.cola_maxima(8000, 1, 16), 2,
+                                "nunca menos de dos, o no hay colchon")
+
+    def test_los_trozos_son_cortos(self):
+        """4096 bytes son 128 ms que el sonido se pasaba esperando."""
+        ms = ma.TROZO / 32000.0 * 1000
+        self.assertLessEqual(ms, 40, f"trozos de {ms:.0f} ms: mucha espera")
+
+    def test_se_lee_sin_esperar_a_llenar_el_trozo(self):
+        """read() espera a juntar TROZO bytes enteros; read1() devuelve lo
+        que haya en cuanto lo hay. La diferencia, medida, eran 60 ms de
+        retraso medio."""
+        codigo = io.open(ma.__file__, encoding="utf-8").read()
+        self.assertIn('getattr(captura.proceso.stdout, "read1", None)', codigo)
+
+    def test_los_dobles_sin_read1_siguen_valiendo(self):
+        """El respaldo a read() tiene que funcionar: si no, esta prueba y
+        las demas estarian probando otra cosa."""
+        class SoloRead:
+            def __init__(self):
+                self.stdout = io.BytesIO(b"\x07\x08" * 200)
+                self.stderr = io.BytesIO()
+            def terminate(self): pass
+            def wait(self, timeout=None): return 0
+
+        self.assertFalse(hasattr(SoloRead().stdout, "read1_inexistente"))
+        m = ma.Microfono(dispositivo="plughw:1,0")
+        m.abrir = lambda: setattr(m, "proceso", SoloRead())
+        trozos = list(m.trozos())
+        self.assertEqual(b"".join(trozos[1:]), b"\x07\x08" * 200)
+
+    def test_arecord_no_se_guarda_medio_segundo_de_audio(self):
+        """El buffer de fabrica de ALSA ronda el medio segundo, y eso es
+        retraso puro: el sonido ya esta capturado pero no nos lo dan."""
+        m = ma.Microfono(dispositivo="plughw:1,0")
+        orden = m.orden()
+        self.assertIn("--buffer-time", orden)
+        buffer_us = int(orden[orden.index("--buffer-time") + 1])
+        self.assertLessEqual(buffer_us, 200000,
+                             f"{buffer_us/1000:.0f} ms de colchon en ALSA")
+        self.assertIn("--period-time", orden)
+        periodo_us = int(orden[orden.index("--period-time") + 1])
+        self.assertLess(periodo_us, buffer_us,
+                        "el periodo tiene que caber varias veces en el buffer")
+        self.assertGreaterEqual(periodo_us, 10000,
+                                "un periodo minusculo frie la CPU de la Pi")
+
+    def test_se_puede_dejar_el_buffer_de_fabrica(self):
+        """Si una Pi muy cargada entrecorta el audio, hay que poder volver
+        atras sin tocar el codigo."""
+        previo = os.environ.get("MEDIBOT_AUDIO_BUFFER_MS")
+        os.environ["MEDIBOT_AUDIO_BUFFER_MS"] = "0"
+        try:
+            orden = ma.Microfono(dispositivo="plughw:1,0").orden()
+            self.assertNotIn("--buffer-time", orden)
+        finally:
+            os.environ.pop("MEDIBOT_AUDIO_BUFFER_MS", None)
+            if previo is not None:
+                os.environ["MEDIBOT_AUDIO_BUFFER_MS"] = previo
+
+    def test_y_tambien_subirlo(self):
+        previo = os.environ.get("MEDIBOT_AUDIO_BUFFER_MS")
+        os.environ["MEDIBOT_AUDIO_BUFFER_MS"] = "300"
+        try:
+            orden = ma.Microfono(dispositivo="plughw:1,0").orden()
+            self.assertEqual(orden[orden.index("--buffer-time") + 1], "300000")
+        finally:
+            os.environ.pop("MEDIBOT_AUDIO_BUFFER_MS", None)
+            if previo is not None:
+                os.environ["MEDIBOT_AUDIO_BUFFER_MS"] = previo
+
+
+class PruebasSoloEnCasa(unittest.TestCase):
+    """Hablar, solo desde la red de casa."""
+
+    def test_los_de_casa_pueden(self):
+        for ip in ("192.168.1.30", "10.0.0.5", "172.16.4.9", "127.0.0.1",
+                   "169.254.3.1"):
+            with self.subTest(ip=ip):
+                self.assertTrue(ma.es_local(ip, {}))
+
+    def test_los_de_fuera_no(self):
+        #  Direcciones publicas de verdad. Ojo: Python considera "privados"
+        #  tambien los rangos reservados para documentacion (203.0.113.x y
+        #  compania), que no son internet ni son una LAN; como nunca llega
+        #  trafico real desde ellos, da igual de que lado caigan.
+        for ip in ("8.8.8.8", "1.1.1.1", "93.184.216.34", "140.82.121.4"):
+            with self.subTest(ip=ip):
+                self.assertFalse(ma.es_local(ip, {}),
+                                 f"{ip} es una direccion de internet")
+
+    def test_por_el_tunel_NO_cuenta_como_local(self):
+        """LO IMPORTANTE: el tunel corre en la propia Pi, asi que todo lo
+        que llega por el se ve como 127.0.0.1. Mirando solo la IP,
+        cualquiera de internet pasaria por vecino."""
+        for cabecera in ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For",
+                         "X-Real-IP", "Forwarded", "X-Forwarded-Host"):
+            with self.subTest(cabecera=cabecera):
+                self.assertFalse(ma.es_local("127.0.0.1", {cabecera: "8.8.8.8"}),
+                                 f"{cabecera} delata que hubo un salto por fuera")
+
+    def test_una_ip_ilegible_no_cuela(self):
+        for ip in ("", None, "no-es-una-ip", "999.1.1.1"):
+            with self.subTest(ip=ip):
+                self.assertFalse(ma.es_local(ip, {}))
+
+    def test_el_altavoz_lo_aplica(self):
+        a = ma.Altavoz(dispositivo="plughw:0,0")
+        self.assertTrue(a.solo_lan, "viene cerrado a internet por defecto")
+        self.assertEqual(a.permite("192.168.1.30", {}), (True, ""))
+        puede, motivo = a.permite("127.0.0.1", {"CF-Connecting-IP": "8.8.8.8"})
+        self.assertFalse(puede)
+        self.assertIn("red de casa", motivo)
+        self.assertIn("MEDIBOT_VOZ_SOLO_LAN=0", motivo,
+                      "hay que decir como abrirlo si de verdad se quiere")
+
+    def test_se_puede_abrir_a_proposito(self):
+        previo = os.environ.get("MEDIBOT_VOZ_SOLO_LAN")
+        os.environ["MEDIBOT_VOZ_SOLO_LAN"] = "0"
+        try:
+            a = ma.Altavoz(dispositivo="plughw:0,0")
+            self.assertFalse(a.solo_lan)
+            self.assertEqual(a.permite("8.8.8.8", {}), (True, ""))
+            self.assertFalse(a.estado()["solo_lan"])
+        finally:
+            os.environ.pop("MEDIBOT_VOZ_SOLO_LAN", None)
+            if previo is not None:
+                os.environ["MEDIBOT_VOZ_SOLO_LAN"] = previo
 
 
 class PruebasAltavoces(unittest.TestCase):

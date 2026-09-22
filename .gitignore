@@ -44,3 +44,11 @@ credenciales*.json
 pruebas/banco_firmware/.build/
 pruebas/banco_firmware/.libs/
 pruebas/banco_firmware/nvs*.dat*
+
+# Certificado propio para servir la web por HTTPS en casa (medibot_tls.py).
+# La clave privada NO se sube a ningun sitio, y el certificado lleva dentro
+# las IPs de la Pi de cada uno: cada instalacion se genera el suyo.
+medibot/certificados/
+*.key
+*.crt
+*.pem

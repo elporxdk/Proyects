@@ -269,6 +269,7 @@ boton sale desactivado y **dice por que** al pasar el raton.
 | `MEDIBOT_AUDIO_DISPOSITIVO` | autodetectar | p.ej. `plughw:1,0` |
 | `MEDIBOT_AUDIO_HZ` | `16000` | frecuencia de muestreo |
 | `MEDIBOT_AUDIO_CANALES` | `1` | la C270 es mono |
+| `MEDIBOT_AUDIO_BUFFER_MS` | `100` | colchon de ALSA; `0` = el de fabrica |
 
 **Varios escuchando a la vez** (el movil y el PC, o una recarga de pagina):
 ALSA no deja abrir el mismo microfono dos veces, asi que se lanza **un solo**
@@ -276,6 +277,26 @@ ALSA no deja abrir el mismo microfono dos veces, asi que se lanza **un solo**
 uno cierre la pestana no corta a los demas, y el microfono se suelta cuando
 se va el ultimo. A quien se le atasque la conexion se le tiran los trozos
 viejos en vez de hacer esperar a los demas.
+
+**Se oye al momento.** El audio iba con mucho retraso, y a peor cuanto mas
+rato llevaba abierto. Eran cuatro cosas sumandose, arregladas:
+
+- `arecord` guardaba medio segundo en el buffer de ALSA antes de darnos
+  nada. Ahora se le pide `--buffer-time` de 100 ms (`MEDIBOT_AUDIO_BUFFER_MS`
+  lo sube si una Pi muy cargada entrecorta el sonido, o `0` deja el de
+  fabrica).
+- Se leia en bloques de 128 ms **esperando a llenarlos**. Ahora se lee lo que
+  haya en cuanto lo hay: medido, de 61 ms de media a 1 ms.
+- Cada oyente tenia un colchon de **2 s**. Un tiron de wifi lo llenaba, se le
+  soltaban al navegador 2 s de golpe y, como el `<audio>` reproduce a 1x sin
+  saltarse nada, **ese retraso se quedaba puesto para siempre** y se sumaba
+  tiron tras tiron. Ahora el colchon es de 0,25 s.
+- La pagina vigila la distancia al directo: si va poco atras acelera un 4%
+  (no se nota), y si va mas de un segundo salta al directo. Ahi es donde se
+  quedaba aparcado el retraso, asi que esto es lo que mas se nota.
+
+Si el audio sale entrecortado en vez de retrasado, es lo contrario: sube
+`MEDIBOT_AUDIO_BUFFER_MS` (200, 300...) hasta que se estabilice.
 
 Se manda **WAV en directo** (`arecord` -> HTTP). Se eligio asi porque
 `alsa-utils` ya viene con Raspberry Pi OS: nada que compilar, ni pyaudio ni
@@ -300,15 +321,38 @@ speaker-test -D plughw:0,0 -c 1 -t sine -l 1   # comprobar que suena
 python3 medibot/main.py
 ```
 
-**Hace falta HTTPS.** No es cosa del robot: los navegadores solo dejan
-capturar tu microfono en contexto seguro. Por `http://<ip-de-la-pi>:5000`
-**no** se puede hablar por mucho que el robot este listo, y el boton lo dice
-al pulsarlo. Sirven:
+**Hace falta HTTPS, y lo sirve la propia Pi.** No es cosa del robot: los
+navegadores solo dejan capturar tu microfono en contexto seguro, asi que por
+`http://<ip-de-la-pi>:5000` **no** se puede hablar. Para eso la Pi sirve la
+misma web tambien por HTTPS, con un certificado que **se genera ella sola**:
 
-- el **tunel de Cloudflare** (ver mas abajo), que ya da HTTPS; o
-- `http://localhost:5000` en la propia Pi.
+```
+https://<ip-de-la-pi>:5443
+```
 
-Escuchar no tiene ese problema: eso es solo reproducir.
+La direccion sale por consola al arrancar, y el boton la dice al pulsarlo.
+**No hace falta nada de fuera**: ni el tunel de Cloudflare, ni internet, ni
+ningun servicio. Solo `openssl`, que ya viene con Raspberry Pi OS.
+
+La primera vez el navegador avisa ("la conexion no es privada"): es normal,
+el certificado se lo firma la Pi a si misma. Se acepta una vez
+(*Configuracion avanzada -> Continuar*) y ese dispositivo ya queda. A partir
+de ahi la pagina **es** contexto seguro y el microfono funciona.
+
+El certificado lleva dentro las IPs de la Pi y **se rehace solo** si el
+router le da otra. Se guarda en `medibot/certificados/` (fuera del
+repositorio: una clave privada no se sube a ningun sitio).
+
+Escuchar no tiene ese problema: eso es solo reproducir, y sigue yendo por
+HTTP como siempre.
+
+**Solo desde la red de casa.** Hablar esta cerrado a internet: si entras por
+el tunel, el boton sale apagado y `/hablar` responde 403. Un altavoz por el
+que cualquiera que llegue a la pagina pueda soltar voz dentro de tu casa no
+es algo que deba quedar abierto sin querer. Mirar la IP no basta para
+distinguirlo (el tunel corre en la propia Pi y todo lo suyo llega como
+127.0.0.1): lo que le delata son las cabeceras que anade al reenviar. Si de
+verdad lo quieres abierto, `MEDIBOT_VOZ_SOLO_LAN=0`.
 
 | Variable | Def. | Para que |
 |---|---|---|
@@ -316,6 +360,8 @@ Escuchar no tiene ese problema: eso es solo reproducir.
 | `MEDIBOT_ALTAVOZ_DISPOSITIVO` | autodetectar | p.ej. `plughw:0,0` |
 | `MEDIBOT_VOZ_HZ` | `16000` | frecuencia de la voz |
 | `MEDIBOT_VOZ_CANALES` | `1` | mono |
+| `MEDIBOT_VOZ_SOLO_LAN` | `1` (solo casa) | `0` deja hablar tambien desde fuera |
+| `MEDIBOT_PUERTO_HTTPS` | `5443` | puerto del HTTPS propio |
 
 La autodeteccion prefiere un altavoz **USB**; si no hay, el **jack** de la
 Pi; el **HDMI queda el ultimo** a proposito, porque en un robot la Pi suele

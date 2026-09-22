@@ -33,6 +33,7 @@ import medibot_protocolo as protocolo   # LA definicion del protocolo serie
 import medibot_red      # IPs reales de la LAN (para entrar desde otro equipo)
 import medibot_vision   # motor de video: buzon de frames y detectores rapidos
 import medibot_audio    # microfono de la camara (escuchar desde la web)
+import medibot_tls      # certificado propio: HTTPS en casa, sin nada de fuera
 
 # Limitar los hilos internos de OpenCV: con un hilo por camara mas la interfaz
 # y el servidor web, dejar que OpenCV use todos los nucleos provocaba peleas
@@ -2734,12 +2735,69 @@ HTML_TEMPLATE = r"""
             if (cruz) { cruz.style.display = sonando ? 'none' : ''; }
         }
 
+        // --- Mantener la escucha AL DIA con el directo ---
+        //  El <audio> reproduce siempre a 1x y no se salta nada. Cualquier
+        //  tiron de red, o tener la pestana un rato en segundo plano, le mete
+        //  audio de golpe en su buffer... y ese retraso SE QUEDA PUESTO, y se
+        //  va sumando tiron tras tiron. Por eso "el audio de la camara va con
+        //  mucho retraso", y a peor cuanto mas rato lleva abierto: el robot
+        //  manda al instante, pero el navegador va reproduciendo lo viejo.
+        //  Aqui se vigila la distancia al directo y se corrige.
+        const AUDIO_COLCHON = 0.25;     // s de retraso que se dan por buenos
+        const AUDIO_SALTAR = 1.0;       // a partir de aqui, saltar al directo
+        const AUDIO_ACELERAR = 1.04;    // 4%: no se nota y alcanza solo
+        let _audioVigia = null;
+
+        //  Cuanto audio tiene guardado por delante = lo que va por detras.
+        function retrasoDelDirecto(a) {
+            const b = a.buffered;
+            if (!b || !b.length) { return 0; }
+            return Math.max(0, b.end(b.length - 1) - a.currentTime);
+        }
+
+        function alDiaConElDirecto() {
+            if (!_audio) { return; }
+            const retraso = retrasoDelDirecto(_audio);
+            if (retraso > AUDIO_SALTAR) {
+                //  Muy atrasado: saltar al final de lo que hay. Se pierde lo
+                //  de en medio, que es exactamente lo que se quiere: es audio
+                //  viejo, y esto es un directo.
+                try {
+                    const b = _audio.buffered;
+                    _audio.currentTime = b.end(b.length - 1) - AUDIO_COLCHON;
+                    _audio.playbackRate = 1.0;
+                } catch (e) {
+                    //  Algunos navegadores no dejan moverse por un flujo que
+                    //  no tiene final. Reabrir la peticion deja el retraso a
+                    //  cero igual, a costa de un huequito.
+                    console.warn('[medibot] no se pudo saltar al directo', e);
+                    reengancharAudio();
+                }
+                return;
+            }
+            //  Atrasado de poco: acelerar un pelin hasta alcanzarlo, que no
+            //  se nota, en vez de pegar un salto que si se oye.
+            _audio.playbackRate = (retraso > AUDIO_COLCHON * 1.5)
+                ? AUDIO_ACELERAR : 1.0;
+        }
+
+        function reengancharAudio() {
+            if (!_audio) { return; }
+            pararAudio();
+            alternarAudio();
+        }
+
         function alternarAudio() {
             const btn = document.getElementById('audioBtn');
             if (_audio) { pararAudio(); return; }
 
             _audio = new Audio('/audio?t=' + Date.now());   // sin cache
             _audio.autoplay = true;
+            //  Pedirle al navegador que guarde lo menos posible: lo que
+            //  guarde de mas es retraso. No todos hacen caso, de ahi la
+            //  vigilancia de arriba.
+            _audio.preload = 'none';
+            _audioVigia = setInterval(alDiaConElDirecto, 1000);
             _audio.addEventListener('error', () => {
                 //  El navegador no dice POR QUE falla un <audio>, asi que se
                 //  le pregunta al servidor: el sabe si falta el microfono, si
@@ -2761,6 +2819,7 @@ HTML_TEMPLATE = r"""
         }
 
         function pararAudio() {
+            if (_audioVigia) { clearInterval(_audioVigia); _audioVigia = null; }
             if (_audio) {
                 //  Vaciar el src ademas de pause(): sin esto la peticion sigue
                 //  abierta y el arecord del robot no se entera de que ya no hay
@@ -2822,6 +2881,11 @@ HTML_TEMPLATE = r"""
 
         let _voz = null;
 
+        //  La direccion HTTPS de la propia Pi, que el robot nos dice en
+        //  /api/voz. Sirve para poder mandar ahi al usuario en vez de
+        //  soltarle "hace falta HTTPS" y que se busque la vida.
+        let _urlSegura = '';
+
         //  El motivo por el que no se puede hablar, o '' si se puede.
         function porQueNoSePuedeHablar() {
             //  getUserMedia SOLO existe en contexto seguro. Por
@@ -2830,9 +2894,15 @@ HTML_TEMPLATE = r"""
             //  un "undefined" que no le dice nada a nadie. Es, de largo, la
             //  razon mas probable de que esto no funcione.
             if (!window.isSecureContext) {
-                return 'Para hablar hace falta HTTPS. Entra por el túnel de ' +
-                       'Cloudflare o por http://localhost (escuchar sí ' +
-                       'funciona por HTTP).';
+                //  El robot sirve la MISMA web por HTTPS con un certificado
+                //  suyo, sin depender de nada de fuera. Se manda ahi
+                //  directamente: la primera vez el navegador avisa del
+                //  certificado y se acepta, y ya queda.
+                const destino = _urlSegura ||
+                    ('https://' + location.hostname + ':5443/');
+                return 'Para hablar hace falta HTTPS. Abre ' + destino +
+                       ' (la primera vez el navegador avisa del certificado: ' +
+                       'acepta y continúa). Escuchar sí funciona por HTTP.';
             }
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 return 'Este navegador no deja capturar el micrófono.';
@@ -3084,6 +3154,7 @@ HTML_TEMPLATE = r"""
         function reflejarVoz(info) {
             const b = document.getElementById('hablarBtn');
             if (!b || !info) { return; }
+            if (info.url_segura) { _urlSegura = info.url_segura; }
             const problema = porQueNoSePuedeHablar();
             b.disabled = !info.disponible;
             if (!info.disponible) {
@@ -3541,6 +3612,15 @@ def hablar():
         return jsonify({"error": "No se puede hablar",
                         "motivo": altavoz.motivo_no_disponible()}), 503
 
+    #  Solo desde la red de casa. Un altavoz por el que cualquiera que llegue
+    #  a la pagina pueda soltar voz dentro de tu casa no puede quedar abierto
+    #  a internet sin querer. Ver medibot_audio.es_local: mirar la IP no
+    #  basta, porque el tunel corre en la propia Pi.
+    puede, porque = altavoz.permite(request.remote_addr, request.headers)
+    if not puede:
+        return jsonify({"error": "No se puede hablar desde aqui",
+                        "motivo": porque}), 403
+
     #  Cortar por lo sano ANTES de leer el cuerpo: sin esto una peticion
     #  gigante se leeria entera en la memoria de la Pi solo para rechazarla.
     largo = request.content_length or 0
@@ -3562,8 +3642,18 @@ def hablar():
 
 @app.route("/api/voz")
 def api_voz():
-    """Por que se puede (o no) hablar. Lo consulta el boton para explicarlo."""
-    return jsonify(altavoz.estado())
+    """Por que se puede (o no) hablar. Lo consulta el boton para explicarlo.
+
+    Se responde segun QUIEN pregunta: desde fuera de casa el altavoz esta
+    cerrado, y el boton tiene que salir apagado con su motivo en vez de
+    dejarte hablar para nada y fallar en el primer trozo."""
+    estado = altavoz.estado()
+    puede, porque = altavoz.permite(request.remote_addr, request.headers)
+    if not puede:
+        estado["disponible"] = False
+        estado["motivo"] = porque
+    estado["url_segura"] = url_para_hablar()
+    return jsonify(estado)
 
 
 @app.route("/toggle_deteccion_rojo", methods=["POST"])
@@ -3793,7 +3883,7 @@ def api_all():
         "build_web": BUILD_WEB,
         #  Para que el boton de escuchar sepa si puede, y si no, por que.
         "audio": microfono.estado(),
-        "voz": altavoz.estado(),
+        "voz": dict(altavoz.estado(), url_segura=url_para_hablar()),
         #  Estado real de la deteccion de rojo (se puede cambiar en caliente).
         "deteccion_rojo": DETECCION_ROJO,
         "system_info": {
@@ -4526,9 +4616,85 @@ def _puerto_abierto(host, port, timeout=0.5):
 # valida pero el navegador no responde"); y cada INICIAR relanzaba otro
 # app.run sobre el mismo puerto, cuyo hilo moria en silencio con
 # "Address already in use".
+def _entero_entorno(nombre, por_defecto):
+    try:
+        return int(os.environ.get(nombre, "").strip() or por_defecto)
+    except ValueError:
+        return por_defecto
+
+
 VISION_WEB_HOST = "0.0.0.0"   # todas las interfaces (LAN incluida)
 VISION_WEB_PORT = 5000
+
+#  Ademas del HTTP de siempre, la misma web por HTTPS con un certificado que
+#  se genera la propia Pi (medibot_tls.py). Es lo unico que hace falta para
+#  poder HABLAR por el altavoz sin depender del tunel de Cloudflare ni de
+#  ningun otro servicio de fuera: los navegadores solo dan el microfono en
+#  contexto seguro.
+#
+#  Se anade en OTRO puerto en vez de cambiar el de siempre a HTTPS porque
+#  asi no se rompe nada de lo que ya funciona: los enlaces guardados, el
+#  tunel (que apunta al 5000) y el video siguen igual.
+VISION_WEB_PORT_SEGURO = _entero_entorno("MEDIBOT_PUERTO_HTTPS", 5443)
 _hilo_servidor_web = None
+_hilo_servidor_seguro = None
+_https_activo = False
+
+def url_para_hablar():
+    """La direccion por la que SI se puede hablar, para poder decirsela.
+
+    Vacia si no hay HTTPS: entonces el unico sitio donde funciona el
+    microfono es la propia Pi (localhost), y eso ya lo dice la pagina."""
+    if not _https_activo:
+        return ""
+    ip = medibot_red.ip_lan_principal()
+    return f"https://{ip}:{VISION_WEB_PORT_SEGURO}/" if ip else ""
+
+
+def iniciar_servidor_seguro():
+    """Arranca la misma web por HTTPS con el certificado propio de la Pi.
+
+    Si no se puede (falta openssl, o no hay manera de generar el
+    certificado), se dice y YA ESTA: el servidor HTTP de siempre no se toca.
+    Quedarse sin HTTPS significa no poder hablar, no quedarse sin web."""
+    global _hilo_servidor_seguro, _https_activo
+    if _hilo_servidor_seguro is not None and _hilo_servidor_seguro.is_alive():
+        return True
+
+    ips = [ip for _, ip in medibot_red.listar_ips_lan()]
+    rutas, motivo = medibot_tls.asegurar(ips)
+    if rutas is None:
+        print(f"AVISO: sin HTTPS, asi que no se podra hablar por el altavoz "
+              f"desde otro equipo ({motivo}).")
+        return False
+    if motivo:
+        print(f"Certificado de la Pi rehecho ({motivo}).")
+
+    def _correr():
+        try:
+            app.run(host=VISION_WEB_HOST, port=VISION_WEB_PORT_SEGURO,
+                    debug=False, use_reloader=False, threaded=True,
+                    ssl_context=rutas)
+        except OSError as e:
+            print(f"Vision web (HTTPS): no se pudo abrir el puerto "
+                  f"{VISION_WEB_PORT_SEGURO}: {e}")
+
+    _hilo_servidor_seguro = threading.Thread(target=_correr, daemon=True)
+    _hilo_servidor_seguro.start()
+    for _ in range(25):
+        if _puerto_abierto("127.0.0.1", VISION_WEB_PORT_SEGURO):
+            _https_activo = True
+            print(f"Vision web (HTTPS) en el puerto {VISION_WEB_PORT_SEGURO}. "
+                  "Para HABLAR, entra por aqui:")
+            for ip in ips:
+                print(f"  https://{ip}:{VISION_WEB_PORT_SEGURO}")
+            print("  (la primera vez el navegador avisa del certificado: es "
+                  "normal, lo firma la propia Pi. Acepta y continua.)")
+            return True
+        time.sleep(0.2)
+    print(f"AVISO: el HTTPS no respondio en el puerto {VISION_WEB_PORT_SEGURO}.")
+    return False
+
 
 def _avisar_del_microfono():
     """Una linea diciendo si se podra escuchar el microfono de la camara."""
@@ -4582,6 +4748,9 @@ def iniciar_servidor_web():
             #  El audio viene ACTIVADO, asi que se dice aqui si el microfono
             #  esta de verdad. Sin esto, que faltara alsa-utils o el micro no
             #  se descubriria hasta pulsar Escuchar en la web y no oir nada.
+            #  El HTTPS va despues: si falla, el HTTP ya esta en marcha y
+            #  la web sigue viendose igual.
+            iniciar_servidor_seguro()
             _avisar_del_microfono()
             return True
         time.sleep(0.2)

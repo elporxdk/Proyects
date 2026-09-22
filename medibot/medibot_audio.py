@@ -75,16 +75,21 @@ CONFIGURACION (variables de entorno)
     MEDIBOT_AUDIO_DISPOSITIVO    p.ej. plughw:1,0  (vacio = autodetectar)
     MEDIBOT_AUDIO_HZ=16000       frecuencia de muestreo
     MEDIBOT_AUDIO_CANALES=1      1 = mono (la C270 es mono)
+    MEDIBOT_AUDIO_BUFFER_MS=100  colchon de ALSA (0 = el de fabrica de arecord;
+                                 subelo si el audio sale entrecortado)
 
     MEDIBOT_VOZ=0                apagar el hablar (por defecto 1: ACTIVADO)
     MEDIBOT_ALTAVOZ_DISPOSITIVO  p.ej. plughw:0,0  (vacio = autodetectar)
     MEDIBOT_VOZ_HZ=16000         frecuencia de la voz que llega
     MEDIBOT_VOZ_CANALES=1        1 = mono
+    MEDIBOT_VOZ_SOLO_LAN=0       dejar hablar tambien desde fuera (por defecto
+                                 1: solo desde la red de casa)
 
 Para ver que microfonos hay:   arecord -l
 Para ver que altavoces hay:    aplay -l
 """
 
+import ipaddress
 import os
 import queue
 import re
@@ -99,11 +104,32 @@ import time
 #  "esto es larguisimo" y va reproduciendo segun llega.
 TAM_STREAMING = 0xFFFFFFFF
 
-#  Cuanto se lee de golpe del proceso de captura. A 16 kHz mono de 16 bits son
-#  32000 bytes/s, asi que 4096 son ~128 ms: suficientemente pequeno para que
-#  no se note retraso y suficientemente grande para no freir la CPU a
-#  llamadas al sistema.
-TROZO = 4096
+#  LO MAXIMO que se lee de una vez del proceso de captura. A 16 kHz mono de
+#  16 bits son 32000 bytes/s, asi que 1024 son 32 ms.
+#
+#  Antes eran 4096 (128 ms) y se leian con read(), que ESPERA a tener los
+#  4096 enteros: cada sonido se quedaba parado hasta llenar el bloque. Ahora
+#  se lee con read1(), que devuelve lo que haya en cuanto lo hay, asi que
+#  esto es solo un tope, no una espera.
+TROZO = 1024
+
+#  Colchon de cada oyente, en segundos. Es lo maximo que puede quedarse
+#  atras uno al que se le atasque la conexion.
+#
+#  Antes era de 2 s, y ese era EL problema del retraso: un tiron de wifi (o
+#  la pestana en segundo plano un momento) llenaba el colchon, se le soltaban
+#  al navegador 2 s de audio de golpe, y como el <audio> reproduce a 1x sin
+#  saltarse nada, ese retraso se quedaba puesto PARA SIEMPRE y se sumaba
+#  tiron tras tiron. Con 0,25 s, lo peor que puede meter un tiron es un
+#  cuarto de segundo. Ver tambien la vigilancia del directo en la pagina.
+COLCHON_SEGUNDOS = 0.25
+
+#  Por defecto, cuanto puede guardar ALSA en su propio buffer antes de que
+#  arecord nos lo entregue. El valor de fabrica de arecord ronda el medio
+#  segundo, que para escuchar en directo es una eternidad. Se puede subir si
+#  el audio sale entrecortado en una Pi muy cargada, o poner 0 para dejar el
+#  de fabrica.
+BUFFER_MS_POR_DEFECTO = 100
 
 
 def _entero(nombre, por_defecto):
@@ -277,11 +303,19 @@ def elegir_salida(lista=None):
 
 
 # ------------------------------------------------------------- captura ----
-#  Cuantos trozos se le guardan a cada oyente antes de empezar a tirar los
-#  mas viejos. 16 trozos de 4096 bytes son ~2 s de audio a 16 kHz mono:
-#  bastante para aguantar un bache de wifi y poco para que el retraso no se
-#  vaya acumulando hasta oirse todo con medio minuto de diferencia.
-COLA_MAXIMA = 16
+def cola_maxima(hz=16000, canales=1, bits=16):
+    """Cuantos trozos caben en el colchon de un oyente.
+
+    Se calcula en SEGUNDOS y no con un numero fijo de trozos: lo que importa
+    es cuanto retraso puede acumular, y eso depende de la frecuencia y del
+    tamano del trozo. Con un numero fijo, cambiar cualquiera de los dos movia
+    el retraso sin que se notara al leer el codigo."""
+    por_segundo = hz * canales * (bits // 8)
+    return max(2, int(COLCHON_SEGUNDOS * por_segundo / TROZO))
+
+
+#  El caso normal (16 kHz mono): 8 trozos = 0,25 s.
+COLA_MAXIMA = cola_maxima()
 
 
 class _Captura:
@@ -331,6 +365,7 @@ class Microfono:
         self.canales = canales or _entero("MEDIBOT_AUDIO_CANALES", 1)
         self.bits = 16
         self.dispositivo = dispositivo or elegir_dispositivo()
+        self.buffer_ms = _entero("MEDIBOT_AUDIO_BUFFER_MS", BUFFER_MS_POR_DEFECTO)
         self.log = log
         self.proceso = None
         #  Protege 'proceso', la captura en curso y sus oyentes: los tocan a
@@ -363,13 +398,26 @@ class Microfono:
 
     def orden(self):
         """El comando exacto. Aparte para poder comprobarlo sin ejecutarlo."""
-        return ["arecord",
-                "-D", str(self.dispositivo),
-                "-f", f"S{self.bits}_LE",
-                "-r", str(self.hz),
-                "-c", str(self.canales),
-                "-t", "raw",           # sin cabecera: la ponemos nosotros
-                "-q"]                  # sin cháchara por stderr
+        orden = ["arecord",
+                 "-D", str(self.dispositivo),
+                 "-f", f"S{self.bits}_LE",
+                 "-r", str(self.hz),
+                 "-c", str(self.canales),
+                 "-t", "raw",          # sin cabecera: la ponemos nosotros
+                 "-q"]                 # sin cháchara por stderr
+        #  Buffer corto de ALSA. Sin esto arecord usa el de fabrica, que
+        #  ronda el medio segundo: el sonido se queda ahi dentro antes de
+        #  que nos lo den, y eso es retraso puro que no se recupera despues.
+        #  Con 0 se deja el de fabrica (para depurar, o si una Pi muy
+        #  cargada entrecorta el audio).
+        if self.buffer_ms > 0:
+            #  Un periodo es lo que arecord espera antes de entregar nada.
+            #  A un cuarto del buffer entrega cuatro veces por colchon, que
+            #  es fluido sin freir la CPU a interrupciones.
+            periodo_ms = max(10, self.buffer_ms // 4)
+            orden += ["--buffer-time", str(self.buffer_ms * 1000),
+                      "--period-time", str(periodo_ms * 1000)]
+        return orden
 
     def abrir(self):
         """Lanza arecord. Idempotente: con uno ya en marcha no hace nada."""
@@ -418,7 +466,7 @@ class Microfono:
         Devuelve (captura, cola): la cola por la que le llegara su audio y
         la captura a la que pertenece, que hace falta para darse de baja en
         la de VERDAD y no en la que haya en ese momento."""
-        cola = queue.Queue(maxsize=COLA_MAXIMA)
+        cola = queue.Queue(maxsize=cola_maxima(self.hz, self.canales, self.bits))
         with self._candado:
             captura = self._captura
             if captura is None:
@@ -483,9 +531,15 @@ class Microfono:
         peticion leyera por su cuenta, cada una se llevaria unas muestras y
         todas oirian el audio a trozos."""
         motivo = ""
+        #  read1() devuelve lo que haya en cuanto lo hay; read() esperaria a
+        #  juntar TROZO bytes enteros y le sumaria esa espera al retraso de
+        #  todo el mundo. Los dobles de las pruebas solo tienen read(), de
+        #  ahi el respaldo.
+        leer = getattr(captura.proceso.stdout, "read1", None) \
+            or captura.proceso.stdout.read
         try:
             while True:
-                datos = captura.proceso.stdout.read(TROZO)
+                datos = leer(TROZO)
                 if not datos:
                     motivo = _ultimo_error(captura.proceso) or \
                         "la captura termino (¿camara desenchufada?)"
@@ -550,6 +604,37 @@ class Microfono:
         }
 
 
+# ------------------------------------------------------- solo en casa ----
+#  Cabeceras que pone un proxy al reenviar. Si viene alguna, la peticion ha
+#  dado un salto por fuera aunque llegue desde 127.0.0.1.
+CABECERAS_DE_PROXY = ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For",
+                      "X-Forwarded-Host", "X-Real-IP", "Forwarded")
+
+
+def es_local(ip, cabeceras=None):
+    """True si la peticion viene de la red de casa y no de internet.
+
+    NO BASTA CON MIRAR LA IP: el tunel de Cloudflare corre en la propia Pi,
+    asi que todo lo que llega por el aparece como 127.0.0.1. Mirando solo la
+    direccion, cualquiera de internet pasaria por vecino. Lo que le delata
+    son las cabeceras que anade el propio tunel al reenviar.
+
+    Que alguien de la LAN se las invente solo consigue que le digamos que no,
+    y de la LAN ya le dejabamos entrar: el engano no lleva a ningun sitio.
+    Al reves no se puede: a nadie de internet le llega la peticion sin pasar
+    por el proxy que las pone."""
+    for nombre in CABECERAS_DE_PROXY:
+        if (cabeceras or {}).get(nombre):
+            return False
+    try:
+        direccion = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return False
+    if direccion.is_loopback or direccion.is_private or direccion.is_link_local:
+        return True
+    return False
+
+
 # ------------------------------------------------------------ altavoz ----
 #  Segundos sin recibir voz tras los que se suelta el altavoz. Dos son
 #  bastante para no cortar entre frase y frase de la misma parrafada, y poco
@@ -599,6 +684,10 @@ class Altavoz:
         self.canales = canales or _entero("MEDIBOT_VOZ_CANALES", 1)
         self.bits = 16
         self.dispositivo = dispositivo or elegir_salida()
+        #  Por defecto solo se puede hablar desde la red de casa: un altavoz
+        #  por el que cualquiera de internet pueda soltar voz dentro de tu
+        #  casa no es algo que deba quedar abierto sin querer.
+        self.solo_lan = _booleano("MEDIBOT_VOZ_SOLO_LAN", True)
         self.log = log
         self.proceso = None
         self._candado = threading.Lock()
@@ -613,6 +702,16 @@ class Altavoz:
         de que haya un altavoz enchufado y con volumen."""
         return bool(_booleano("MEDIBOT_VOZ", True)) and hay_aplay() \
             and self.dispositivo is not None
+
+    def permite(self, ip, cabeceras=None):
+        """(puede_hablar, motivo) segun de donde venga la peticion."""
+        if not self.solo_lan:
+            return True, ""
+        if es_local(ip, cabeceras):
+            return True, ""
+        return False, ("solo se puede hablar desde la red de casa; desde "
+                       "fuera (tunel) esta cerrado a proposito. Se abre con "
+                       "MEDIBOT_VOZ_SOLO_LAN=0")
 
     def motivo_no_disponible(self):
         if not _booleano("MEDIBOT_VOZ", True):
@@ -778,6 +877,7 @@ class Altavoz:
             "canales": self.canales,
             "bits": self.bits,
             "sonando": sonando,
+            "solo_lan": self.solo_lan,
             "segundos": round(bytes_soltados / float(por_segundo), 1),
             "ultimo_fallo": fallo,
         }

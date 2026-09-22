@@ -793,8 +793,32 @@ class PruebasHablarUI(unittest.TestCase):
         self.assertIn('@app.route("/api/voz")', self.src)
 
     def test_el_estado_se_publica_en_la_api(self):
-        self.assertIn('"voz": altavoz.estado()', self.src)
+        #  Se comprueba que el estado del altavoz sale en /api/all, no la
+        #  forma exacta de escribirlo (lleva ademas la url de HTTPS).
+        self.assertRegex(self.src, r'"voz":\s*.*altavoz\.estado\(\)')
         self.assertIn("reflejarVoz(data.voz)", self.html)
+
+    def test_manda_a_la_direccion_HTTPS_de_la_propia_Pi(self):
+        """No vale con decir "hace falta HTTPS": la Pi sirve la misma web por
+        HTTPS con un certificado suyo, asi que se manda ahi directamente y
+        no hay que depender del tunel ni de nada de fuera."""
+        self.assertIn("url_segura", self.html)
+        self.assertIn("def url_para_hablar", self.src)
+        cuerpo = re.search(r"function porQueNoSePuedeHablar\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("_urlSegura", cuerpo.group(1))
+        self.assertIn("certificado", cuerpo.group(1),
+                      "hay que avisar del aviso del navegador")
+        self.assertNotIn("Cloudflare", cuerpo.group(1),
+                         "ya no hace falta nada de fuera para hablar")
+
+    def test_hablar_esta_cerrado_a_internet(self):
+        """Un altavoz por el que cualquiera de fuera pueda soltar voz dentro
+        de tu casa no puede quedar abierto sin querer."""
+        self.assertIn("altavoz.permite(request.remote_addr, request.headers)",
+                      self.src)
+        self.assertIn("403", self.src)
 
     def test_avisa_de_que_hace_falta_HTTPS(self):
         """getUserMedia solo existe en contexto seguro. Es LA razon por la
