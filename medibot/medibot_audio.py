@@ -29,6 +29,18 @@ que hacen las radios por internet desde hace veinte anos.
 No se usa MP3/Ogg a proposito: harian falta ffmpeg o lame, que no siempre
 estan, y comprimir gastaria CPU de la Pi que hace falta para el video.
 
+VIENE ACTIVADO
+--------------
+El audio esta disponible sin tener que poner nada: basta con tener
+`alsa-utils` instalado y un microfono conectado. Se apaga con
+MEDIBOT_AUDIO=0.
+
+Que este activado NO quiere decir que grabe solo: el microfono no se abre
+hasta que alguien pulsa Escuchar en la web, y se suelta al dejar de
+escuchar. "Activado" significa que el boton funciona, no que haya un
+`arecord` corriendo. Aun asi, es el microfono de la habitacion donde este
+el robot: si publicas la web por internet, ponle Cloudflare Access delante.
+
 VARIOS ESCUCHANDO A LA VEZ
 --------------------------
 ALSA no deja abrir el mismo microfono dos veces, asi que no se lanza un
@@ -45,7 +57,7 @@ que solo funciona en HTTPS. Se puede anadir despues sin tocar esto.
 
 CONFIGURACION (variables de entorno)
 ------------------------------------
-    MEDIBOT_AUDIO=1              activarlo (por defecto 0: desactivado)
+    MEDIBOT_AUDIO=0              apagarlo (por defecto 1: ACTIVADO)
     MEDIBOT_AUDIO_DISPOSITIVO    p.ej. plughw:1,0  (vacio = autodetectar)
     MEDIBOT_AUDIO_HZ=16000       frecuencia de muestreo
     MEDIBOT_AUDIO_CANALES=1      1 = mono (la C270 es mono)
@@ -240,13 +252,16 @@ class Microfono:
     def disponible(self):
         """Se puede intentar capturar. NO garantiza que haya sonido: eso solo
         se sabe abriendo el dispositivo, y hacerlo aqui robaria el microfono."""
-        return bool(_booleano("MEDIBOT_AUDIO")) and hay_arecord() \
+        return bool(_booleano("MEDIBOT_AUDIO", True)) and hay_arecord() \
             and self.dispositivo is not None
 
     def motivo_no_disponible(self):
-        if not _booleano("MEDIBOT_AUDIO"):
-            return ("el audio esta desactivado; arranca con MEDIBOT_AUDIO=1 "
-                    "para habilitarlo")
+        if not _booleano("MEDIBOT_AUDIO", True):
+            #  Viene activado, asi que si se llega aqui es porque alguien lo
+            #  apago a mano: lo que hace falta decirle es donde.
+            return ("el audio esta apagado a mano (MEDIBOT_AUDIO="
+                    f"{os.environ.get('MEDIBOT_AUDIO', '').strip()}); quita esa "
+                    "variable o ponla a 1 para poder escuchar")
         if not hay_arecord():
             return ("falta 'arecord'; instalalo con: "
                     "sudo apt install alsa-utils")

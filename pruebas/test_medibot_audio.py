@@ -162,12 +162,48 @@ class PruebasMicrofono(unittest.TestCase):
             if v is not None:
                 os.environ[k] = v
 
-    def test_por_defecto_esta_desactivado(self):
-        """No se abre el microfono sin que lo pidan: es una grabacion de audio
-        del entorno y eso no se activa solo."""
-        m = ma.Microfono(dispositivo="plughw:1,0")
-        self.assertFalse(m.disponible())
-        self.assertIn("MEDIBOT_AUDIO=1", m.motivo_no_disponible())
+    def test_por_defecto_esta_ACTIVADO(self):
+        """Sin poner ninguna variable, el audio esta disponible: solo hace
+        falta arecord y un microfono conectado."""
+        original = ma.hay_arecord
+        ma.hay_arecord = lambda: True          # aqui no hay tarjeta de sonido
+        try:
+            m = ma.Microfono(dispositivo="plughw:1,0")
+            self.assertTrue(m.disponible(),
+                            "el audio tiene que venir activado de fabrica")
+            self.assertEqual(m.motivo_no_disponible(), "")
+        finally:
+            ma.hay_arecord = original
+
+    def test_se_puede_apagar_a_mano(self):
+        """MEDIBOT_AUDIO=0 lo apaga, y el motivo dice donde esta apagado (no
+        'pon MEDIBOT_AUDIO=1', que es justo lo que ya viene puesto)."""
+        original = ma.hay_arecord
+        ma.hay_arecord = lambda: True
+        try:
+            for apagado in ("0", "false", "no", "off"):
+                os.environ["MEDIBOT_AUDIO"] = apagado
+                m = ma.Microfono(dispositivo="plughw:1,0")
+                self.assertFalse(m.disponible(), f"{apagado} deberia apagarlo")
+                self.assertIn("apagado a mano", m.motivo_no_disponible())
+                self.assertIn(apagado, m.motivo_no_disponible(),
+                              "el motivo tiene que decir el valor puesto")
+        finally:
+            ma.hay_arecord = original
+
+    def test_no_graba_solo_aunque_venga_activado(self):
+        """Activado significa que el boton funciona, NO que haya un arecord
+        corriendo: el microfono no se abre hasta que alguien escucha."""
+        original = ma.hay_arecord
+        ma.hay_arecord = lambda: True
+        try:
+            m = ma.Microfono(dispositivo="plughw:1,0")
+            self.assertTrue(m.disponible())
+            self.assertIsNone(m.proceso,
+                              "no puede haber captura sin que nadie escuche")
+            self.assertEqual(m.estado()["oyentes"], 0)
+        finally:
+            ma.hay_arecord = original
 
     def test_la_orden_lleva_los_parametros_correctos(self):
         os.environ["MEDIBOT_AUDIO_HZ"] = "22050"
@@ -182,7 +218,6 @@ class PruebasMicrofono(unittest.TestCase):
                       "Debe pedirse PCM en crudo: la cabecera la ponemos aqui")
 
     def test_sin_arecord_dice_como_instalarlo(self):
-        os.environ["MEDIBOT_AUDIO"] = "1"
         original = ma.hay_arecord
         ma.hay_arecord = lambda: False
         try:
@@ -193,7 +228,6 @@ class PruebasMicrofono(unittest.TestCase):
             ma.hay_arecord = original
 
     def test_sin_dispositivo_dice_como_buscarlo(self):
-        os.environ["MEDIBOT_AUDIO"] = "1"
         original = ma.hay_arecord
         ma.hay_arecord = lambda: True          # aqui no hay tarjeta de sonido
         try:
@@ -290,19 +324,13 @@ class PruebasMicrofono(unittest.TestCase):
         self.assertIn("Device or resource busy", m.estado()["ultimo_fallo"])
         #  Y en una Pi de verdad (audio activado y arecord instalado) ESE es
         #  el motivo que se ensena en la web al pulsar Escuchar.
-        anterior = os.environ.get("MEDIBOT_AUDIO")
         hay_arecord_real = ma.hay_arecord
-        os.environ["MEDIBOT_AUDIO"] = "1"
         ma.hay_arecord = lambda: True
         try:
             self.assertTrue(m.disponible())
             self.assertIn("Device or resource busy", m.estado()["motivo"])
         finally:
             ma.hay_arecord = hay_arecord_real
-            if anterior is None:
-                os.environ.pop("MEDIBOT_AUDIO", None)
-            else:
-                os.environ["MEDIBOT_AUDIO"] = anterior
 
 
 class PruebasVariosOyentes(unittest.TestCase):

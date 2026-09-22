@@ -240,14 +240,22 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ### Escuchar el microfono de la camara
 
-La C270 lleva microfono. Viene **desactivado** por defecto: es audio del
-entorno y no se abre sin que lo pidas.
+La C270 lleva microfono. Viene **activado**: no hay que poner nada, solo
+tener `alsa-utils` y el microfono conectado.
 
 ```bash
 sudo apt install alsa-utils          # si no esta ya
 arecord -l                           # ver que microfonos hay
-MEDIBOT_AUDIO=1 python3 medibot/main.py
+python3 medibot/main.py
 ```
+
+Al arrancar, Vision dice en una linea si se va a poder escuchar y por que
+micro (`Microfono de la camara: plughw:1,0 ...`), asi que si falta
+`alsa-utils` o el micro no esta, se ve ahi y no al pulsar el boton.
+
+Que este activado **no** quiere decir que grabe solo: el microfono no se
+abre hasta que alguien pulsa Escuchar, y se suelta al dejar de escuchar.
+Para apagarlo del todo, `MEDIBOT_AUDIO=0 python3 medibot/main.py`.
 
 En la web, el boton del **altavoz** encima del video: solo el icono, sin texto.
 El propio icono dice el estado — con ondas suena, con una cruz esta parado. Lo
@@ -257,7 +265,7 @@ boton sale desactivado y **dice por que** al pasar el raton.
 
 | Variable | Def. | Para que |
 |---|---|---|
-| `MEDIBOT_AUDIO` | `0` | `1` lo activa |
+| `MEDIBOT_AUDIO` | `1` (activado) | `0` lo apaga |
 | `MEDIBOT_AUDIO_DISPOSITIVO` | autodetectar | p.ej. `plughw:1,0` |
 | `MEDIBOT_AUDIO_HZ` | `16000` | frecuencia de muestreo |
 | `MEDIBOT_AUDIO_CANALES` | `1` | la C270 es mono |

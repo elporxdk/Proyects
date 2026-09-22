@@ -4114,6 +4114,16 @@ VISION_WEB_HOST = "0.0.0.0"   # todas las interfaces (LAN incluida)
 VISION_WEB_PORT = 5000
 _hilo_servidor_web = None
 
+def _avisar_del_microfono():
+    """Una linea diciendo si se podra escuchar el microfono de la camara."""
+    estado = microfono.estado()
+    if estado["disponible"]:
+        print(f"Microfono de la camara: {estado['dispositivo']} "
+              f"({estado['hz']} Hz, {estado['canales']} canal/es). "
+              "Pulsa el altavoz en la web para escuchar.")
+    else:
+        print(f"Microfono de la camara: no se podra escuchar ({estado['motivo']}).")
+
 def iniciar_servidor_web():
     """Arranca el servidor web de Vision (idempotente: llamadas repetidas no
     duplican nada). Devuelve True si el servidor esta (o queda) disponible."""
@@ -4145,6 +4155,10 @@ def iniciar_servidor_web():
             ok, detalle = medibot_red.accesible_en_lan(VISION_WEB_PORT)
             if not ok:
                 print(f"AVISO: no accesible desde otros equipos: {detalle}.")
+            #  El audio viene ACTIVADO, asi que se dice aqui si el microfono
+            #  esta de verdad. Sin esto, que faltara alsa-utils o el micro no
+            #  se descubriria hasta pulsar Escuchar en la web y no oir nada.
+            _avisar_del_microfono()
             return True
         time.sleep(0.2)
     print(f"AVISO: Vision web no responde aun en el puerto {VISION_WEB_PORT}.")
