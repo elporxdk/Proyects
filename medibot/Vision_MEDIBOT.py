@@ -1996,6 +1996,22 @@ HTML_TEMPLATE = r"""
         .fs-btn:hover { background: rgba(0, 0, 0, 0.75); border-color: #4FD8D2; }
         /*  Sonando: se ve de un vistazo que el microfono esta abierto. */
         .fs-btn.sonando { background: rgba(10, 166, 160, 0.85); border-color: #4FD8D2; }
+        /*  Hablando: ROJO, no verde como el de escuchar. Son cosas distintas
+            (una saca audio del robot, la otra lo mete) y con el mismo color
+            no se sabria de un vistazo cual esta abierta. Rojo es ademas lo
+            que todo el mundo asocia a "estas emitiendo". */
+        .fs-btn.hablando {
+            background: rgba(214, 48, 49, 0.9); border-color: #ff7675;
+            animation: latido 1.2s ease-in-out infinite;
+        }
+        @keyframes latido {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(214, 48, 49, 0.55); }
+            50%      { box-shadow: 0 0 0 6px rgba(214, 48, 49, 0); }
+        }
+        /*  Quien haya pedido menos animaciones no quiere un boton latiendo. */
+        @media (prefers-reduced-motion: reduce) {
+            .fs-btn.hablando { animation: none; }
+        }
         .fs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         /*  Boton de solo icono: cuadrado y sin hueco para texto. El SVG usa
             currentColor, asi que sigue al tema sin reglas aparte. */
@@ -2172,6 +2188,28 @@ HTML_TEMPLATE = r"""
                                           que ya se esta escuchando. -->
                                     <g id="audioOndas" style="display:none"><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path></g>
                                     <g id="audioCruz"><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></g>
+                                </svg>
+                            </button>
+                            <!--  Hablar por el altavoz del robot: se habla
+                                  MIENTRAS SE MANTIENE PULSADO, como un
+                                  walkie-talkie. Se eligio asi y no un
+                                  interruptor porque un interruptor se queda
+                                  encendido de un despiste y te deja el
+                                  microfono abierto sin enterarte; soltando
+                                  el dedo se corta y ya esta.
+                                  Ojo: capturar tu microfono necesita HTTPS.
+                                  Por http://<ip>:5000 el navegador no lo
+                                  permite, y el boton lo dice al pulsarlo. -->
+                            <button class="fs-btn icono" id="hablarBtn"
+                                    title="Mantén pulsado para hablar por el altavoz del robot"
+                                    aria-label="Mantén pulsado para hablar por el altavoz del robot">
+                                <svg viewBox="0 0 24 24" width="17" height="17"
+                                     fill="none" stroke="currentColor" stroke-width="2"
+                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+                                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                                    <line x1="8" y1="23" x2="16" y2="23"></line>
                                 </svg>
                             </button>
                             <button class="fs-btn" id="fsBtn" onclick="toggleCameraFullscreen()"
@@ -2755,6 +2793,335 @@ HTML_TEMPLATE = r"""
             }
         }
 
+        // ===== Hablar por el altavoz del robot (intercomunicador) =====
+        //  Se manda PCM EN CRUDO, no WebM/Opus: asi la Pi no descodifica nada
+        //  (ver medibot_audio.py). MediaRecorder seria mas corto de escribir
+        //  pero entrega Opus, y descomprimirlo en la Pi pediria ffmpeg.
+        const VOZ_HZ = 16000;
+        //  ~128 ms por envio (2048 muestras a 16 kHz): corto para que se oiga
+        //  segun hablas, largo para no ahogar a la Pi a peticiones.
+        const VOZ_MUESTRAS_POR_ENVIO = 2048;
+        //  Si la red se atasca se tiran los trozos VIEJOS en vez de acumular
+        //  retraso: en un intercomunicador la voz de hace tres segundos ya no
+        //  sirve de nada. Mismo criterio que al escuchar.
+        const VOZ_COLA_MAXIMA = 12;
+
+        //  El recolector corre en el hilo de audio, no en el principal. Aqui
+        //  importa: esta pagina esta pintando dos vídeos MJPEG, y en el hilo
+        //  principal la captura saldria a trompicones.
+        const VOZ_WORKLET = `
+            class Recolector extends AudioWorkletProcessor {
+                process(entradas) {
+                    const canal = entradas[0] && entradas[0][0];
+                    if (canal) { this.port.postMessage(new Float32Array(canal)); }
+                    return true;
+                }
+            }
+            registerProcessor('recolector', Recolector);
+        `;
+
+        let _voz = null;
+
+        //  El motivo por el que no se puede hablar, o '' si se puede.
+        function porQueNoSePuedeHablar() {
+            //  getUserMedia SOLO existe en contexto seguro. Por
+            //  http://<ip-de-la-pi>:5000 no lo hay y el navegador ni define
+            //  navigator.mediaDevices: sin este aviso el boton fallaria con
+            //  un "undefined" que no le dice nada a nadie. Es, de largo, la
+            //  razon mas probable de que esto no funcione.
+            if (!window.isSecureContext) {
+                return 'Para hablar hace falta HTTPS. Entra por el túnel de ' +
+                       'Cloudflare o por http://localhost (escuchar sí ' +
+                       'funciona por HTTP).';
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                return 'Este navegador no deja capturar el micrófono.';
+            }
+            if (!(window.AudioContext || window.webkitAudioContext)) {
+                return 'Este navegador no tiene Web Audio.';
+            }
+            return '';
+        }
+
+        function pintarBotonHablar(hablando) {
+            const b = document.getElementById('hablarBtn');
+            if (!b) { return; }
+            b.classList.toggle('hablando', !!hablando);
+            const t = hablando ? 'Hablando... suelta para dejar de hablar'
+                               : 'Mantén pulsado para hablar por el altavoz del robot';
+            b.title = t;
+            b.setAttribute('aria-label', t);
+        }
+
+        //  Float32 (-1..1) -> enteros de 16 bits, que es lo que espera aplay.
+        function aPCM16(muestras) {
+            const salida = new Int16Array(muestras.length);
+            for (let i = 0; i < muestras.length; i++) {
+                //  Recortar ANTES de escalar: una muestra por encima de 1
+                //  daria la vuelta al entero y se oiria un chasquido.
+                const v = Math.max(-1, Math.min(1, muestras[i]));
+                salida[i] = v < 0 ? v * 0x8000 : v * 0x7FFF;
+            }
+            return salida;
+        }
+
+        //  Red de seguridad: casi todos los navegadores aceptan que se les
+        //  pida el AudioContext ya a 16 kHz y esto no se usa. Si alguno lo
+        //  ignora (y da 44,1 o 48 kHz), sin remuestrear la voz llegaria
+        //  acelerada y aguda, como un dibujo animado.
+        function remuestrear(muestras, deHz, aHz) {
+            if (deHz === aHz || !muestras.length) { return muestras; }
+            const razon = deHz / aHz;
+            const salida = new Float32Array(Math.floor(muestras.length / razon));
+            for (let i = 0; i < salida.length; i++) {
+                const pos = i * razon, j = Math.floor(pos), resto = pos - j;
+                const a = muestras[j];
+                const b = (j + 1 < muestras.length) ? muestras[j + 1] : a;
+                salida[i] = a + (b - a) * resto;      // interpolacion lineal
+            }
+            return salida;
+        }
+
+        //  Junta lo acumulado y lo pone en la cola de envio.
+        function volcarVoz(v) {
+            if (!v.muestras) { return; }
+            const junto = new Float32Array(v.muestras);
+            let o = 0;
+            for (const t of v.trozos) { junto.set(t, o); o += t.length; }
+            v.trozos = [];
+            v.muestras = 0;
+            v.cola.push(aPCM16(junto).buffer);
+            while (v.cola.length > VOZ_COLA_MAXIMA) { v.cola.shift(); }
+        }
+
+        function encolarVoz(bloque) {
+            //  Con el boton ya soltado no se captura mas: lo que quede por
+            //  mandar es lo que se dijo ANTES de soltar, y nada posterior.
+            if (!_voz || _voz.cerrando) { return; }
+            const m = remuestrear(bloque, _voz.ctx.sampleRate, VOZ_HZ);
+            _voz.trozos.push(m);
+            _voz.muestras += m.length;
+            if (_voz.muestras < VOZ_MUESTRAS_POR_ENVIO) { return; }
+            volcarVoz(_voz);
+            bombearVoz();
+        }
+
+        //  UN envio cada vez. Si se lanzaran en paralelo, el orden de llegada
+        //  no estaria garantizado y la voz saldria con las silabas cambiadas
+        //  de sitio.
+        function bombearVoz() {
+            if (!_voz || _voz.enviando) { return; }
+            if (!_voz.cola.length) {
+                //  Sin nada pendiente y con el boton soltado, aqui termina
+                //  la parrafada. Terminar AQUI y no al soltar es lo que hace
+                //  que no se pierda el final de la frase.
+                if (_voz.cerrando) { terminarVoz(); }
+                return;
+            }
+            const trozo = _voz.cola.shift();
+            _voz.enviando = true;
+            _voz.seq += 1;
+            fetch('/hablar?seq=' + _voz.seq, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: trozo
+            }).then(r => {
+                if (r.ok) { return null; }
+                return r.json().catch(() => null).then(d => {
+                    throw new Error((d && d.motivo) || ('HTTP ' + r.status));
+                });
+            }).catch(e => {
+                avisar('No se pudo hablar: ' + e.message, e);
+                //  Si falla la red no tiene sentido seguir vaciando la cola
+                //  contra un robot que no contesta: se corta del todo.
+                soltarCaptura(_voz);
+                terminarVoz();
+            }).then(() => {
+                if (_voz) { _voz.enviando = false; bombearVoz(); }
+            });
+        }
+
+        function empezarAHablar() {
+            //  Si la anterior aun esta vaciando la cola (red lenta), se corta
+            //  y empieza la nueva: si no, el boton se quedaria muerto
+            //  esperando a que termine algo que igual no termina nunca.
+            if (_voz && !_voz.cerrando) { return; }
+            if (_voz) { terminarVoz(); }
+            const problema = porQueNoSePuedeHablar();
+            if (problema) { avisar(problema); return; }
+
+            //  Marcar YA que se esta hablando: pedir el microfono tarda (la
+            //  primera vez el navegador pregunta), y sin esto el boton se
+            //  queda apagado y parece que no ha hecho nada.
+            _voz = { cola: [], trozos: [], muestras: 0, seq: 0,
+                     enviando: false, cerrando: false,
+                     sonabaAntes: !!_audio };
+            pintarBotonHablar(true);
+
+            //  Callar la escucha mientras hablas. Si no, se acopla: altavoz
+            //  del robot -> microfono de la camara -> tu navegador -> tu
+            //  altavoz -> tu microfono -> otra vez al robot, y empieza a
+            //  pitar. Al soltar se vuelve a encender si estaba encendida.
+            if (_audio) { pararAudio(); }
+
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            //  echoCancellation/noiseSuppression: el navegador ya trae
+            //  cancelacion de eco hecha y probada. Es lo unico que hay contra
+            //  el acople, asi que se pide siempre.
+            navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true,
+                         autoGainControl: true, channelCount: 1 },
+                video: false
+            }).then(stream => {
+                if (!_voz || _voz.cerrando) {
+                    stream.getTracks().forEach(t => t.stop());
+                    return;
+                }
+                _voz.stream = stream;
+                //  Pedir el contexto ya a 16 kHz: asi remuestrea el navegador,
+                //  que lo hace mejor y gratis.
+                let ctx;
+                try { ctx = new Ctx({ sampleRate: VOZ_HZ }); }
+                catch (e) { ctx = new Ctx(); }
+                _voz.ctx = ctx;
+                _voz.fuente = ctx.createMediaStreamSource(stream);
+
+                //  Un nodo con ganancia CERO hasta la salida. Hace falta
+                //  porque en varios navegadores el grafo no "tira" de un nodo
+                //  que no llega a la salida, y no llegaria ni una muestra. A
+                //  cero no se oye: si se conectara directo, te oirias a ti
+                //  mismo con retraso.
+                _voz.mudo = ctx.createGain();
+                _voz.mudo.gain.value = 0;
+                _voz.mudo.connect(ctx.destination);
+
+                const conWorklet = ctx.audioWorklet && window.AudioWorkletNode;
+                const arranque = conWorklet
+                    ? ctx.audioWorklet.addModule(
+                          URL.createObjectURL(new Blob([VOZ_WORKLET],
+                              { type: 'application/javascript' })))
+                      .then(() => {
+                          const nodo = new AudioWorkletNode(ctx, 'recolector');
+                          nodo.port.onmessage = ev => encolarVoz(ev.data);
+                          return nodo;
+                      })
+                    //  ScriptProcessorNode esta obsoleto, pero es lo unico
+                    //  que hay en navegadores viejos y funciona.
+                    : Promise.resolve().then(() => {
+                          const nodo = ctx.createScriptProcessor(4096, 1, 1);
+                          nodo.onaudioprocess = ev => encolarVoz(
+                              new Float32Array(ev.inputBuffer.getChannelData(0)));
+                          return nodo;
+                      });
+
+                return arranque.then(nodo => {
+                    if (!_voz || _voz.cerrando) { return; }
+                    _voz.nodo = nodo;
+                    _voz.fuente.connect(nodo);
+                    nodo.connect(_voz.mudo);
+                    //  En Safari el contexto nace suspendido.
+                    if (ctx.state === 'suspended') { return ctx.resume(); }
+                });
+            }).catch(e => {
+                const porque = (e && e.name === 'NotAllowedError')
+                    ? 'no diste permiso al micrófono en el navegador'
+                    : (e && e.message) || 'el navegador no dejó';
+                avisar('No se pudo hablar: ' + porque, e);
+                dejarDeHablar();
+            });
+        }
+
+        //  Suelta el microfono del navegador y desmonta el grafo de audio.
+        //  Se hace NADA MAS soltar el boton, no cuando acabe de mandarse la
+        //  cola: si no, quedaria el punto rojo de "esta pagina te esta
+        //  escuchando" mas tiempo del que de verdad se esta capturando.
+        function soltarCaptura(v) {
+            if (!v || v.soltada) { return; }
+            v.soltada = true;
+            const pasos = [
+                () => { if (v.nodo) { v.nodo.port ? (v.nodo.port.onmessage = null)
+                                                  : (v.nodo.onaudioprocess = null); } },
+                () => { if (v.nodo) v.nodo.disconnect(); },
+                () => { if (v.fuente) v.fuente.disconnect(); },
+                () => { if (v.mudo) v.mudo.disconnect(); },
+                () => { if (v.stream) v.stream.getTracks().forEach(t => t.stop()); },
+                () => { if (v.ctx && v.ctx.close) v.ctx.close(); }
+            ];
+            for (const paso of pasos) {
+                try { paso(); } catch (e) { console.warn('[medibot] soltando voz', e); }
+            }
+        }
+
+        function terminarVoz() {
+            if (!_voz) { return; }
+            const v = _voz;
+            _voz = null;
+            soltarCaptura(v);
+            pintarBotonHablar(false);
+            //  Volver a escuchar si se estaba escuchando antes de hablar.
+            if (v.sonabaAntes && !_audio) { alternarAudio(); }
+        }
+
+        function dejarDeHablar() {
+            if (!_voz || _voz.cerrando) { return; }
+            const v = _voz;
+            v.cerrando = true;
+            soltarCaptura(v);          // el microfono se suelta YA
+            pintarBotonHablar(false);
+
+            //  Mandar tambien lo que quedaba a medio juntar. Sin esto se
+            //  pierden hasta 128 ms y se come la ultima silaba de cada
+            //  frase; y lo que ya estaba en la cola son palabras que YA
+            //  dijiste, asi que se terminan de mandar. Cuando se vacie,
+            //  bombearVoz() llama a terminarVoz().
+            volcarVoz(v);
+            bombearVoz();
+            if (!v.cola.length && !v.enviando) { terminarVoz(); }
+        }
+
+        //  Si el robot dice que no hay altavoz, el boton se desactiva y
+        //  explica el motivo, en vez de fallar al pulsarlo.
+        function reflejarVoz(info) {
+            const b = document.getElementById('hablarBtn');
+            if (!b || !info) { return; }
+            const problema = porQueNoSePuedeHablar();
+            b.disabled = !info.disponible;
+            if (!info.disponible) {
+                b.title = 'No se puede hablar: ' + (info.motivo || 'sin altavoz');
+                if (_voz) { dejarDeHablar(); }
+            } else if (problema) {
+                //  El robot puede, el navegador no: se deja pulsable para que
+                //  al pulsarlo explique lo del HTTPS (si se desactivara, no
+                //  habria forma de saber por que).
+                b.title = problema;
+            } else if (!_voz) {
+                b.title = 'Mantén pulsado para hablar por el altavoz del robot';
+            }
+        }
+
+        function prepararBotonHablar() {
+            const b = document.getElementById('hablarBtn');
+            if (!b) { return; }
+            //  Eventos de puntero: valen igual para raton y para dedo, sin
+            //  escribir el doble ni pelearse con el clic fantasma del movil.
+            b.addEventListener('pointerdown', ev => {
+                ev.preventDefault();          // en el movil, ni zoom ni seleccion
+                empezarAHablar();
+            });
+            //  Soltar se escucha en TODA la ventana, no solo en el boton: si
+            //  sueltas el dedo fuera, el pointerup del boton no llega y te
+            //  quedarias con el microfono abierto sin saberlo.
+            for (const ev of ['pointerup', 'pointercancel']) {
+                window.addEventListener(ev, () => dejarDeHablar());
+            }
+            //  Cambiar de pestana o de ventana tambien corta: nadie quiere
+            //  seguir emitiendo desde una pestana que ya no mira.
+            window.addEventListener('blur', () => dejarDeHablar());
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) { dejarDeHablar(); }
+            });
+        }
+
         // ===== Deteccion de objetos rojos =====
         //  Se puede apagar en caliente: ahorra la conversion a HSV, dos
         //  morfologias y findContours en cada fotograma de cada camara.
@@ -2789,6 +3156,7 @@ HTML_TEMPLATE = r"""
                 .then(data => {
                     comprobarBuild(data.build_web);
                     reflejarAudio(data.audio);
+                    reflejarVoz(data.voz);
                     reflejarDeteccionRojo(data.deteccion_rojo);
                     updateCameraStatus(data);
                     if (_apiCaida) { _apiCaida = false; limpiarAviso(); }
@@ -3042,6 +3410,7 @@ HTML_TEMPLATE = r"""
             sincronizarVelocidad();
             _pintarBotonFS();
             prepararEnlacePastillero();
+            prepararBotonHablar();
             // La lista de vídeos está visible desde el principio, así que hay
             // que rellenarla; antes se quedaba en "Cargando videos..." para
             // siempre salvo que se pulsara el botón.
@@ -3117,6 +3486,10 @@ def _sin_cache(respuesta):
 #  va el ultimo. Ver medibot_audio.py.
 microfono = medibot_audio.Microfono()
 
+#  Altavoz de la Pi: la voz que llega del navegador (intercomunicador). Se
+#  abre solo al hablar y se suelta al callar. Ver medibot_audio.py.
+altavoz = medibot_audio.Altavoz()
+
 #  URL de la otra interfaz. Vacia = el navegador la deduce del mismo host con
 #  el puerto 5001, que es lo correcto en la red local. Se fija por entorno
 #  cuando cada interfaz tiene su propio subdominio (p.ej. detras de un tunel
@@ -3149,6 +3522,48 @@ def audio():
 def api_audio():
     """Por que se puede (o no) escuchar. Lo consulta el boton para explicarlo."""
     return jsonify(microfono.estado())
+
+
+@app.route("/hablar", methods=["POST"])
+def hablar():
+    """Tu voz desde el navegador -> altavoz de la Pi (intercomunicador).
+
+    El cuerpo es PCM pelado S16_LE a 16 kHz mono, tal como lo saca la pagina
+    con la Web Audio API: asi la Pi no descodifica nada (no hay ffmpeg ni
+    opus-tools de por medio). Llega a trozos de ~128 ms para que se oiga
+    segun se habla.
+
+    ?seq=N numera los trozos de cada parrafada, para tirar los que lleguen
+    tarde: uno atrasado sonaria como un hipido en mitad de la frase
+    siguiente. Ver medibot_audio.py (clase Altavoz)."""
+    if not altavoz.disponible():
+        #  503 y no 404: la ruta existe, es que ahora no se puede servir.
+        return jsonify({"error": "No se puede hablar",
+                        "motivo": altavoz.motivo_no_disponible()}), 503
+
+    #  Cortar por lo sano ANTES de leer el cuerpo: sin esto una peticion
+    #  gigante se leeria entera en la memoria de la Pi solo para rechazarla.
+    largo = request.content_length or 0
+    if largo > medibot_audio.MAX_TROZO_VOZ:
+        return jsonify({"error": "Trozo demasiado grande",
+                        "motivo": f"{largo} bytes; el maximo son "
+                                  f"{medibot_audio.MAX_TROZO_VOZ}"}), 413
+
+    try:
+        seq = int(request.args.get("seq", "0"))
+    except ValueError:
+        seq = 0
+    ok, motivo = altavoz.reproducir(request.get_data(), seq or None)
+    if not ok:
+        return jsonify({"error": "No se pudo reproducir",
+                        "motivo": motivo}), 503
+    return jsonify({"ok": True, "motivo": motivo})
+
+
+@app.route("/api/voz")
+def api_voz():
+    """Por que se puede (o no) hablar. Lo consulta el boton para explicarlo."""
+    return jsonify(altavoz.estado())
 
 
 @app.route("/toggle_deteccion_rojo", methods=["POST"])
@@ -3378,6 +3793,7 @@ def api_all():
         "build_web": BUILD_WEB,
         #  Para que el boton de escuchar sepa si puede, y si no, por que.
         "audio": microfono.estado(),
+        "voz": altavoz.estado(),
         #  Estado real de la deteccion de rojo (se puede cambiar en caliente).
         "deteccion_rojo": DETECCION_ROJO,
         "system_info": {
@@ -4123,6 +4539,14 @@ def _avisar_del_microfono():
               "Pulsa el altavoz en la web para escuchar.")
     else:
         print(f"Microfono de la camara: no se podra escuchar ({estado['motivo']}).")
+
+    voz = altavoz.estado()
+    if voz["disponible"]:
+        print(f"Altavoz para hablar: {voz['dispositivo']}. "
+              "Manten pulsado el microfono en la web para hablar "
+              "(necesita HTTPS: usa el tunel o localhost).")
+    else:
+        print(f"Altavoz para hablar: no se podra hablar ({voz['motivo']}).")
 
 def iniciar_servidor_web():
     """Arranca el servidor web de Vision (idempotente: llamadas repetidas no

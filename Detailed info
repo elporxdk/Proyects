@@ -286,6 +286,61 @@ Rutas: `/audio` (el sonido) y `/api/audio` (por que se puede o no escuchar).
 **Ojo con publicarlo por internet:** es un microfono abierto de la habitacion
 donde este el robot. Ponle Cloudflare Access delante, como el resto.
 
+### Hablar por el altavoz del robot (intercomunicador)
+
+Al reves que lo anterior: tu voz desde el navegador sale por un altavoz
+enchufado a la Pi. En la web, el boton del **microfono** encima del video:
+se habla **manteniendolo pulsado**, como un walkie-talkie. Se eligio asi y
+no un interruptor porque un interruptor se queda encendido de un despiste y
+te deja el microfono abierto sin enterarte.
+
+```bash
+aplay -l                                    # ver que altavoces hay
+speaker-test -D plughw:0,0 -c 1 -t sine -l 1   # comprobar que suena
+python3 medibot/main.py
+```
+
+**Hace falta HTTPS.** No es cosa del robot: los navegadores solo dejan
+capturar tu microfono en contexto seguro. Por `http://<ip-de-la-pi>:5000`
+**no** se puede hablar por mucho que el robot este listo, y el boton lo dice
+al pulsarlo. Sirven:
+
+- el **tunel de Cloudflare** (ver mas abajo), que ya da HTTPS; o
+- `http://localhost:5000` en la propia Pi.
+
+Escuchar no tiene ese problema: eso es solo reproducir.
+
+| Variable | Def. | Para que |
+|---|---|---|
+| `MEDIBOT_VOZ` | `1` (activado) | `0` lo apaga |
+| `MEDIBOT_ALTAVOZ_DISPOSITIVO` | autodetectar | p.ej. `plughw:0,0` |
+| `MEDIBOT_VOZ_HZ` | `16000` | frecuencia de la voz |
+| `MEDIBOT_VOZ_CANALES` | `1` | mono |
+
+La autodeteccion prefiere un altavoz **USB**; si no hay, el **jack** de la
+Pi; el **HDMI queda el ultimo** a proposito, porque en un robot la Pi suele
+ir sin pantalla (o con un monitor sin altavoces) y ahi la voz se iria a
+ningun sitio sin dar ningun error.
+
+Por dentro va igual que la otra direccion y por lo mismo: la pagina saca las
+muestras con la Web Audio API y las manda en **PCM crudo** (S16_LE, 16 kHz,
+mono) a `/hablar` en trozos de ~128 ms; la Pi se los pasa a `aplay` tal cual.
+Nada que descodificar: ni ffmpeg, ni Opus, ni WebRTC. `aplay` se abre con el
+primer trozo y se suelta a los 2 s sin voz, asi que la tarjeta de sonido no
+se queda pillada.
+
+Rutas: `/hablar` (POST con el PCM) y `/api/voz` (por que se puede o no).
+
+**El eco.** Si el altavoz esta pegado a la camara y con el volumen alto, se
+acopla, como cualquier megafonia. Contra eso: el navegador cancela eco
+(`echoCancellation`), y mientras hablas se calla la escucha sola y se vuelve
+a encender al soltar. Si aun asi pita, baja el volumen o separa el altavoz
+del microfono de la camara.
+
+**Ojo con publicarlo por internet:** ahora no es solo un microfono abierto,
+es tambien un altavoz por el que cualquiera que llegue a la pagina puede
+hablar dentro de tu casa. Ponle Cloudflare Access delante, como el resto.
+
 ### Entrar desde fuera de casa: tunel de Cloudflare
 
 Un tunel **no abre puertos**. `cloudflared` abre una conexion *saliente* desde

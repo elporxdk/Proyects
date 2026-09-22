@@ -49,11 +49,25 @@ escuchar a la vez y cada uno recibe el audio completo; que uno cierre la
 pestana no corta a los demas, y el microfono se suelta cuando se va el
 ULTIMO. Ver la clase Microfono.
 
+HABLAR HACIA EL ROBOT (INTERCOMUNICADOR)
+----------------------------------------
+La otra direccion tambien: la pagina captura tu voz y la suelta por un
+altavoz enchufado a la Pi (clase Altavoz, con `aplay`). Va en PCM crudo por
+las mismas razones que la ida.
+
+OJO CON EL NAVEGADOR: para coger tu microfono hace falta HTTPS. Los
+navegadores solo dan getUserMedia en contexto seguro, asi que por
+http://<ip-de-la-pi>:5000 NO deja hablar por mucho que el robot este listo.
+Entra por el tunel de Cloudflare (que ya da HTTPS) o por http://localhost.
+Escuchar no tiene ese problema: eso es solo reproducir.
+
 LO QUE NO HACE
 --------------
-No manda audio del navegador HACIA el robot (hablar por un altavoz). Eso
-necesita un altavoz conectado a la Pi y captura de microfono en el navegador,
-que solo funciona en HTTPS. Se puede anadir despues sin tocar esto.
+No cancela el eco entre el altavoz de la Pi y el microfono de la camara. Se
+apana con lo que ya trae el navegador (echoCancellation) y hablando con el
+boton pulsado, que ademas calla la escucha mientras hablas. Con el altavoz
+pegado a la camara y el volumen alto puede acoplarse, como cualquier
+megafonia.
 
 CONFIGURACION (variables de entorno)
 ------------------------------------
@@ -62,7 +76,13 @@ CONFIGURACION (variables de entorno)
     MEDIBOT_AUDIO_HZ=16000       frecuencia de muestreo
     MEDIBOT_AUDIO_CANALES=1      1 = mono (la C270 es mono)
 
+    MEDIBOT_VOZ=0                apagar el hablar (por defecto 1: ACTIVADO)
+    MEDIBOT_ALTAVOZ_DISPOSITIVO  p.ej. plughw:0,0  (vacio = autodetectar)
+    MEDIBOT_VOZ_HZ=16000         frecuencia de la voz que llega
+    MEDIBOT_VOZ_CANALES=1        1 = mono
+
 Para ver que microfonos hay:   arecord -l
+Para ver que altavoces hay:    aplay -l
 """
 
 import os
@@ -72,6 +92,7 @@ import shutil
 import struct
 import subprocess
 import threading
+import time
 
 #  Tamano que se declara en la cabecera cuando el audio no termina nunca.
 #  Es el maximo de un entero de 32 bits sin signo: el navegador entiende
@@ -97,6 +118,36 @@ def _booleano(nombre, por_defecto=False):
     if not bruto:
         return por_defecto
     return bruto in ("1", "true", "si", "sí", "yes", "on")
+
+
+def _ultimo_error(proceso):
+    """Lo que arecord o aplay dejaron dicho por stderr, para explicarlo.
+
+    Sin esto, una camara desenchufada a mitad, un altavoz que no existe o un
+    dispositivo ocupado por otro programa se verian en la web como un "no se
+    pudo escuchar" pelado, y el motivo de verdad ("No such device", "Device
+    or resource busy") se perderia.
+
+    Se lee SOLO cuando el proceso ya ha muerto: sobre un tubo que sigue
+    abierto, read() se quedaria esperando para siempre y quien espera el
+    audio no se enteraria nunca de que se acabo (peticion colgada y boton
+    encendido sin sonido)."""
+    if proceso is None:
+        #  Pasa si el propio Popen fallo (alsa-utils desinstalado a mitad):
+        #  no hay proceso al que preguntarle, y quien llama ya tiene su
+        #  propio mensaje.
+        return ""
+    try:
+        proceso.wait(timeout=1)
+    except Exception:                                        # noqa: BLE001
+        return ""                # sigue vivo: mejor sin motivo que colgados
+    try:
+        bruto = proceso.stderr.read() or b""
+    except Exception:                                        # noqa: BLE001
+        return ""
+    texto = bruto.decode("utf-8", "replace").strip()
+    #  Se explayan en varias lineas; la ultima es la que dice el problema.
+    return texto.splitlines()[-1].strip() if texto else ""
 
 
 # ------------------------------------------------------------- cabecera ----
@@ -138,15 +189,21 @@ def hay_arecord():
     return shutil.which("arecord") is not None
 
 
-def dispositivos(salida=None):
-    """Lista los microfonos que ve ALSA, a partir de `arecord -l`.
+def hay_aplay():
+    return shutil.which("aplay") is not None
 
-    Se acepta 'salida' ya hecha para poder probarlo sin tarjeta de sonido."""
+
+def _listar(programa, salida=None):
+    """Lo que ve ALSA segun `arecord -l` (microfonos) o `aplay -l` (altavoces).
+
+    Los dos programas imprimen el mismo formato, asi que se parsea una sola
+    vez. Se acepta 'salida' ya hecha para poder probarlo sin tarjeta de
+    sonido."""
     if salida is None:
-        if not hay_arecord():
+        if shutil.which(programa) is None:
             return []
         try:
-            r = subprocess.run(["arecord", "-l"], capture_output=True,
+            r = subprocess.run([programa, "-l"], capture_output=True,
                                text=True, timeout=5)
             salida = r.stdout
         except (OSError, subprocess.SubprocessError):
@@ -168,6 +225,16 @@ def dispositivos(salida=None):
     return encontrados
 
 
+def dispositivos(salida=None):
+    """Los microfonos que ve ALSA (`arecord -l`)."""
+    return _listar("arecord", salida)
+
+
+def dispositivos_salida(salida=None):
+    """Los altavoces que ve ALSA (`aplay -l`)."""
+    return _listar("aplay", salida)
+
+
 def elegir_dispositivo(lista=None):
     """El que se pida por entorno; si no, el primero que parezca una webcam.
 
@@ -182,6 +249,30 @@ def elegir_dispositivo(lista=None):
     for d in lista:
         if re.search(r"usb|cam|webcam|c270", d["nombre"], re.I):
             return d["id"]
+    return lista[0]["id"]
+
+
+def elegir_salida(lista=None):
+    """El altavoz que se pida por entorno; si no, el que mas probablemente
+    tenga algo enchufado.
+
+    Orden: USB primero (si alguien pincho un altavoz o un dongle USB, es
+    para esto), luego el jack analogico de la Pi, luego cualquiera que NO
+    sea HDMI. El HDMI queda ultimo a proposito: en un robot la Pi suele ir
+    sin pantalla, o con un monitor sin altavoces, y ahi el audio se va a
+    ningun sitio sin dar ningun error."""
+    pedido = os.environ.get("MEDIBOT_ALTAVOZ_DISPOSITIVO", "").strip()
+    if pedido:
+        return pedido
+    lista = dispositivos_salida() if lista is None else lista
+    if not lista:
+        return None
+    for patron in (r"usb|uac|speaker|altavoz",          # USB enchufado
+                   r"headphone|analog|jack|auricular",  # jack de 3,5 mm
+                   r"^(?!.*hdmi).*$"):                  # cualquiera menos HDMI
+        for d in lista:
+            if re.search(patron, d["nombre"], re.I):
+                return d["id"]
     return lista[0]["id"]
 
 
@@ -396,7 +487,7 @@ class Microfono:
             while True:
                 datos = captura.proceso.stdout.read(TROZO)
                 if not datos:
-                    motivo = self._ultimo_error(captura.proceso) or \
+                    motivo = _ultimo_error(captura.proceso) or \
                         "la captura termino (¿camara desenchufada?)"
                     break
                 self._reparte_a(captura, datos)
@@ -415,32 +506,6 @@ class Microfono:
                     self.proceso = None
                     self._fallo = motivo
             self._reparte_a(captura, None)
-
-    @staticmethod
-    def _ultimo_error(proceso):
-        """Lo que arecord dejo dicho por stderr, para poder explicarlo.
-
-        Sin esto, una camara desenchufada a mitad o un microfono ocupado por
-        otro programa se veria en la web como un 'no se pudo escuchar' pelado,
-        y el motivo de verdad ("No such device", "Device or resource busy")
-        se perderia.
-
-        Se lee SOLO cuando arecord ya ha muerto: sobre un tubo que sigue
-        abierto, read() se quedaria esperando para siempre y los oyentes no
-        se enterarian nunca de que se acabo el audio (peticion colgada y
-        boton de Escuchar encendido sin sonido)."""
-        try:
-            proceso.wait(timeout=1)
-        except Exception:                                    # noqa: BLE001
-            return ""            # sigue vivo: mejor sin motivo que colgados
-        try:
-            bruto = proceso.stderr.read() or b""
-        except Exception:                                    # noqa: BLE001
-            return ""
-        texto = bruto.decode("utf-8", "replace").strip()
-        #  arecord se explaya en varias lineas; la ultima es la que dice el
-        #  problema de verdad.
-        return texto.splitlines()[-1].strip() if texto else ""
 
     # -------------------------------------------------------- servir ----
     def trozos(self):
@@ -485,6 +550,239 @@ class Microfono:
         }
 
 
+# ------------------------------------------------------------ altavoz ----
+#  Segundos sin recibir voz tras los que se suelta el altavoz. Dos son
+#  bastante para no cortar entre frase y frase de la misma parrafada, y poco
+#  para no dejar la tarjeta de sonido pillada despues de hablar.
+INACTIVO_VOZ = 2.0
+
+#  Lo mas grande que se acepta de una vez: 2 s de audio a 16 kHz mono de 16
+#  bits. Un trozo mas gordo que eso no es voz en directo, es alguien
+#  mandando un fichero, y no hay por que tragarselo en memoria.
+MAX_TROZO_VOZ = 64000
+
+
+class Altavoz:
+    """El altavoz de la Pi: hablar desde el navegador (intercomunicador).
+
+    AL REVES QUE Microfono
+    ----------------------
+    Microfono saca audio de la Pi hacia el navegador con `arecord`. Esto lo
+    mete: recibe PCM del navegador y lo escribe en la entrada de `aplay`,
+    que tambien viene con alsa-utils. Misma idea y ninguna dependencia
+    nueva: ni WebRTC, ni aiortc, ni ffmpeg, ni pyaudio.
+
+    POR QUE PCM EN CRUDO Y NO WEBM/OPUS
+    -----------------------------------
+    MediaRecorder, que es lo comodo en el navegador, entrega WebM/Opus, y
+    descomprimirlo en la Pi pediria ffmpeg u opus-tools. En vez de eso la
+    pagina saca las muestras con la Web Audio API y las manda ya en S16_LE
+    a 16 kHz: `aplay` las toca tal cual y la Pi no descodifica nada. Es la
+    misma decision que en la otra direccion, y por lo mismo: en una Pi que
+    ya va justa con dos camaras, la CPU se gasta en el video.
+
+    SE ABRE Y SE CIERRA SOLO
+    ------------------------
+    `aplay` se lanza con el primer trozo de voz y se suelta tras
+    INACTIVO_VOZ segundos sin recibir nada. Dejarlo abierto agarraria la
+    tarjeta de sonido para siempre y nadie mas podria usarla; en algunos
+    montajes ademas se oye un siseo de fondo mientras esta abierta.
+
+    UNA PETICION CADA VEZ
+    ---------------------
+    Las escrituras van con candado: dos peticiones escribiendo a la vez en
+    el mismo tubo entrelazarian las muestras y saldria ruido en vez de voz.
+    """
+
+    def __init__(self, dispositivo=None, hz=None, canales=None, log=print):
+        self.hz = hz or _entero("MEDIBOT_VOZ_HZ", 16000)
+        self.canales = canales or _entero("MEDIBOT_VOZ_CANALES", 1)
+        self.bits = 16
+        self.dispositivo = dispositivo or elegir_salida()
+        self.log = log
+        self.proceso = None
+        self._candado = threading.Lock()
+        self._ultimo_audio = 0.0
+        self._ultimo_seq = 0
+        self._vigilante = None
+        self._bytes = 0           # cuanta voz se ha soltado (diagnostico)
+        self._fallo = ""
+
+    def disponible(self):
+        """Se puede intentar hablar. NO garantiza que se oiga: eso depende
+        de que haya un altavoz enchufado y con volumen."""
+        return bool(_booleano("MEDIBOT_VOZ", True)) and hay_aplay() \
+            and self.dispositivo is not None
+
+    def motivo_no_disponible(self):
+        if not _booleano("MEDIBOT_VOZ", True):
+            return ("hablar esta apagado a mano (MEDIBOT_VOZ="
+                    f"{os.environ.get('MEDIBOT_VOZ', '').strip()}); quita esa "
+                    "variable o ponla a 1 para poder hablar")
+        if not hay_aplay():
+            return ("falta 'aplay'; instalalo con: "
+                    "sudo apt install alsa-utils")
+        if self.dispositivo is None:
+            return ("no se encontro ningun altavoz; comprueba 'aplay -l' y "
+                    "fija MEDIBOT_ALTAVOZ_DISPOSITIVO si hace falta")
+        return ""
+
+    def orden(self):
+        """El comando exacto. Aparte para poder comprobarlo sin ejecutarlo."""
+        return ["aplay",
+                "-D", str(self.dispositivo),
+                "-f", f"S{self.bits}_LE",
+                "-r", str(self.hz),
+                "-c", str(self.canales),
+                "-t", "raw",           # PCM pelado: no lleva cabecera
+                "-q"]                  # sin cháchara por stderr
+
+    # --------------------------------------------------------- hablar ----
+    def reproducir(self, datos, seq=None):
+        """Suelta un trozo de PCM por el altavoz. Devuelve (ok, motivo).
+
+        'seq' es el numero de trozo dentro de una parrafada: sirve para
+        tirar los que lleguen tarde o repetidos. Un trozo atrasado sonaria
+        como un hipido a destiempo en mitad de la frase siguiente."""
+        if not datos:
+            return True, ""
+        if len(datos) > MAX_TROZO_VOZ:
+            return False, (f"trozo de {len(datos)} bytes: demasiado grande "
+                           f"(el maximo son {MAX_TROZO_VOZ})")
+        if not self.disponible():
+            return False, self.motivo_no_disponible()
+
+        moribundo = None
+        try:
+            with self._candado:
+                if seq is not None:
+                    #  seq 1 es "empiezo a hablar": reinicia la cuenta.
+                    if seq <= 1:
+                        self._ultimo_seq = 0
+                    elif seq <= self._ultimo_seq:
+                        return True, "trozo atrasado o repetido; se descarta"
+                    self._ultimo_seq = seq
+                try:
+                    self._abrir()
+                    self.proceso.stdin.write(datos)
+                    self.proceso.stdin.flush()
+                except Exception as e:                       # noqa: BLE001
+                    #  aplay se murio (altavoz desenchufado, dispositivo que
+                    #  no existe, tarjeta ocupada). Se suelta para que el
+                    #  siguiente trozo arranque uno nuevo en vez de seguir
+                    #  escribiendo en un tubo roto.
+                    moribundo, self.proceso = self.proceso, None
+                    self._fallo = (_ultimo_error(moribundo)
+                                   or f"no se pudo reproducir: {e}")
+                    return False, self._fallo
+                self._ultimo_audio = time.monotonic()
+                self._bytes += len(datos)
+                self._fallo = ""
+                return True, ""
+        finally:
+            if moribundo is not None:
+                self._despedir(moribundo)
+
+    def _abrir(self):
+        """Lanza aplay si no estaba. OJO: con el candado ya cogido."""
+        if self.proceso is not None:
+            return
+        self.proceso = subprocess.Popen(
+            self.orden(), stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        self._ultimo_audio = time.monotonic()
+        if self._vigilante is None:
+            self._vigilante = threading.Thread(
+                target=self._vigilar, name="medibot-voz", daemon=True)
+            self._vigilante.start()
+
+    def _vigilar(self):
+        """Suelta el altavoz cuando se deja de hablar.
+
+        Hace falta un vigilante porque el navegador no avisa de que ha
+        terminado: simplemente deja de mandar trozos. Sin esto, aplay se
+        quedaria abierto agarrado a la tarjeta de sonido hasta apagar el
+        robot."""
+        while True:
+            time.sleep(0.25)
+            moribundo = None
+            with self._candado:
+                if self.proceso is None:
+                    self._vigilante = None
+                    return
+                if time.monotonic() - self._ultimo_audio >= INACTIVO_VOZ:
+                    moribundo, self.proceso = self.proceso, None
+                    self._vigilante = None
+            if moribundo is not None:
+                #  Fuera del candado: despedirse tarda hasta 2 s y con el
+                #  candado cogido bloquearia a quien vuelva a hablar.
+                self._despedir(moribundo)
+                return
+
+    def cerrar(self):
+        """Suelta el altavoz ya, sin esperar al vigilante."""
+        with self._candado:
+            moribundo, self.proceso = self.proceso, None
+        self._despedir(moribundo)
+
+    @staticmethod
+    def _despedir(p):
+        """Cierra aplay. NADA de aqui puede lanzar: se llama desde `finally`.
+
+        Se cierra la ENTRADA primero y se espera: asi aplay termina de tocar
+        lo que ya tiene guardado y sale solo. Matarlo a secas cortaria la
+        ultima media palabra."""
+        if p is None:
+            return
+        try:
+            p.stdin.close()
+        except Exception:                                    # noqa: BLE001
+            pass
+        try:
+            p.wait(timeout=2)
+        except Exception:                                    # noqa: BLE001
+            try:
+                p.terminate()
+                p.wait(timeout=1)
+            except Exception:                                # noqa: BLE001
+                try:
+                    p.kill()
+                except Exception:                            # noqa: BLE001
+                    pass
+        try:
+            if getattr(p, "stderr", None) is not None:
+                p.stderr.close()
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    def estado(self):
+        """Como va el altavoz. SIN COGER EL CANDADO, a proposito.
+
+        La pagina pide /api/all cada segundo y ahi va esto. Si se esperase
+        al candado, un aplay atascado (tarjeta ocupada, USB con problemas)
+        dejaria la escritura bloqueada y con ella TODA la interfaz: los
+        botones, los FPS y el estado de las camaras congelados por culpa del
+        altavoz. Medido: 29 s de bloqueo.
+
+        Leer los atributos sueltos puede dar una foto de hace un instante,
+        que para un indicador de estado sobra."""
+        sonando = self.proceso is not None
+        fallo = self._fallo
+        bytes_soltados = self._bytes
+        por_segundo = self.hz * self.canales * (self.bits // 8)
+        return {
+            "disponible": self.disponible(),
+            "motivo": self.motivo_no_disponible() or fallo,
+            "dispositivo": self.dispositivo,
+            "hz": self.hz,
+            "canales": self.canales,
+            "bits": self.bits,
+            "sonando": sonando,
+            "segundos": round(bytes_soltados / float(por_segundo), 1),
+            "ultimo_fallo": fallo,
+        }
+
+
 if __name__ == "__main__":
     print("Microfonos que ve ALSA:")
     for d in dispositivos() or []:
@@ -495,3 +793,15 @@ if __name__ == "__main__":
         print("Orden:", " ".join(m.orden()))
     else:
         print("No disponible:", m.motivo_no_disponible())
+
+    print("\nAltavoces que ve ALSA:")
+    for d in dispositivos_salida() or []:
+        print(f"  {d['id']:<16} {d['nombre']}")
+    a = Altavoz()
+    print("\nEstado:", a.estado())
+    if a.disponible():
+        print("Orden:", " ".join(a.orden()))
+        print("Probar el altavoz:  speaker-test -D "
+              f"{a.dispositivo} -c {a.canales} -t sine -l 1")
+    else:
+        print("No disponible:", a.motivo_no_disponible())

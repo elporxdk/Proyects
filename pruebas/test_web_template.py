@@ -252,7 +252,10 @@ class PruebasControlesEsenciales(unittest.TestCase):
         src = fuente()
         rutas_flask = set(re.findall(r'@app\.route\("([^"<]+)', src))
         usadas = set(re.findall(r"(?:pedirJSON|enviarJSON|fetch)\('(/[^']*)'", self.js))
-        faltan = {u for u in usadas if u not in rutas_flask}
+        #  Se compara solo la RUTA: '/hablar?seq=' + n es una llamada
+        #  perfectamente valida a la ruta '/hablar', y los parametros no
+        #  aparecen en @app.route.
+        faltan = {u for u in usadas if u.split("?")[0] not in rutas_flask}
         self.assertFalse(faltan, f"El JS llama a rutas inexistentes: {sorted(faltan)}")
 
 
@@ -769,6 +772,150 @@ class PruebasAudioUI(unittest.TestCase):
     def test_si_no_hay_microfono_el_boton_lo_explica(self):
         self.assertIn("function reflejarAudio", self.html)
         self.assertIn("Audio no disponible", self.html)
+
+
+class PruebasHablarUI(unittest.TestCase):
+    """Hablar por el altavoz del robot desde el navegador."""
+
+    def setUp(self):
+        self.html = plantilla_evaluada()
+        self.src = fuente()
+
+    def test_existe_el_boton_y_sus_funciones(self):
+        self.assertIn('id="hablarBtn"', self.html)
+        for fn in ("empezarAHablar", "dejarDeHablar", "encolarVoz",
+                   "bombearVoz", "aPCM16", "prepararBotonHablar"):
+            with self.subTest(funcion=fn):
+                self.assertIn(f"function {fn}", self.html)
+
+    def test_las_rutas_existen_en_flask(self):
+        self.assertIn('@app.route("/hablar", methods=["POST"])', self.src)
+        self.assertIn('@app.route("/api/voz")', self.src)
+
+    def test_el_estado_se_publica_en_la_api(self):
+        self.assertIn('"voz": altavoz.estado()', self.src)
+        self.assertIn("reflejarVoz(data.voz)", self.html)
+
+    def test_avisa_de_que_hace_falta_HTTPS(self):
+        """getUserMedia solo existe en contexto seguro. Es LA razon por la
+        que esto no va a funcionar por http://<ip>:5000, asi que tiene que
+        decirse con todas las letras y no fallar con un 'undefined'."""
+        self.assertIn("isSecureContext", self.html)
+        self.assertIn("HTTPS", self.html)
+        self.assertIn("function porQueNoSePuedeHablar", self.html)
+
+    def test_no_pide_el_microfono_al_cargar_la_pagina(self):
+        """getUserMedia al cargar sacaria el cartel de permiso a cualquiera
+        que entre a mirar las camaras, sin haber pedido hablar."""
+        arranque = re.search(r"DOMContentLoaded'?,\s*function\s*\(\)\s*\{(.*?)\n        \}",
+                             self.html, re.S)
+        self.assertIsNotNone(arranque)
+        self.assertNotIn("getUserMedia", arranque.group(1))
+        #  Solo se prepara el boton; el microfono se pide al pulsarlo.
+        self.assertIn("prepararBotonHablar()", arranque.group(1))
+
+    def test_se_habla_manteniendo_pulsado(self):
+        """Un interruptor se queda encendido de un despiste y te deja el
+        microfono abierto; soltando el dedo se corta."""
+        self.assertIn("pointerdown", self.html)
+        self.assertIn("pointerup", self.html)
+        self.assertIn("pointercancel", self.html)
+
+    def test_soltar_fuera_del_boton_tambien_corta(self):
+        """Si sueltas el dedo fuera, el pointerup del boton no llega: hay
+        que escucharlo en toda la ventana o te quedas emitiendo sin saberlo."""
+        m = re.search(r"for \(const ev of \['pointerup', 'pointercancel'\]\)"
+                      r"\s*\{\s*window\.addEventListener", self.html)
+        self.assertIsNotNone(m, "pointerup/pointercancel deben ir en window")
+
+    def test_cambiar_de_pestana_corta_la_voz(self):
+        self.assertIn("document.hidden) { dejarDeHablar(); }", self.html)
+        self.assertIn("'blur', () => dejarDeHablar()", self.html)
+
+    def test_al_dejar_de_hablar_se_suelta_el_microfono(self):
+        """Sin parar las pistas queda el punto rojo de 'esta pagina te esta
+        escuchando' aunque hayas soltado el boton."""
+        soltar = re.search(r"function soltarCaptura\(v\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(soltar)
+        self.assertIn("getTracks().forEach(t => t.stop())", soltar.group(1))
+
+        #  Y se suelta NADA MAS soltar el boton, antes de terminar de mandar
+        #  la cola: si no, seguiria el punto rojo mientras se vacia.
+        cuerpo = re.search(r"function dejarDeHablar\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        lineas = [l.strip() for l in cuerpo.group(1).splitlines() if l.strip()
+                  and not l.strip().startswith("//")]
+        self.assertLess(lineas.index("soltarCaptura(v);          // el microfono se suelta YA"),
+                        lineas.index("bombearVoz();"),
+                        "el microfono se suelta antes de vaciar la cola")
+
+    def test_no_se_pierde_el_final_de_la_frase(self):
+        """Al soltar el boton quedan hasta 128 ms a medio juntar y lo que
+        hubiera en la cola. Tirarlo se come la ultima silaba: son palabras
+        que YA se dijeron, asi que se terminan de mandar."""
+        cuerpo = re.search(r"function dejarDeHablar\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("volcarVoz(v)", cuerpo.group(1),
+                      "hay que mandar lo que quedaba a medio juntar")
+        self.assertNotIn("_voz = null", cuerpo.group(1),
+                         "tirar _voz aqui perderia la cola sin mandar")
+        #  La parrafada se cierra cuando la cola queda vacia, no al soltar.
+        bomba = re.search(r"function bombearVoz\(\)\s*\{(.*?)\n        \}",
+                          self.html, re.S)
+        self.assertIsNotNone(bomba)
+        self.assertIn("_voz.cerrando) { terminarVoz(); }", bomba.group(1))
+
+    def test_el_boton_no_se_queda_atascado(self):
+        """Si la parrafada anterior no termina de vaciarse (red muerta), el
+        boton tiene que seguir funcionando."""
+        cuerpo = re.search(r"function empezarAHablar\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("if (_voz && !_voz.cerrando) { return; }", cuerpo.group(1))
+        self.assertIn("terminarVoz()", cuerpo.group(1))
+
+    def test_se_calla_la_escucha_mientras_se_habla(self):
+        """Si no, se acopla: altavoz del robot -> microfono de la camara ->
+        navegador -> altavoz -> microfono, y empieza a pitar."""
+        cuerpo = re.search(r"function empezarAHablar\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("pararAudio()", cuerpo.group(1))
+        self.assertIn("echoCancellation: true", cuerpo.group(1))
+
+    def test_se_manda_PCM_crudo_y_no_webm(self):
+        """MediaRecorder daria Opus, y descomprimirlo en la Pi pediria
+        ffmpeg. La Pi no descodifica nada."""
+        #  Se busca el USO, no la palabra: en el codigo hay un comentario
+        #  que explica justamente por que NO se usa MediaRecorder.
+        self.assertNotIn("new MediaRecorder", self.html)
+        self.assertIn("application/octet-stream", self.html)
+        self.assertIn("Int16Array", self.html)
+
+    def test_un_envio_cada_vez_y_numerado(self):
+        """En paralelo no se garantiza el orden de llegada y la voz saldria
+        con las silabas cambiadas de sitio."""
+        self.assertIn("'/hablar?seq=' + _voz.seq", self.html)
+        cuerpo = re.search(r"function bombearVoz\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("_voz.enviando", cuerpo.group(1))
+
+    def test_se_tiran_los_trozos_viejos_si_la_red_se_atasca(self):
+        """La voz de hace tres segundos no sirve: mejor perderla que
+        acumular retraso."""
+        self.assertIn("VOZ_COLA_MAXIMA", self.html)
+        self.assertIn("_voz.cola.shift()", self.html)
+
+    def test_hablar_y_escuchar_se_distinguen_de_un_vistazo(self):
+        self.assertIn(".fs-btn.hablando", self.html)
+        self.assertIn(".fs-btn.sonando", self.html)
+
+    def test_respeta_a_quien_pidio_menos_animaciones(self):
+        self.assertIn("prefers-reduced-motion", self.html)
 
 
 if __name__ == "__main__":
