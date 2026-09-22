@@ -775,22 +775,27 @@ card 0: vc4hdmi [vc4-hdmi], device 0: MAI PCM i2s-hifi-0 [MAI PCM i2s-hifi-0]
 
 
 class PruebasAltavoz(unittest.TestCase):
-    """Hablar desde la web por el altavoz de la Pi."""
+    """Hablar desde la web por el altavoz de la Pi.
+
+    Lo escribe todo un hilo aparte, asi que reproducir() solo ENCOLA: las
+    comprobaciones esperan a que llegue en vez de mirar al instante."""
 
     class AplayFalso:
         """Doble de aplay que guarda lo que le meten."""
 
         def __init__(self):
-            self.recibido = b""
+            self.recibido = bytearray()
             self.stdin = self
             self.stderr = io.BytesIO()
             self.cerrado = False
             self.matado = False
+            self._candado = threading.Lock()
 
         def write(self, datos):
             if self.cerrado:
                 raise BrokenPipeError("aplay ya no escucha")
-            self.recibido += datos
+            with self._candado:
+                self.recibido += datos
             return len(datos)
 
         def flush(self):
@@ -805,24 +810,52 @@ class PruebasAltavoz(unittest.TestCase):
         def wait(self, timeout=None):
             return 0
 
-    def _altavoz(self):
-        a = ma.Altavoz(dispositivo="plughw:0,0")
+        def copia(self):
+            with self._candado:
+                return bytes(self.recibido)
+
+        def con_voz(self):
+            """Lo recibido quitando el silencio de relleno."""
+            return bytes(self.copia()).replace(b"\x00", b"")
+
+    def _altavoz(self, **kw):
+        a = ma.Altavoz(dispositivo="plughw:0,0", **kw)
         falso = self.AplayFalso()
-        a._abrir = lambda: setattr(a, "proceso", a.proceso or falso)
+        a._lanzar = lambda: falso
+        self.altavoces.append(a)
         return a, falso
 
+    def _esperar(self, condicion, mensaje, limite=5.0):
+        t0 = time.time()
+        while time.time() - t0 < limite:
+            if condicion():
+                return
+            time.sleep(0.01)
+        self.fail(mensaje)
+
     def setUp(self):
-        self.previo = os.environ.get("MEDIBOT_VOZ")
-        os.environ.pop("MEDIBOT_VOZ", None)
+        self.altavoces = []
+        self.previo = {k: os.environ.get(k) for k in
+                       ("MEDIBOT_VOZ", "MEDIBOT_VOZ_GANANCIA",
+                        "MEDIBOT_VOZ_PERSISTENTE")}
+        for k in self.previo:
+            os.environ.pop(k, None)
         self.hay_aplay = ma.hay_aplay
         ma.hay_aplay = lambda: True        # aqui no hay tarjeta de sonido
 
     def tearDown(self):
+        for a in self.altavoces:
+            try:
+                a.cerrar()
+            except Exception:                                # noqa: BLE001
+                pass
         ma.hay_aplay = self.hay_aplay
-        os.environ.pop("MEDIBOT_VOZ", None)
-        if self.previo is not None:
-            os.environ["MEDIBOT_VOZ"] = self.previo
+        for k, v in self.previo.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
 
+    # ------------------------------------------------------ lo basico ----
     def test_por_defecto_se_puede_hablar(self):
         a, _ = self._altavoz()
         self.assertTrue(a.disponible())
@@ -833,7 +866,7 @@ class PruebasAltavoz(unittest.TestCase):
         a, _ = self._altavoz()
         self.assertFalse(a.disponible())
         self.assertIn("apagado a mano", a.motivo_no_disponible())
-        ok, motivo = a.reproducir(b"\x00" * 100, 1)
+        ok, motivo = a.reproducir(b"\x01" * 100, 1)
         self.assertFalse(ok)
         self.assertIn("apagado a mano", motivo)
 
@@ -860,117 +893,270 @@ class PruebasAltavoz(unittest.TestCase):
                       "El navegador manda PCM pelado: aplay debe esperarlo asi")
 
     def test_la_voz_llega_intacta_y_en_orden(self):
+        #  Trozos del tamano real (~64 ms cada uno). Con trozos minusculos
+        #  el colchon se vacia entre uno y otro y el hilo mete silencio, que
+        #  es lo correcto pero no es lo que se esta probando aqui.
         a, falso = self._altavoz()
-        trozos = [bytes([n]) * 64 for n in range(1, 6)]
+        trozos = [bytes([n]) * 2048 for n in range(1, 6)]
         for i, t in enumerate(trozos, start=1):
             ok, motivo = a.reproducir(t, i)
             self.assertTrue(ok, motivo)
-        self.assertEqual(falso.recibido, b"".join(trozos),
-                         "por el altavoz tiene que salir lo mismo que se mando")
+        entera = b"".join(trozos)
+        self._esperar(lambda: entera in falso.copia(),
+                      "por el altavoz tiene que salir lo mismo que se mando, "
+                      "seguido y en orden")
 
     def test_no_se_abre_el_altavoz_sin_voz(self):
         a, _ = self._altavoz()
         self.assertIsNone(a.proceso, "no hay que agarrar la tarjeta de sonido")
+        self.assertFalse(a.estado()["abierto"])
         self.assertFalse(a.estado()["sonando"])
         a.reproducir(b"", 1)                     # un trozo vacio no abre nada
         self.assertIsNone(a.proceso)
 
     def test_un_trozo_atrasado_se_descarta(self):
-        """Uno que llegue tarde sonaria como un hipido en mitad de la frase
-        siguiente."""
         a, falso = self._altavoz()
         a.reproducir(b"A" * 32, 1)
         a.reproducir(b"B" * 32, 2)
         ok, motivo = a.reproducir(b"X" * 32, 2)   # numero ya usado
         self.assertTrue(ok)
         self.assertIn("atrasado", motivo)
-        ok, motivo = a.reproducir(b"Y" * 32, 1)   # aun mas viejo
-        self.assertNotIn(b"X", falso.recibido)
-        self.assertEqual(falso.recibido.count(b"A"), 32)
+        self._esperar(lambda: b"B" * 32 in falso.copia(), "no llego la voz")
+        self.assertNotIn(b"X", falso.copia(),
+                         "un trozo atrasado sonaria como un hipido")
 
     def test_seq_1_empieza_parrafada_nueva(self):
-        """Al soltar y volver a pulsar, la numeracion vuelve a empezar: no
-        puede quedarse mudo por culpa de la parrafada anterior."""
         a, falso = self._altavoz()
         for i in range(1, 6):
             a.reproducir(b"A" * 16, i)
         ok, _ = a.reproducir(b"NUEVA", 1)         # segunda pulsacion
         self.assertTrue(ok)
-        self.assertIn(b"NUEVA", falso.recibido)
+        self._esperar(lambda: b"NUEVA" in falso.copia(),
+                      "al volver a pulsar tiene que seguir sonando")
 
     def test_un_trozo_gigante_se_rechaza(self):
         a, falso = self._altavoz()
-        ok, motivo = a.reproducir(b"\x00" * (ma.MAX_TROZO_VOZ + 1), 1)
+        ok, motivo = a.reproducir(b"\x01" * (ma.MAX_TROZO_VOZ + 1), 1)
         self.assertFalse(ok)
         self.assertIn("demasiado grande", motivo)
-        self.assertEqual(falso.recibido, b"")
+        self.assertIsNone(a.proceso, "ni siquiera deberia abrir la tarjeta")
 
-    def test_si_aplay_muere_se_dice_por_que_y_se_reintenta(self):
+    def test_si_aplay_muere_se_dice_por_que(self):
         a, falso = self._altavoz()
         a.reproducir(b"A" * 16, 1)
+        self._esperar(lambda: b"A" * 16 in falso.copia(), "no arranco")
         falso.close()                             # el altavoz se desenchufa
-        ok, motivo = a.reproducir(b"B" * 16, 2)
-        self.assertFalse(ok)
-        self.assertIn("no se pudo reproducir", motivo)
-        self.assertIsNone(a.proceso,
-                          "hay que soltarlo para que el siguiente abra otro")
-        self.assertIn("no se pudo reproducir", a.estado()["ultimo_fallo"])
-
-    def test_cerrar_sin_haber_abierto_no_revienta(self):
-        ma.Altavoz(dispositivo="plughw:0,0").cerrar()     # no debe lanzar
+        self._esperar(lambda: a.proceso is None,
+                      "hay que soltarlo para que el siguiente abra otro")
+        self.assertIn("se corto el altavoz", a.estado()["ultimo_fallo"])
 
     def test_si_ni_siquiera_arranca_aplay_se_dice_y_no_revienta(self):
-        """alsa-utils desinstalado a mitad: no hay proceso al que preguntar.
-        La web tiene que ver el motivo, no un 500."""
-        a = ma.Altavoz(dispositivo="plughw:0,0")
+        """alsa-utils desinstalado a mitad: la web tiene que ver el motivo,
+        no un 500."""
+        a, _ = self._altavoz()
 
         def no_arranca():
             raise FileNotFoundError("aplay desaparecio")
 
-        a._abrir = no_arranca
-        ok, motivo = a.reproducir(b"\x00" * 64, 1)
+        a._lanzar = no_arranca
+        ok, motivo = a.reproducir(b"\x01" * 64, 1)
         self.assertFalse(ok)
         self.assertIn("aplay desaparecio", motivo)
         self.assertIsNone(a.proceso)
+
+    def test_cerrar_sin_haber_abierto_no_revienta(self):
+        ma.Altavoz(dispositivo="plughw:0,0").cerrar()     # no debe lanzar
 
     def test_cerrar_cierra_la_entrada_antes_de_matar(self):
         """Matar a secas cortaria la ultima media palabra: aplay tiene que
         poder terminar de soltar lo que ya tiene guardado."""
         a, falso = self._altavoz()
         a.reproducir(b"A" * 16, 1)
+        self._esperar(lambda: falso.copia(), "no arranco el escritor")
         a.cerrar()
         self.assertTrue(falso.cerrado, "hay que cerrar la entrada de aplay")
         self.assertFalse(falso.matado, "y no hace falta matarlo si sale solo")
         self.assertIsNone(a.proceso)
 
+    def test_un_trozo_mas_grande_que_la_cola_SUENA_igual(self):
+        """Se aceptaba y luego se tiraba a si mismo al no caber: aceptar algo
+        y no reproducirlo nunca es lo peor de los dos mundos."""
+        a, falso = self._altavoz()
+        gordo = b"\x01" * (a._tope_cola() + 4096)
+        ok, motivo = a.reproducir(gordo, 1)
+        self.assertTrue(ok, motivo)
+        self._esperar(lambda: gordo in falso.copia(),
+                      "un trozo grande tambien tiene que sonar")
+
+    def test_el_estado_cuenta_lo_reproducido(self):
+        a, falso = self._altavoz()
+        a.reproducir(b"\x01" * 32000, 1)          # 1 s a 16 kHz mono 16 bits
+        self._esperar(lambda: a.estado()["segundos"] >= 1.0,
+                      "no llego a contarse")
+        self.assertEqual(a.estado()["dispositivo"], "plughw:0,0")
+        self.assertTrue(a.estado()["abierto"], "la tarjeta esta cogida")
+        self.assertTrue(a.estado()["sonando"], "y acaba de salir voz")
+
+    # ------------------------- que el audio no se lleve por delante al video
+    def test_la_peticion_NO_espera_al_altavoz(self):
+        """LO IMPORTANTE. Antes se escribia en aplay desde el hilo de la
+        peticion: una tarjeta atascada se comia ese hilo, y con varias
+        atascadas el servidor que tambien sirve el video se quedaba sin
+        sitio. Ahora la peticion solo encola."""
+        class Atascado(self.AplayFalso):
+            def write(self, datos):
+                time.sleep(30)
+                return len(datos)
+
+        a = ma.Altavoz(dispositivo="plughw:0,0")
+        self.altavoces.append(a)
+        a._lanzar = lambda: Atascado()
+        t0 = time.time()
+        for i in range(1, 9):
+            ok, motivo = a.reproducir(b"\x01" * 4096, i)
+            self.assertTrue(ok, motivo)
+        tardo = time.time() - t0
+        self.assertLess(tardo, 1.0,
+                        f"ocho peticiones tardaron {tardo:.1f} s esperando "
+                        f"al altavoz: eso bloquea el servidor del video")
+
     def test_el_estado_no_se_bloquea_con_el_altavoz_atascado(self):
         """/api/all pide esto cada segundo. Si esperase al candado, un aplay
-        atascado congelaria la interfaz entera (medido: 29 s)."""
+        atascado congelaria la interfaz entera."""
         class Atascado(self.AplayFalso):
             def write(self, datos):
                 time.sleep(5)
                 return len(datos)
 
         a = ma.Altavoz(dispositivo="plughw:0,0")
-        atascado = Atascado()
-        a._abrir = lambda: setattr(a, "proceso", a.proceso or atascado)
-        hilo = threading.Thread(target=lambda: a.reproducir(b"\x00" * 32, 1),
-                                daemon=True)
-        hilo.start()
+        self.altavoces.append(a)
+        a._lanzar = lambda: Atascado()
+        a.reproducir(b"\x01" * 32, 1)
         time.sleep(0.3)                           # que se quede atascado
         t0 = time.time()
         estado = a.estado()
         self.assertLess(time.time() - t0, 1.0,
-                        "estado() no puede esperar a que el altavoz se desatasque")
+                        "estado() no puede esperar al altavoz")
         self.assertTrue(estado["sonando"])
 
-    def test_el_estado_cuenta_lo_reproducido(self):
-        a, _ = self._altavoz()
-        a.reproducir(b"\x00" * 32000, 1)          # 1 s a 16 kHz mono 16 bits
-        e = a.estado()
-        self.assertEqual(e["segundos"], 1.0)
-        self.assertEqual(e["dispositivo"], "plughw:0,0")
-        self.assertTrue(e["sonando"])
+    def test_si_la_cola_se_llena_se_tira_lo_VIEJO(self):
+        """En una conversacion, la voz de hace un segundo ya no sirve: mejor
+        perderla que acumular retraso o hacer esperar a la web."""
+        class Atascado(self.AplayFalso):
+            def write(self, datos):
+                time.sleep(30)
+                return len(datos)
+
+        a = ma.Altavoz(dispositivo="plughw:0,0")
+        self.altavoces.append(a)
+        a._lanzar = lambda: Atascado()
+        tope_bytes = a._tope_cola()
+        trozos = (tope_bytes // 4096) * 3 + 2      # el triple de lo que cabe
+        for i in range(1, trozos + 1):
+            ok, _ = a.reproducir(b"\x01" * 4096, i)
+            self.assertTrue(ok, "encolar nunca debe fallar por estar llena")
+        en_cola = a.estado()["en_cola"]            # en segundos
+        self.assertLessEqual(en_cola, ma.VOZ_COLA_SEGUNDOS + 0.2,
+                             f"{en_cola} s esperando: demasiado retraso")
+        self.assertGreater(a.estado()["tirados"], 0,
+                           "hay que contar lo tirado para poder diagnosticarlo")
+
+    # ------------------------------------- la tarjeta, abierta y alimentada
+    def test_la_tarjeta_se_queda_ABIERTA_entre_frases(self):
+        """Cada apertura de un dispositivo USB de audio renegocia el ancho de
+        banda isocrono del bus, y ahi es donde se cae la camara. Medido: una
+        conversacion de 14 s abria la tarjeta CUATRO veces."""
+        a, falso = self._altavoz()
+        self.assertTrue(a.persistente)
+        a.reproducir(b"A" * 64, 1)
+        self._esperar(lambda: a.proceso is not None, "no abrio")
+        primero = a.proceso
+        time.sleep(ma.INACTIVO_VOZ + 0.5)         # mas de lo que duraba antes
+        self.assertIs(a.proceso, primero,
+                      "no puede cerrarse entre frase y frase")
+        a.reproducir(b"B" * 64, 1)
+        self.assertIs(a.proceso, primero, "ni reabrirse en la frase siguiente")
+
+    def test_mientras_nadie_habla_se_le_da_SILENCIO(self):
+        """Sin nada que reproducir, ALSA se queda seca y eso se oye como
+        chasquidos (underrun)."""
+        a, falso = self._altavoz()
+        a.reproducir(b"A" * 64, 1)
+        self._esperar(lambda: b"A" * 64 in falso.copia(), "no arranco")
+        antes = len(falso.copia())
+        time.sleep(0.6)
+        despues = len(falso.copia())
+        self.assertGreater(despues, antes,
+                           "hay que seguir alimentando la tarjeta")
+        relleno = falso.copia()[antes:]
+        self.assertEqual(set(relleno), {0},
+                         "y el relleno tiene que ser silencio, no ruido")
+
+    def test_el_silencio_NO_se_cuela_dentro_de_la_frase(self):
+        """El relleno va antes, no en medio: si cae dentro, se oye como un
+        tartamudeo al empezar a hablar."""
+        a, falso = self._altavoz()
+        frase = bytes(range(1, 256)) * 8          # reconocible y sin ceros
+        trozo = len(frase) // 4
+        for i in range(4):
+            a.reproducir(frase[i * trozo:(i + 1) * trozo], i + 1)
+            time.sleep(0.02)
+        self._esperar(lambda: frase[:trozo] in falso.copia(), "no llego")
+        self._esperar(lambda: frase in falso.copia(),
+                      "la frase tiene que salir SEGUIDA, sin silencio dentro")
+
+    def test_se_puede_volver_a_abrir_y_cerrar_en_cada_frase(self):
+        """Por si alguien necesita compartir la tarjeta con otro programa."""
+        os.environ["MEDIBOT_VOZ_PERSISTENTE"] = "0"
+        a, falso = self._altavoz()
+        self.assertFalse(a.persistente)
+        a.reproducir(b"A" * 64, 1)
+        self._esperar(lambda: a.proceso is not None, "no abrio")
+        self._esperar(lambda: a.proceso is None,
+                      "en este modo si tiene que soltarla al callar",
+                      limite=ma.INACTIVO_VOZ + 3)
+
+    def test_abierto_no_es_lo_mismo_que_sonando(self):
+        """Con la tarjeta siempre abierta, un solo campo decia "sonando" todo
+        el rato y no servia para diagnosticar nada."""
+        a, falso = self._altavoz()
+        a.preparar()
+        self.assertTrue(a.estado()["abierto"], "la tarjeta esta cogida")
+        self.assertFalse(a.estado()["sonando"], "pero no esta saliendo voz")
+        a.reproducir(b"\x01" * 4096, 1)
+        self.assertTrue(a.estado()["sonando"], "ahora si")
+
+    def test_preparar_abre_la_tarjeta_antes_de_hablar(self):
+        """Se llama al arrancar, con las camaras recien puestas en marcha."""
+        a, falso = self._altavoz()
+        listo, motivo = a.preparar()
+        self.assertTrue(listo, motivo)
+        self.assertIsNotNone(a.proceso)
+        self._esperar(lambda: falso.copia(),
+                      "tiene que empezar a alimentarla ya")
+
+    # --------------------------------------------------------- volumen ----
+    def test_la_ganancia_sube_el_volumen(self):
+        os.environ["MEDIBOT_VOZ_GANANCIA"] = "2.0"
+        a, falso = self._altavoz()
+        self.assertEqual(a.ganancia, 2.0)
+        bajito = struct.pack("<4h", 1000, -1000, 500, -500)
+        a.reproducir(bajito, 1)
+        self._esperar(lambda: struct.pack("<4h", 2000, -2000, 1000, -1000)
+                      in falso.copia(), "la ganancia no se aplico")
+
+    def test_la_ganancia_RECORTA_en_vez_de_dar_la_vuelta(self):
+        """Sin recortar, una muestra que se pasa aparece con el signo
+        cambiado y no suena "mas alto": suena como un chasquido. Es
+        exactamente la distorsion que se quiere evitar."""
+        subido = ma._con_ganancia(struct.pack("<4h", 30000, -30000, 20000, -20000),
+                                  4.0)
+        self.assertEqual(struct.unpack("<4h", subido),
+                         (32767, -32768, 32767, -32768))
+
+    def test_sin_ganancia_no_se_toca_el_audio(self):
+        original = struct.pack("<4h", 1234, -1234, 0, 32767)
+        self.assertIs(ma._con_ganancia(original, 1.0), original)
 
 
 if __name__ == "__main__":

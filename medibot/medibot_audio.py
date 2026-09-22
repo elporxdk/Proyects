@@ -146,6 +146,49 @@ def _booleano(nombre, por_defecto=False):
     return bruto in ("1", "true", "si", "sí", "yes", "on")
 
 
+def _decimal_arranque(nombre, por_defecto):
+    """Como _decimal, pero se usa para constantes del modulo (se lee al
+    importar, no por cada Altavoz)."""
+    try:
+        return float(os.environ.get(nombre, "").strip() or por_defecto)
+    except ValueError:
+        return por_defecto
+
+
+def _decimal(nombre, por_defecto):
+    try:
+        return float(os.environ.get(nombre, "").strip() or por_defecto)
+    except ValueError:
+        return por_defecto
+
+
+def _con_ganancia(datos, factor, ancho=2):
+    """Sube el volumen del PCM SATURANDO, nunca dando la vuelta.
+
+    Lo importante es el recorte: multiplicar sin mas hace que una muestra
+    que se pase del entero de 16 bits aparezca con el signo cambiado, y eso
+    no se oye como "mas alto", se oye como un chasquido asqueroso. Justo la
+    distorsion que se quiere evitar.
+
+    Es el remedio de ultima hora: lo primero es subir el volumen de la
+    tarjeta con amixer, que no gasta CPU ni añade ruido."""
+    if factor == 1.0 or not datos:
+        return datos
+    try:
+        import audioop                                       # noqa: PLC0415
+        return audioop.mul(datos, ancho, factor)     # en C, y ya recorta
+    except Exception:                                        # noqa: BLE001
+        #  audioop desaparecio en Python 3.13. A mano, que para trozos de
+        #  128 ms se nota poco.
+        import array                                         # noqa: PLC0415
+        muestras = array.array("h")
+        muestras.frombytes(datos[:len(datos) // 2 * 2])
+        for i, v in enumerate(muestras):
+            w = int(v * factor)
+            muestras[i] = 32767 if w > 32767 else (-32768 if w < -32768 else w)
+        return muestras.tobytes()
+
+
 def _ultimo_error(proceso):
     """Lo que arecord o aplay dejaron dicho por stderr, para explicarlo.
 
@@ -636,10 +679,39 @@ def es_local(ip, cabeceras=None):
 
 
 # ------------------------------------------------------------ altavoz ----
-#  Segundos sin recibir voz tras los que se suelta el altavoz. Dos son
-#  bastante para no cortar entre frase y frase de la misma parrafada, y poco
-#  para no dejar la tarjeta de sonido pillada despues de hablar.
+#  Segundos sin recibir voz tras los que se suelta el altavoz, SOLO en el
+#  modo no persistente (ver ALTAVOZ_PERSISTENTE).
 INACTIVO_VOZ = 2.0
+
+#  Dejar la tarjeta de sonido ABIERTA aunque nadie hable.
+#
+#  Parece desperdicio y es lo contrario. Abrir un dispositivo de audio USB
+#  reserva ancho de banda isocrono en el bus; si la camara UVC ya tiene
+#  reservado lo suyo, ESE es el momento en que el kernel puede tirar la
+#  camara ("sin conexion", o saltando entre camara 1 y 2). Abriendo y
+#  cerrando en cada frase, una conversacion normal de 14 s renegociaba el
+#  bus CUATRO veces: cuatro oportunidades de tirar el video, y justo al
+#  pulsar para hablar, que es cuando se notaba.
+#
+#  Manteniendola abierta se renegocia UNA vez y ya. De paso se quitan los
+#  cortes al empezar cada frase (la tarjeta ya esta lista) y no hay
+#  underrun, porque el hilo escritor le da silencio cuando no hay voz.
+ALTAVOZ_PERSISTENTE = True
+
+#  Segundos de audio que el hilo escritor procura tener siempre entregados
+#  por delante. Es el colchon que absorbe los baches de red: sin el, el
+#  primer tropiezo deja a la tarjeta sin nada que reproducir y se oye el
+#  corte. Se mantiene por debajo del buffer de aplay para que sea este quien
+#  marque el ritmo bloqueando la escritura.
+COLCHON_ALTAVOZ = _decimal_arranque("MEDIBOT_VOZ_COLCHON_MS", 150) / 1000.0
+
+#  Tope de la cola de reproduccion. Pasado eso se tiran los trozos VIEJOS:
+#  en una conversacion, la voz de hace un segundo ya no sirve de nada.
+VOZ_COLA_SEGUNDOS = 0.6
+
+#  Cada cuanto se comprueba la cola cuando no hay voz. Es tambien el tamano
+#  del trozo de silencio que se suelta para mantener viva la tarjeta.
+SILENCIO_SEGUNDOS = 0.064
 
 #  Lo mas grande que se acepta de una vez: 2 s de audio a 16 kHz mono de 16
 #  bits. Un trozo mas gordo que eso no es voz en directo, es alguien
@@ -688,14 +760,59 @@ class Altavoz:
         #  por el que cualquiera de internet pueda soltar voz dentro de tu
         #  casa no es algo que deba quedar abierto sin querer.
         self.solo_lan = _booleano("MEDIBOT_VOZ_SOLO_LAN", True)
+        self.persistente = _booleano("MEDIBOT_VOZ_PERSISTENTE",
+                                     ALTAVOZ_PERSISTENTE)
+        #  Ganancia por software, por si la tarjeta no tiene control de
+        #  volumen usable. Lo PRIMERO es subirla con amixer; esto es el
+        #  remedio de ultima hora, y pasado de 2 empieza a saturar.
+        self.ganancia = _decimal("MEDIBOT_VOZ_GANANCIA", 1.0)
+        self.buffer_ms = _entero("MEDIBOT_VOZ_BUFFER_MS", 200)
         self.log = log
         self.proceso = None
         self._candado = threading.Lock()
         self._ultimo_audio = 0.0
         self._ultimo_seq = 0
         self._vigilante = None
+        self._escritor = None
+        #  Sin tope de items: el tope se lleva en BYTES (ver _encolar), que
+        #  es lo que de verdad acota el retraso.
+        self._cola = queue.Queue()
+        self._bytes_cola = 0
+        self._candado_cola = threading.Lock()
         self._bytes = 0           # cuanta voz se ha soltado (diagnostico)
+        self._tirados = 0         # trozos tirados por ir demasiado atras
         self._fallo = ""
+
+    def _tope_cola(self):
+        """Cuantos BYTES de voz se guardan como mucho esperando turno.
+
+        En bytes y no en numero de trozos: el tope existe para acotar el
+        RETRASO, y un tope por trozos solo acota el retraso si todos miden
+        lo mismo. Contando trozos, unos trozos mas pequenos de lo previsto
+        hacian que se tirara voz muchisimo antes de tiempo."""
+        por_segundo = self.hz * self.canales * (self.bits // 8)
+        return max(4096, int(VOZ_COLA_SEGUNDOS * por_segundo))
+
+    def _encolar(self, datos):
+        """Mete un trozo y tira los VIEJOS si se pasa del tope."""
+        with self._candado_cola:
+            self._cola.put_nowait(datos)
+            self._bytes_cola += len(datos)
+            tope = self._tope_cola()
+            #  qsize() > 1: nunca se tira el trozo que acaba de llegar. Uno
+            #  solo mas grande que el tope se tiraba a si mismo nada mas
+            #  entrar, asi que se aceptaba y no sonaba nunca.
+            while self._bytes_cola > tope and self._cola.qsize() > 1:
+                try:
+                    viejo = self._cola.get_nowait()
+                except queue.Empty:
+                    break
+                self._bytes_cola -= len(viejo)
+                self._tirados += 1
+
+    def _silencio(self):
+        n = int(self.hz * SILENCIO_SEGUNDOS) * self.canales * (self.bits // 8)
+        return b"\x00" * n
 
     def disponible(self):
         """Se puede intentar hablar. NO garantiza que se oiga: eso depende
@@ -728,21 +845,46 @@ class Altavoz:
 
     def orden(self):
         """El comando exacto. Aparte para poder comprobarlo sin ejecutarlo."""
-        return ["aplay",
-                "-D", str(self.dispositivo),
-                "-f", f"S{self.bits}_LE",
-                "-r", str(self.hz),
-                "-c", str(self.canales),
-                "-t", "raw",           # PCM pelado: no lleva cabecera
-                "-q"]                  # sin cháchara por stderr
+        orden = ["aplay",
+                 "-D", str(self.dispositivo),
+                 "-f", f"S{self.bits}_LE",
+                 "-r", str(self.hz),
+                 "-c", str(self.canales),
+                 "-t", "raw",          # PCM pelado: no lleva cabecera
+                 "-q"]                 # sin cháchara por stderr
+        #  Un colchon holgado en la tarjeta: al reproducir, quedarse corto se
+        #  oye como chasquidos (underrun). Aqui 200 ms no molestan, porque el
+        #  retraso que importa es el de escuchar, no el de hablar.
+        if self.buffer_ms > 0:
+            periodo_ms = max(10, self.buffer_ms // 4)
+            orden += ["--buffer-time", str(self.buffer_ms * 1000),
+                      "--period-time", str(periodo_ms * 1000)]
+        return orden
 
     # --------------------------------------------------------- hablar ----
-    def reproducir(self, datos, seq=None):
-        """Suelta un trozo de PCM por el altavoz. Devuelve (ok, motivo).
+    def preparar(self):
+        """Abre la tarjeta ANTES de que nadie hable. Devuelve (ok, motivo).
 
-        'seq' es el numero de trozo dentro de una parrafada: sirve para
-        tirar los que lleguen tarde o repetidos. Un trozo atrasado sonaria
-        como un hipido a destiempo en mitad de la frase siguiente."""
+        Se llama al arrancar: asi el bus USB se reparte UNA vez, junto con
+        las camaras, y no en mitad de una frase con el video en marcha."""
+        if not self.persistente or not self.disponible():
+            return False, self.motivo_no_disponible()
+        with self._candado:
+            try:
+                self._asegurar()
+                return True, ""
+            except Exception as e:                           # noqa: BLE001
+                self._fallo = f"no se pudo abrir el altavoz: {e}"
+                return False, self._fallo
+
+    def reproducir(self, datos, seq=None):
+        """Encola un trozo de PCM para el altavoz. Devuelve (ok, motivo).
+
+        NO ESCRIBE EN aplay: solo deja el trozo en la cola y vuelve. Antes
+        escribia aqui mismo, con el candado cogido, asi que cualquier atasco
+        de la tarjeta se comia el hilo de la peticion web; y con suficientes
+        peticiones atascadas, el servidor que tambien sirve el video se
+        quedaba sin sitio. De escribir se encarga un hilo aparte."""
         if not datos:
             return True, ""
         if len(datos) > MAX_TROZO_VOZ:
@@ -751,57 +893,157 @@ class Altavoz:
         if not self.disponible():
             return False, self.motivo_no_disponible()
 
-        moribundo = None
-        try:
-            with self._candado:
-                if seq is not None:
-                    #  seq 1 es "empiezo a hablar": reinicia la cuenta.
-                    if seq <= 1:
-                        self._ultimo_seq = 0
-                    elif seq <= self._ultimo_seq:
-                        return True, "trozo atrasado o repetido; se descarta"
-                    self._ultimo_seq = seq
-                try:
-                    self._abrir()
-                    self.proceso.stdin.write(datos)
-                    self.proceso.stdin.flush()
-                except Exception as e:                       # noqa: BLE001
-                    #  aplay se murio (altavoz desenchufado, dispositivo que
-                    #  no existe, tarjeta ocupada). Se suelta para que el
-                    #  siguiente trozo arranque uno nuevo en vez de seguir
-                    #  escribiendo en un tubo roto.
-                    moribundo, self.proceso = self.proceso, None
-                    self._fallo = (_ultimo_error(moribundo)
-                                   or f"no se pudo reproducir: {e}")
-                    return False, self._fallo
-                self._ultimo_audio = time.monotonic()
-                self._bytes += len(datos)
-                self._fallo = ""
-                return True, ""
-        finally:
-            if moribundo is not None:
-                self._despedir(moribundo)
+        with self._candado:
+            if seq is not None:
+                #  seq 1 es "empiezo a hablar": reinicia la cuenta.
+                if seq <= 1:
+                    self._ultimo_seq = 0
+                elif seq <= self._ultimo_seq:
+                    return True, "trozo atrasado o repetido; se descarta"
+                self._ultimo_seq = seq
+            try:
+                self._asegurar()
+            except Exception as e:                           # noqa: BLE001
+                self._fallo = f"no se pudo abrir el altavoz: {e}"
+                return False, self._fallo
+            self._ultimo_audio = time.monotonic()
 
-    def _abrir(self):
-        """Lanza aplay si no estaba. OJO: con el candado ya cogido."""
-        if self.proceso is not None:
-            return
-        self.proceso = subprocess.Popen(
+        #  Encolar sin bloquear NUNCA: si la cola esta llena es que el
+        #  altavoz no da abasto, y en ese caso se tira lo viejo (la voz de
+        #  hace un segundo ya no sirve) en vez de hacer esperar a la web.
+        if self.ganancia != 1.0:
+            datos = _con_ganancia(datos, self.ganancia, self.bits // 8)
+        self._encolar(datos)
+        return True, ""
+
+    def _lanzar(self):
+        """Arranca aplay. Aparte para poder sustituirlo en las pruebas por un
+        doble sin tocar nada mas."""
+        return subprocess.Popen(
             self.orden(), stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        self._ultimo_audio = time.monotonic()
-        if self._vigilante is None:
+
+    def _asegurar(self):
+        """Deja aplay y el hilo escritor en marcha. Con el candado cogido."""
+        if self.proceso is None:
+            self.proceso = self._lanzar()
+            #  OJO: aqui NO se toca _ultimo_audio. Significa "cuando llego
+            #  voz por ultima vez", y abrir la tarjeta no es que llegue voz:
+            #  si se tocara, preparar() (que abre al arrancar, sin que nadie
+            #  hable) dejaria el estado diciendo que esta sonando.
+            #  Quien si lo pone al dia es reproducir(), en la misma seccion
+            #  protegida, asi que el vigilante nunca ve un valor viejo.
+        if self._escritor is None or not self._escritor.is_alive():
+            self._escritor = threading.Thread(
+                target=self._escribir_sin_parar, args=(self.proceso,),
+                name="medibot-altavoz", daemon=True)
+            self._escritor.start()
+        if not self.persistente and self._vigilante is None:
             self._vigilante = threading.Thread(
                 target=self._vigilar, name="medibot-voz", daemon=True)
             self._vigilante.start()
 
-    def _vigilar(self):
-        """Suelta el altavoz cuando se deja de hablar.
+    def _descontar(self, datos):
+        with self._candado_cola:
+            self._bytes_cola = max(0, self._bytes_cola - len(datos))
 
-        Hace falta un vigilante porque el navegador no avisa de que ha
-        terminado: simplemente deja de mandar trozos. Sin esto, aplay se
-        quedaria abierto agarrado a la tarjeta de sonido hasta apagar el
-        robot."""
+    def _escribir_sin_parar(self, proceso):
+        """Hilo: saca trozos de la cola y los mete en aplay. El UNICO que
+        escribe en la tarjeta.
+
+        LLEVA LA CUENTA DE LO QUE LE HA DADO. Se sabe exactamente a que
+        velocidad consume aplay (hz x canales x ancho), asi que restando el
+        tiempo transcurrido sale el COLCHON: cuantos segundos de audio le
+        quedan a la tarjeta por delante.
+
+          - Colchon holgado -> espera voz de verdad, sin rellenar.
+          - Colchon a punto de agotarse -> suelta silencio YA.
+
+        Sin esa cuenta, rellenar "cuando la cola tarda" mete silencio ENTRE
+        trozos de voz y parte las palabras: la primera version hacia eso y
+        la pureza del tono medido bajaba del 100% al 98%.
+
+        El silencio no es para oirlo: es para que la tarjeta no se quede
+        seca (eso se oye como chasquidos y cortes, el underrun) y para no
+        tener que cerrarla, porque reabrirla renegocia el bus USB y es lo
+        que tiraba la camara.
+
+        La escritura BLOQUEA cuando el colchon de aplay se llena, y eso es
+        justo lo que se quiere: marca el ritmo sola. Por eso va en su propio
+        hilo y nunca en la peticion web."""
+        silencio = self._silencio()
+        por_segundo = float(self.hz * self.canales * (self.bits // 8))
+        inicio = time.monotonic()
+        entregados = 0
+
+        #  Llenar el colchon con silencio ANTES de soltar nada de voz.
+        #
+        #  Hay que hacerlo aqui y no sobre la marcha: la voz llega a tiempo
+        #  real, ni un byte de mas, asi que nunca puede llenar el colchon
+        #  ella sola. Si se empieza con el colchon vacio, tras el primer
+        #  trozo toca rellenar, y ese silencio cae DENTRO de la frase y se
+        #  oye como un tartamudeo al empezar a hablar. Lleno de antemano, la
+        #  voz entra seguida y no se rellena mas mientras siga llegando.
+        #  CON TOPE. Si la tarjeta consume tan deprisa como se le escribe (un
+        #  dispositivo sin apenas buffer), el colchon medido no sube nunca y
+        #  sin tope esto giraria para siempre metiendo silencio: la voz no
+        #  sonaria JAMAS. Con tope, lo peor que pasa es que no haya colchon,
+        #  y el bucle de abajo ya reparte voz en cuanto la hay.
+        for _ in range(int(COLCHON_ALTAVOZ / SILENCIO_SEGUNDOS) + 1):
+            if entregados / por_segundo - (time.monotonic() - inicio) >= COLCHON_ALTAVOZ:
+                break
+            try:
+                proceso.stdin.write(silencio)
+                proceso.stdin.flush()
+            except Exception:                                # noqa: BLE001
+                break
+            entregados += len(silencio)
+
+        while True:
+            colchon = entregados / por_segundo - (time.monotonic() - inicio)
+            if colchon > COLCHON_ALTAVOZ:
+                #  Va sobrada: esperar voz de verdad hasta que el colchon
+                #  baje al objetivo. Si llega voz antes, entra al momento.
+                try:
+                    datos = self._cola.get(timeout=colchon - COLCHON_ALTAVOZ)
+                except queue.Empty:
+                    continue                      # a mirar el colchon otra vez
+                self._descontar(datos)
+            else:
+                #  Se esta quedando seca: lo que haya, y si no hay nada,
+                #  silencio ahora mismo.
+                try:
+                    datos = self._cola.get_nowait()
+                    self._descontar(datos)
+                except queue.Empty:
+                    datos = silencio
+
+            with self._candado:
+                if self.proceso is not proceso:
+                    return               # nos han jubilado: hay otro aplay
+            try:
+                proceso.stdin.write(datos)
+                proceso.stdin.flush()
+            except Exception as e:                           # noqa: BLE001
+                moribundo = None
+                with self._candado:
+                    if self.proceso is proceso:
+                        moribundo, self.proceso = self.proceso, None
+                        self._escritor = None
+                        self._fallo = (_ultimo_error(proceso)
+                                       or f"se corto el altavoz: {e}")
+                if moribundo is not None:
+                    self._despedir(moribundo)
+                return
+            entregados += len(datos)
+            if datos is not silencio:
+                self._bytes += len(datos)
+
+    def _vigilar(self):
+        """Suelta el altavoz tras un rato sin voz. SOLO en modo no
+        persistente: con la tarjeta persistente no hace falta, y es
+        justamente lo que se quiere evitar (cada cierre obliga a renegociar
+        el bus USB en la frase siguiente)."""
         while True:
             time.sleep(0.25)
             moribundo = None
@@ -812,6 +1054,7 @@ class Altavoz:
                 if time.monotonic() - self._ultimo_audio >= INACTIVO_VOZ:
                     moribundo, self.proceso = self.proceso, None
                     self._vigilante = None
+                    self._escritor = None
             if moribundo is not None:
                 #  Fuera del candado: despedirse tarda hasta 2 s y con el
                 #  candado cogido bloquearia a quien vuelva a hablar.
@@ -819,9 +1062,19 @@ class Altavoz:
                 return
 
     def cerrar(self):
-        """Suelta el altavoz ya, sin esperar al vigilante."""
+        """Suelta el altavoz ya, sin esperar a nadie."""
         with self._candado:
             moribundo, self.proceso = self.proceso, None
+            self._escritor = None
+            self._vigilante = None
+        #  Vaciar la cola: lo que quedara era para un altavoz que ya no esta.
+        with self._candado_cola:
+            while True:
+                try:
+                    self._cola.get_nowait()
+                except queue.Empty:
+                    break
+            self._bytes_cola = 0
         self._despedir(moribundo)
 
     @staticmethod
@@ -865,7 +1118,13 @@ class Altavoz:
 
         Leer los atributos sueltos puede dar una foto de hace un instante,
         que para un indicador de estado sobra."""
-        sonando = self.proceso is not None
+        #  'abierto' y 'sonando' son cosas distintas desde que la tarjeta se
+        #  queda abierta: tenerla cogida NO significa que este saliendo voz.
+        #  Con un solo campo, el diagnostico decia "sonando" todo el rato y
+        #  no servia para nada.
+        abierto = self.proceso is not None
+        sonando = abierto and (self._bytes_cola > 0
+                               or time.monotonic() - self._ultimo_audio < 1.0)
         fallo = self._fallo
         bytes_soltados = self._bytes
         por_segundo = self.hz * self.canales * (self.bits // 8)
@@ -876,8 +1135,15 @@ class Altavoz:
             "hz": self.hz,
             "canales": self.canales,
             "bits": self.bits,
-            "sonando": sonando,
+            "abierto": abierto,          # la tarjeta esta cogida
+            "sonando": sonando,          # esta saliendo voz ahora mismo
             "solo_lan": self.solo_lan,
+            "persistente": self.persistente,
+            "ganancia": self.ganancia,
+            #  Lo que hay esperando turno, en segundos. Si esto crece y no
+            #  baja, el altavoz no da abasto: se oiria como voz cortada.
+            "en_cola": round(self._bytes_cola / float(por_segundo), 2),
+            "tirados": self._tirados,
             "segundos": round(bytes_soltados / float(por_segundo), 1),
             "ultimo_fallo": fallo,
         }
@@ -901,7 +1167,18 @@ if __name__ == "__main__":
     print("\nEstado:", a.estado())
     if a.disponible():
         print("Orden:", " ".join(a.orden()))
-        print("Probar el altavoz:  speaker-test -D "
-              f"{a.dispositivo} -c {a.canales} -t sine -l 1")
+        tarjeta = "1"
+        if a.dispositivo and ":" in str(a.dispositivo):
+            tarjeta = str(a.dispositivo).split(":")[1].split(",")[0]
+        print("\nSi se oye bajo, sube el volumen DE LA TARJETA (no en el")
+        print("codigo: ahi no gasta CPU ni mete ruido):")
+        print(f"  amixer -c {tarjeta} scontrols          # que controles tiene")
+        for control in ("PCM", "Speaker", "Master", "Headphone"):
+            print(f"  amixer -c {tarjeta} sset '{control}' 100% unmute")
+        print("  sudo alsactl store                 # que aguante el reinicio")
+        print(f"  alsamixer -c {tarjeta}                   # o a ojo, con flechas")
+        print("\nProbar que suena:")
+        print(f"  speaker-test -D {a.dispositivo} -c {a.canales} -t sine -l 1")
+        print("\nSolo si aun asi se oye bajo:  MEDIBOT_VOZ_GANANCIA=2.0")
     else:
         print("No disponible:", a.motivo_no_disponible())

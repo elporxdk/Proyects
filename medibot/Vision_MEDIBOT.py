@@ -4708,9 +4708,17 @@ def _avisar_del_microfono():
 
     voz = altavoz.estado()
     if voz["disponible"]:
-        print(f"Altavoz para hablar: {voz['dispositivo']}. "
-              "Manten pulsado el microfono en la web para hablar "
-              "(necesita HTTPS: usa el tunel o localhost).")
+        #  Abrir la tarjeta YA, con las camaras recien arrancadas, en vez de
+        #  en mitad de una frase. Abrir un dispositivo de audio USB reserva
+        #  ancho de banda isocrono en el bus; hacerlo con el video ya en
+        #  marcha es lo que tiraba la camara justo al pulsar para hablar.
+        #  Hecho una vez aqui, no vuelve a pasar.
+        listo, porque = altavoz.preparar()
+        print(f"Altavoz para hablar: {voz['dispositivo']}"
+              + (" (abierto y listo)" if listo else "")
+              + ". Manten pulsado el microfono en la web para hablar.")
+        if not listo and porque:
+            print(f"  AVISO: {porque}")
     else:
         print(f"Altavoz para hablar: no se podra hablar ({voz['motivo']}).")
 

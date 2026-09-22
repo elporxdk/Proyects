@@ -383,6 +383,85 @@ acopla, como cualquier megafonia. Contra eso: el navegador cancela eco
 a encender al soltar. Si aun asi pita, baja el volumen o separa el altavoz
 del microfono de la camara.
 
+#### Si se oye bajo o distorsiona
+
+El volumen se sube **en la tarjeta**, no en el codigo: ahi no gasta CPU ni
+mete ruido. Primero mira que controles tiene la tuya:
+
+```bash
+aplay -l                       # numero de tarjeta (card N)
+amixer -c 1 scontrols          # que controles tiene ESA tarjeta
+```
+
+Y sube los que aparezcan (no todas tienen los mismos; ignora los que den
+error):
+
+```bash
+amixer -c 1 sset 'PCM'      100% unmute
+amixer -c 1 sset 'Speaker'  100% unmute
+amixer -c 1 sset 'Master'   100% unmute
+amixer -c 1 sset 'Headphone' 100% unmute
+sudo alsactl store             # que sobreviva al reinicio
+```
+
+A ojo, con flechas, es mas comodo: `alsamixer -c 1` (F6 cambia de tarjeta,
+M quita el mute). Si el sistema usa PipeWire o PulseAudio:
+
+```bash
+pactl list short sinks
+pactl set-sink-volume <nombre-del-sink> 100%
+pactl set-sink-mute   <nombre-del-sink> 0
+```
+
+**Solo si aun asi se oye bajo**, hay ganancia por software:
+`MEDIBOT_VOZ_GANANCIA=2.0`. Es el remedio de ultima hora, no el primero:
+recorta al saturar (no da la vuelta, que se oiria como un chasquido), pero
+pasado de 2 empieza a distorsionar de verdad. Antes de subirla, comprueba
+que no sea el navegador el que manda la voz bajita.
+
+Que la tarjeta suena, aparte de todo lo demas:
+
+```bash
+speaker-test -D plughw:1,0 -c 1 -t sine -l 1
+```
+
+#### Si la camara se cae al hablar
+
+Que el video se caiga (o empiece a saltar entre camara 1 y 2) **justo al
+pulsar para hablar** tiene tres causas posibles, y conviene saber cual es
+antes de tocar nada:
+
+```bash
+dmesg -w | grep -iE 'usb|voltage|under|disconnect'   # en otra terminal, y hablas
+vcgencmd get_throttled     # 0x0 = bien; si sale otra cosa, falta corriente
+```
+
+- `disconnect` / `error -71` / `-110` al pulsar -> **bus USB**. Abrir un
+  dispositivo de audio USB reserva ancho de banda isocrono, y si la camara
+  ya tiene reservado lo suyo, el kernel la tira. El programa ya lo mitiga:
+  abre la tarjeta **una sola vez al arrancar** y la deja abierta (antes la
+  abria en cada frase: una conversacion de 14 s renegociaba el bus cuatro
+  veces). Si aun asi pasa, baja la resolucion o los FPS de la camara, o
+  pasa el altavoz a otro controlador USB (en la Pi 4, los puertos azules y
+  los negros son controladores distintos).
+- `Under-voltage detected` o `get_throttled` distinto de `0x0` -> **falta
+  corriente**. La solucion de verdad es un **hub USB con alimentacion
+  propia** para el altavoz, o una fuente mejor. Y en la Pi 2/3, en
+  `/boot/config.txt` (en Bookworm es `/boot/firmware/config.txt`):
+
+  ```
+  max_usb_current=1
+  ```
+
+  Eso sube el total de los puertos USB de 600 mA a 1,2 A, y **necesita una
+  fuente de 2,5 A**. Ojo: en la **Pi 4 no existe** esa opcion (la corriente
+  la marca la fuente), y en la **Pi 5** el equivalente es
+  `usb_max_current_enable=1`, que solo sirve con una fuente de 5 V/5 A.
+  Poner `max_usb_current=1` en una Pi 4 o 5 no hace nada.
+- Ni una cosa ni la otra -> mira la consola de Medibot: si sale
+  `[perf cam1]` con los FPS por los suelos, el cuello de botella es la CPU,
+  no el USB.
+
 **Ojo con publicarlo por internet:** ahora no es solo un microfono abierto,
 es tambien un altavoz por el que cualquiera que llegue a la pagina puede
 hablar dentro de tu casa. Ponle Cloudflare Access delante, como el resto.
