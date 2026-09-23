@@ -43,6 +43,8 @@ credenciales*.json
 # Productos del banco de pruebas del firmware (no son codigo)
 pruebas/banco_firmware/.build/
 pruebas/banco_firmware/.libs/
+pruebas/banco_dotly/.build/
+pruebas/banco_dotly/.libs/
 pruebas/banco_firmware/nvs*.dat*
 
 # Certificado propio para servir la web por HTTPS en casa (medibot_tls.py).
