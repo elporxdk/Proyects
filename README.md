@@ -3,6 +3,7 @@
 Código del proyecto MEDIBOT. Qué hay en cada carpeta:
 
 * **`dotly/`**: DOTLY, para aprender braille y el alfabeto manual (ESP32-S3 + LCD 16x2 + 5 botones + página web). Ver `dotly/LEEME.md`.
+  * **`dotly/web/`**: la web de DOTLY para explorar, traducir y aprender braille. Funciona sola, sin hardware, y se puede conectar a un ESP32. Ver `dotly/web/LEEME.md`.
 * **`firmware/`**: el código de las placas (Arduino / ESP32).
 * **`herramientas/`**: utilidades de simulación y depuración sin hardware.
 * **`legado/`**: versiones antiguas de los scripts.
@@ -23,6 +24,9 @@ ficheros de varias carpetas.
 | El **chasis** (motores) | `firmware/medibot_movimiento/medibot_movimiento.ino` |
 | El **pastillero** | `firmware/pillbox_*/…` |
 | **DOTLY** (braille: LCD 16x2 + 5 botones + WiFi) | `dotly/dotly.ino` (con `pagina_web.h` al lado) |
+
+`dotly/web/` tampoco se graba: es una web que se abre en el navegador (o se sube
+a la memoria LittleFS del ESP32).
 
 **`pruebas/banco_firmware/` y `pruebas/banco_dotly/` NO se graban en ninguna
 placa.** Son programas de PC que ejecutan los sketches con el hardware simulado

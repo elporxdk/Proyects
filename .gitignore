@@ -45,6 +45,8 @@ pruebas/banco_firmware/.build/
 pruebas/banco_firmware/.libs/
 pruebas/banco_dotly/.build/
 pruebas/banco_dotly/.libs/
+pruebas/web_dotly/.build/
+pruebas/web_dotly/.libs/
 pruebas/banco_firmware/nvs*.dat*
 
 # Certificado propio para servir la web por HTTPS en casa (medibot_tls.py).

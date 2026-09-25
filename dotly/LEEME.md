@@ -174,6 +174,14 @@ Todo en JSON. Los `POST` llevan los datos como formulario
 | `/api/calibrar` | POST | abre el asistente del teclado |
 | `/api/reiniciar` | POST | reinicia DOTLY |
 
+## La web independiente
+
+`dotly/web/` es otra web, que funciona sin el aparato: una celda de 6 puntos para
+explorar, un traductor, lecciones con práctica y un modo profesor. Se abre con
+doble clic en `dotly/web/index.html`. Se puede conectar a un ESP32 por WebSocket o
+HTTP. Con el firmware actual lo hace en «solo envío»: el texto y las letras
+aparecen en la pantalla de DOTLY. Ver `dotly/web/LEEME.md`.
+
 ## Probarlo sin placa
 
 `pruebas/banco_dotly/` compila este mismo `dotly.ino` en el PC con el hardware

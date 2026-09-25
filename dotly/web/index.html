@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DOTLY: explora, traduce y aprende braille con una celda interactiva. Funciona sin conexión y puede enlazarse con un ESP32.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff">
+  <title>DOTLY · Braille, punto a punto</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cg fill='%23fb923c'%3E%3Ccircle cx='22' cy='16' r='7'/%3E%3Ccircle cx='42' cy='16' r='7'/%3E%3Ccircle cx='42' cy='32' r='7'/%3E%3Ccircle cx='22' cy='48' r='7'/%3E%3C/g%3E%3Cg fill='%23475569'%3E%3Ccircle cx='22' cy='32' r='5'/%3E%3Ccircle cx='42' cy='48' r='5'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/dotly.css">
+  <!-- Scripts clásicos (no módulos): así la web funciona también abierta como
+       archivo (file://) y servida desde la memoria del ESP32. El orden importa. -->
+  <script defer src="js/braille.js"></script>
+  <script defer src="js/celda.js"></script>
+  <script defer src="js/conexion.js"></script>
+  <script defer src="js/aprendizaje.js"></script>
+  <script defer src="js/app.js"></script>
+</head>
+<body>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+
+  <!-- ================= CABECERA Y NAVEGACIÓN ================= -->
+  <header class="cabecera">
+    <a class="marca" href="#explorar">
+      <span class="marca__logo" aria-hidden="true">
+        <span class="mini-dots" data-puntos="25"></span><span class="mini-dots" data-puntos="21"></span><span class="mini-dots" data-puntos="30"></span><span class="mini-dots" data-puntos="7"></span><span class="mini-dots" data-puntos="61"></span>
+      </span>
+      <span class="marca__texto"><span class="marca__nombre">DOTLY</span><span class="marca__lema">Braille, punto a punto</span></span>
+    </a>
+
+
+    <div class="cabecera__acciones">
+      <a class="pildora" id="pildora" href="#conexion" data-estado="local">
+        <span class="pildora__luz" aria-hidden="true"></span><span class="pildora__texto">Sin equipo</span>
+      </a>
+      <button type="button" class="btn btn--icono" id="btnAjustes" aria-haspopup="dialog" aria-controls="dlgAjustes">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.7 7.7 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.7 7.7 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.7 7.7 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.7 7.7 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+        <span class="texto-ancho">Ajustes</span>
+      </button>
+    </div>
+
+    <nav class="menu" aria-label="Secciones">
+      <a class="menu__item" href="#explorar" data-vista="explorar">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="8" cy="5" r="2.4"/><circle cx="16" cy="5" r="2.4"/><circle cx="8" cy="12" r="2.4"/><circle cx="16" cy="12" r="2.4" class="hueco"/><circle cx="8" cy="19" r="2.4" class="hueco"/><circle cx="16" cy="19" r="2.4"/></svg>
+        <span>Explorar</span>
+      </a>
+      <a class="menu__item" href="#traductor" data-vista="traductor">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 18 7.5 5h1L13 18h-2.2l-1-3H6.2l-1 3zm3.8-5h2.4L8 9.2z"/><circle cx="17" cy="7" r="1.6"/><circle cx="21" cy="7" r="1.6"/><circle cx="17" cy="12" r="1.6"/><circle cx="21" cy="17" r="1.6"/></svg>
+        <span>Traductor</span>
+      </a>
+      <a class="menu__item" href="#aprender" data-vista="aprender">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3 1 8.5 12 14l9-4.5V16h2V8.5zM5 12.2V16c0 1.8 3.1 3.5 7 3.5s7-1.7 7-3.5v-3.8L12 16z"/></svg>
+        <span>Aprender</span>
+      </a>
+      <a class="menu__item" href="#conexion" data-vista="conexion">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19.5a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6zM6.6 13.4a7.6 7.6 0 0 1 10.8 0l-1.5 1.5a5.5 5.5 0 0 0-7.8 0zM3.2 10a12.4 12.4 0 0 1 17.6 0l-1.5 1.5a10.3 10.3 0 0 0-14.6 0z"/></svg>
+        <span>Conexión</span><span class="menu__insignia" aria-hidden="true"></span><span class="sr-only" id="menuEstado"></span>
+      </a>
+    </nav>
+  </header>
+
+  <noscript><p class="aviso-js">DOTLY necesita JavaScript para funcionar. Actívalo en el navegador.</p></noscript>
+
+  <main id="contenido" tabindex="-1">
+
+    <!-- ================= EXPLORAR: la celda interactiva ================= -->
+    <section class="vista" id="vista-explorar" aria-labelledby="t-explorar">
+      <h1 id="t-explorar" tabindex="-1">Explorar la celda</h1>
+      <p class="intro">Toca los puntos para encenderlos o apagarlos: DOTLY te dice al momento qué letra o signo forman.</p>
+
+      <div class="rejilla rejilla--explorar">
+        <div class="tarjeta tarjeta--celda">
+          <div class="celda-y-lectura">
+            <div id="celdaExplorar"></div>
+            <div class="lectura" id="lectura">
+              <div class="lectura__car" id="lecturaCar" aria-hidden="true">·</div>
+              <p class="lectura__que" id="lecturaQue">Toca un punto para empezar</p>
+              <p class="lectura__extra" id="lecturaExtra"></p>
+              <p class="lectura__puntos"><span id="lecturaPuntos">Ningún punto</span> <span class="lectura__uni" id="lecturaUni" aria-hidden="true">⠀</span></p>
+            </div>
+          </div>
+          <div class="botonera">
+            <button type="button" class="btn btn--secundario" id="btnAnterior"><span aria-hidden="true">◀</span> Anterior</button>
+            <button type="button" class="btn btn--secundario" id="btnSiguienteSigno">Siguiente <span aria-hidden="true">▶</span></button>
+            <button type="button" class="btn btn--secundario" id="btnLimpiar">Borrar puntos</button>
+            <button type="button" class="btn btn--primario" id="btnAlTexto">Añadir al traductor</button>
+          </div>
+          <details class="atajos">
+            <summary>Atajos de teclado</summary>
+            <ul>
+              <li><kbd>1</kbd> a <kbd>6</kbd>: enciende o apaga ese punto.</li>
+              <li><kbd>F</kbd> <kbd>D</kbd> <kbd>S</kbd> y <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> pulsadas a la vez, como en una máquina Perkins: los puntos 1 2 3 y 4 5 6.</li>
+              <li><kbd>Retroceso</kbd> o <kbd>Supr</kbd>: borra la celda.</li>
+              <li>Dentro de la celda, las flechas pasan de un punto a otro.</li>
+            </ul>
+          </details>
+        </div>
+
+        <div class="tarjeta">
+          <h2>Signo generador</h2>
+          <p class="nota">Toca cualquier signo para verlo en la celda.</p>
+          <div id="alfabeto" class="alfabeto"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TRADUCTOR ================= -->
+    <section class="vista" id="vista-traductor" aria-labelledby="t-traductor" hidden>
+      <h1 id="t-traductor" tabindex="-1">Traductor</h1>
+      <p class="intro">Escribe en español y lo verás en braille mientras escribes.</p>
+
+      <div class="rejilla rejilla--traductor">
+        <div class="tarjeta">
+          <label class="etiqueta-campo" for="texto">Texto en español</label>
+          <textarea id="texto" rows="4" maxlength="500" aria-describedby="contador"></textarea>
+          <p class="nota" id="contador"></p>
+          <div class="botonera botonera--ejemplos">
+            <span class="nota">Ejemplos:</span>
+            <button type="button" class="btn btn--peq btn--secundario" data-ejemplo="Hola, me llamo DOTLY.">Mayúsculas</button>
+            <button type="button" class="btn btn--peq btn--secundario" data-ejemplo="Tengo 12 años, mido 1,5 m y vivo en el 2b.">Números</button>
+            <button type="button" class="btn btn--peq btn--secundario" data-ejemplo="¿Qué tal? ¡Genial! (gracias)">Signos</button>
+            <button type="button" class="btn btn--peq btn--secundario" id="btnBorrarTexto">Borrar</button>
+          </div>
+        </div>
+
+        <div class="tarjeta">
+          <div class="titulo-con-dato"><h2>En braille</h2><span class="dato" id="cuentaCeldas">0 celdas</span></div>
+          <div class="salida" id="salida" aria-hidden="true"></div>
+          <p class="aviso-suave" id="avisoDesconocidos" hidden></p>
+          <label class="etiqueta-campo" for="unicode">Braille Unicode, para copiar o leer en una línea braille</label>
+          <textarea id="unicode" class="unicode" rows="3" readonly></textarea>
+          <div class="botonera">
+            <button type="button" class="btn btn--primario" id="btnCopiar">Copiar braille</button>
+            <button type="button" class="btn btn--secundario" id="btnEnviarTexto" hidden>Enviar al equipo</button>
+          </div>
+          <details class="reglas">
+            <summary>Reglas que se aplican</summary>
+            <ul>
+              <li><strong>Mayúscula</strong>: el signo 4-6 delante de la letra. Si la palabra entera va en mayúsculas, el signo va dos veces delante de la palabra.</li>
+              <li><strong>Números</strong>: el signo de número (3-4-5-6) una vez al principio, y las letras de la a a la j como cifras. La coma decimal (punto 2) y el punto de los millares (punto 3) no cortan el número.</li>
+              <li><strong>Letra tras un número</strong>: una letra de la a a la j pegada a un número lleva delante el signo de minúscula (punto 5), para que no se lea como otra cifra.</li>
+            </ul>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= APRENDER (modo profesor) ================= -->
+    <section class="vista" id="vista-aprender" aria-labelledby="t-aprender" hidden>
+      <h1 id="t-aprender" tabindex="-1">Aprender</h1>
+      <div id="ap-inicio">
+        <p class="intro">Lecciones en el orden en que se suele enseñar el braille. Cada una se puede estudiar y practicar: formando letras con los puntos o leyendo celdas.</p>
+        <h2>Lecciones</h2>
+        <ol class="lecciones" id="lecciones"></ol>
+
+        <form class="tarjeta profesor" id="formProfesor">
+          <h2>Práctica a medida <span class="etiqueta">modo profesor</span></h2>
+          <p class="nota">Para preparar una práctica: elige qué signos entran, cómo se pregunta y cuántas preguntas.</p>
+          <fieldset class="grupo">
+            <legend>Signos que entran</legend>
+            <div class="chips" id="profGrupos"></div>
+            <div id="profSignos" class="prof-signos"></div>
+            <p class="nota" id="profCuenta" aria-live="polite"></p>
+          </fieldset>
+          <fieldset class="grupo">
+            <legend>Cómo se pregunta</legend>
+            <label class="radio"><input type="radio" name="profTipo" value="formar"><span><strong>Formar</strong>: se ve la letra y se marcan sus puntos</span></label>
+            <label class="radio"><input type="radio" name="profTipo" value="leer"><span><strong>Leer</strong>: se ve la celda y se elige qué letra es</span></label>
+            <label class="radio"><input type="radio" name="profTipo" value="mixto"><span><strong>Mezclado</strong>: un poco de cada</span></label>
+          </fieldset>
+          <fieldset class="grupo">
+            <legend>Número de preguntas</legend>
+            <div class="radios-linea">
+              <label class="radio"><input type="radio" name="profTotal" value="5"><span>5</span></label>
+              <label class="radio"><input type="radio" name="profTotal" value="10"><span>10</span></label>
+              <label class="radio"><input type="radio" name="profTotal" value="20"><span>20</span></label>
+            </div>
+          </fieldset>
+          <button type="submit" class="btn btn--primario btn--grande">Empezar la práctica</button>
+        </form>
+      </div>
+
+      <div id="ap-estudio" hidden>
+        <div class="cabecera-sub">
+          <h2 id="estudioTitulo" tabindex="-1"></h2>
+          <button type="button" class="btn btn--secundario" id="estudioVolver">Volver a las lecciones</button>
+        </div>
+        <p class="intro" id="estudioExplica"></p>
+        <ul class="fichas" id="fichas"></ul>
+        <div class="botonera"><button type="button" class="btn btn--primario btn--grande" id="estudioPracticar">Practicar esta lección</button></div>
+      </div>
+
+      <div id="ap-sesion" hidden>
+        <div class="cabecera-sub">
+          <h2 id="sesionTitulo" tabindex="-1"></h2>
+          <button type="button" class="btn btn--secundario" id="sesionSalir">Salir</button>
+        </div>
+        <div class="progreso">
+          <div class="barra" id="sesionBarra" role="progressbar" aria-label="Preguntas contestadas" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0"><span></span></div>
+          <p class="progreso__texto" id="sesionCuenta"></p>
+        </div>
+        <div class="tarjeta ejercicio">
+          <p class="consigna" id="consigna" tabindex="-1"></p>
+          <div class="objetivo" id="objetivo" aria-hidden="true"></div>
+          <div class="respuesta" id="respuesta"></div>
+          <p class="retro" id="retro" role="status"></p>
+          <div class="botonera botonera--centro">
+            <button type="button" class="btn btn--primario btn--grande" id="btnComprobar">Comprobar</button>
+            <button type="button" class="btn btn--secundario" id="btnPista">Pista</button>
+            <button type="button" class="btn btn--secundario" id="btnBorrarRespuesta">Borrar puntos</button>
+            <button type="button" class="btn btn--primario btn--grande" id="btnSiguientePregunta" hidden>Siguiente</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="ap-resumen" hidden>
+        <div class="tarjeta resumen">
+          <h2 id="resumenTitulo" tabindex="-1">Práctica terminada</h2>
+          <p class="estrellas estrellas--grandes" id="resumenEstrellas"></p>
+          <p class="resumen__cifra" id="resumenCifra"></p>
+          <p id="resumenRepasar"></p>
+          <div class="botonera botonera--centro">
+            <button type="button" class="btn btn--primario" id="resumenRepetir">Repetir</button>
+            <button type="button" class="btn btn--secundario" id="resumenFalladas">Practicar las falladas</button>
+            <button type="button" class="btn btn--secundario" id="resumenVolver">Volver a las lecciones</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CONEXIÓN CON EL ESP32 ================= -->
+    <section class="vista" id="vista-conexion" aria-labelledby="t-conexion" hidden>
+      <h1 id="t-conexion" tabindex="-1">Conexión con DOTLY</h1>
+      <p class="intro">La web funciona sin conectar nada. Si tienes un DOTLY (un ESP32), conéctalo: la celda y el texto que veas aquí aparecerán en el aparato, y lo que se marque en el aparato aparecerá aquí.</p>
+
+      <div class="rejilla rejilla--conexion">
+        <div class="pila">
+          <div class="tarjeta estado-conexion" id="tarjetaEstado" data-estado="local">
+            <span class="estado-conexion__icono" aria-hidden="true"></span>
+            <div>
+              <h2 id="estadoTitulo">Sin equipo</h2>
+              <p id="estadoDetalle">Sin conectar: la web funciona por su cuenta.</p>
+            </div>
+          </div>
+
+          <form class="tarjeta" id="formConexion" novalidate>
+            <h2>Conectar</h2>
+            <p class="aviso-suave" id="avisoHttps" hidden>Esta página está abierta con <strong>https</strong>. Los navegadores no dejan que una página https hable con un aparato por http o WebSocket sin cifrar: para conectar, abre la web desde el propio ESP32, desde un servidor http o como archivo.</p>
+            <label class="etiqueta-campo" for="ip">Dirección IP del ESP32</label>
+            <input type="text" id="ip" name="ip" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.4.1" aria-describedby="ipAyuda">
+            <p class="nota" id="ipAyuda">Con la red propia de DOTLY suele ser 192.168.4.1. También vale un nombre como dotly.local, o IP:puerto.</p>
+            <div class="botonera">
+              <button type="submit" class="btn btn--primario btn--grande" id="btnConectar">Conectar</button>
+              <button type="button" class="btn btn--secundario btn--grande" id="btnDesconectar" hidden>Desconectar</button>
+              <button type="button" class="btn btn--secundario" id="btnPrueba" hidden>Enviar una prueba</button>
+            </div>
+            <details class="avanzado">
+              <summary>Opciones avanzadas</summary>
+              <fieldset class="grupo">
+                <legend>Cómo hablar con el ESP32</legend>
+                <label class="radio"><input type="radio" name="transporte" value="auto" checked><span><strong>Automático</strong>: prueba WebSocket y HTTP y usa el que conteste</span></label>
+                <label class="radio"><input type="radio" name="transporte" value="websocket"><span><strong>Solo WebSocket</strong> (tiempo real)</span></label>
+                <label class="radio"><input type="radio" name="transporte" value="http"><span><strong>Solo HTTP</strong> (peticiones y consulta periódica)</span></label>
+              </fieldset>
+              <div class="campos-linea">
+                <div><label class="etiqueta-campo" for="puertoWs">Puerto WebSocket</label><input type="number" id="puertoWs" min="1" max="65535" value="81"></div>
+                <div><label class="etiqueta-campo" for="rutaWs">Ruta WebSocket</label><input type="text" id="rutaWs" value="/" autocomplete="off" spellcheck="false"></div>
+                <div><label class="etiqueta-campo" for="intervalo">Consulta HTTP cada (ms)</label><input type="number" id="intervalo" min="200" max="10000" step="100" value="800"></div>
+              </div>
+            </details>
+          </form>
+        </div>
+
+        <div class="pila">
+          <div class="tarjeta" id="tarjetaPantalla" hidden>
+            <h2>Pantalla del equipo</h2>
+            <pre class="pantalla-equipo" id="pantallaEquipo"></pre>
+          </div>
+          <div class="tarjeta">
+            <h2>Qué se comparte</h2>
+            <ul class="lista-compartir">
+              <li><span class="flecha" aria-hidden="true">→</span><span>La celda de <strong>Explorar</strong> y la letra que forma.</span></li>
+              <li><span class="flecha" aria-hidden="true">→</span><span>El texto del <strong>Traductor</strong>.</span></li>
+              <li><span class="flecha" aria-hidden="true">→</span><span>En <strong>Aprender</strong>, la celda del ejercicio (sin desvelar la respuesta).</span></li>
+              <li><span class="flecha" aria-hidden="true">←</span><span>Los puntos que se marquen en el aparato.</span></li>
+              <li><span class="flecha" aria-hidden="true">←</span><span>Sus botones: aceptar, siguiente, anterior y borrar.</span></li>
+            </ul>
+          </div>
+          <div class="tarjeta">
+            <div class="titulo-con-dato"><h2>Registro</h2><button type="button" class="btn btn--peq btn--secundario" id="btnVaciarRegistro">Vaciar</button></div>
+            <div role="log" aria-live="off" aria-label="Mensajes con el equipo"><ol class="registro" id="registro"></ol></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= AJUSTES ================= -->
+  <dialog id="dlgAjustes" aria-labelledby="tAjustes">
+    <form method="dialog" class="ajustes">
+      <h2 id="tAjustes">Ajustes</h2>
+      <fieldset class="grupo">
+        <legend>Colores</legend>
+        <label class="radio"><input type="radio" name="tema" value="auto"><span>Los del sistema (claro u oscuro)</span></label>
+        <label class="radio"><input type="radio" name="tema" value="claro"><span>Claro, alto contraste</span></label>
+        <label class="radio"><input type="radio" name="tema" value="oscuro"><span>Oscuro, alto contraste</span></label>
+        <label class="radio"><input type="radio" name="tema" value="amarillo"><span>Amarillo sobre negro</span></label>
+      </fieldset>
+      <fieldset class="grupo">
+        <legend>Tamaño del texto</legend>
+        <div class="radios-linea">
+          <label class="radio"><input type="radio" name="escala" value="1"><span>Normal</span></label>
+          <label class="radio"><input type="radio" name="escala" value="1.15"><span>Grande</span></label>
+          <label class="radio"><input type="radio" name="escala" value="1.3"><span>Muy grande</span></label>
+          <label class="radio"><input type="radio" name="escala" value="1.5"><span>Enorme</span></label>
+        </div>
+      </fieldset>
+      <fieldset class="grupo">
+        <legend>Ayudas</legend>
+        <label class="check"><input type="checkbox" id="ajNumeros"><span>Ver el número de cada punto</span></label>
+        <label class="check"><input type="checkbox" id="ajVoz"><span>Leer en voz alta (letras, preguntas y respuestas)</span></label>
+        <label class="check"><input type="checkbox" id="ajVibrar"><span>Vibrar al tocar un punto (en el móvil)</span></label>
+      </fieldset>
+      <fieldset class="grupo">
+        <legend>Progreso</legend>
+        <button type="button" class="btn btn--peligro" id="btnBorrarProgreso">Borrar mi progreso</button>
+      </fieldset>
+      <div class="botonera botonera--fin">
+        <button type="submit" class="btn btn--primario btn--grande" value="cerrar">Listo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Avisos: uno visible (y efímero) y dos para lectores de pantalla -->
+  <div class="tostada" id="tostada" aria-hidden="true"></div>
+  <div class="sr-only" id="anuncio" aria-live="polite" aria-atomic="true"></div>
+  <div class="sr-only" id="anuncioUrgente" aria-live="assertive" aria-atomic="true"></div>
+</body>
+</html>
