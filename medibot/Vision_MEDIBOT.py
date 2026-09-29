@@ -1391,8 +1391,113 @@ HTML_TEMPLATE = r"""
     <!-- Icono en linea (SVG como data URI). Sin esto el navegador pide
          /favicon.ico, Flask responde 404 y queda un error en la consola en
          cada carga. Al ir incrustado no se pide nada al servidor. -->
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%234FD8D2'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23111'/%3E%3C/svg%3E">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cstyle%3E.a%7Bfill:%2301baef%7D@media (prefers-color-scheme:dark)%7B.a%7Bfill:%237fe9ed%7D%7D%3C/style%3E%3Ccircle class='a' cx='16' cy='16' r='14'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230a3d5c'/%3E%3C/svg%3E">
     <style>
+        /* ===== Colores =====
+           Los de la web de MEDIBOT (rama web, src/index.css): mismos nombres
+           y mismos valores, en oscuro y en claro. Todas las reglas de abajo
+           usan estos tokens, asi que el tema claro solo los redefine; antes
+           cada pieza llevaba su color escrito a mano dos veces.
+           El numero del final es la transparencia, como en Tailwind:
+           --c-ink-60 es text-ink/60 y --c-ink-10 es border-ink/10. */
+        :root {
+            color-scheme: dark;
+            --c-ink: #dbeaf3;
+            --c-surface: #06161f;
+            --c-card: #0e2733;
+            --c-brand: #22c9f5;
+            --c-deep: #0b4f6c;
+            --c-brandsoft: #7fe9ed;
+            --c-mint: #34d399;
+            --c-shade: #05121a;
+            --c-ink-5: rgba(219, 234, 243, 0.05);
+            --c-ink-10: rgba(219, 234, 243, 0.1);
+            --c-ink-15: rgba(219, 234, 243, 0.15);
+            --c-ink-60: rgba(219, 234, 243, 0.6);
+            --c-ink-70: rgba(219, 234, 243, 0.7);
+            --c-brand-5: rgba(34, 201, 245, 0.05);
+            --c-brand-10: rgba(34, 201, 245, 0.1);
+            --c-brand-30: rgba(34, 201, 245, 0.3);
+            --c-brand-40: rgba(34, 201, 245, 0.4);
+            --c-brandsoft-45: rgba(127, 233, 237, 0.45);
+
+            /* Iguales en los dos temas: el blanco de los textos sobre el
+               degradado y los botones que van ENCIMA del video, que no cambia
+               de color con el tema (velo = el azul del pie de la web). */
+            --c-blanco: #ffffff;
+            --c-blanco-35: rgba(255, 255, 255, 0.35);
+            --c-blanco-70: rgba(255, 255, 255, 0.7);
+            --c-velo: rgba(4, 18, 26, 0.6);
+            --c-velo-fuerte: rgba(4, 18, 26, 0.8);
+
+            /* Rojo, ambar y verde: los de Tailwind 4 que usa la web para
+               errores, avisos y "todo bien". Aqui van en hex; mas abajo, en
+               @supports, su valor exacto (oklch) para los navegadores que lo
+               entienden, que es lo que pinta la web. */
+            --c-rojo: #fb2c36;                       /* red-500 */
+            --c-rojo-10: rgba(251, 44, 54, 0.1);
+            --c-rojo-15: rgba(251, 44, 54, 0.15);
+            --c-rojo-30: rgba(251, 44, 54, 0.3);
+            --c-rojo-55: rgba(251, 44, 54, 0.55);
+            --c-rojo-90: rgba(251, 44, 54, 0.9);
+            --c-rojo-claro: #ffa2a2;                 /* red-300 */
+            --c-rojo-fuerte: #e7000b;                /* red-600 */
+            --c-rojo-grave: #c10007;                 /* red-700 */
+            --c-rojo-texto: #ff6467;                 /* dark:text-red-400 */
+            --c-rojo-pastilla: #ffa2a2;              /* dark:text-red-300 */
+            --c-ambar-texto: #ffd230;                /* dark:text-amber-300 */
+            --c-exito-texto: #5ee9b5;                /* dark:text-emerald-300 */
+        }
+        html[data-theme="light"] {
+            color-scheme: light;
+            --c-ink: #0a3d5c;
+            --c-surface: #f4fafb;
+            --c-card: #ffffff;
+            --c-brand: #01baef;
+            --c-deep: #0b4f6c;
+            --c-brandsoft: #5ee1e6;
+            --c-mint: #34d399;
+            --c-shade: #0a3d5c;
+            --c-ink-5: rgba(10, 61, 92, 0.05);
+            --c-ink-10: rgba(10, 61, 92, 0.1);
+            --c-ink-15: rgba(10, 61, 92, 0.15);
+            --c-ink-60: rgba(10, 61, 92, 0.6);
+            --c-ink-70: rgba(10, 61, 92, 0.7);
+            --c-brand-5: rgba(1, 186, 239, 0.05);
+            --c-brand-10: rgba(1, 186, 239, 0.1);
+            --c-brand-30: rgba(1, 186, 239, 0.3);
+            --c-brand-40: rgba(1, 186, 239, 0.4);
+            --c-brandsoft-45: rgba(94, 225, 230, 0.45);
+            --c-rojo-texto: #e7000b;                 /* text-red-600 */
+            --c-rojo-pastilla: #c10007;              /* text-red-700 */
+            --c-ambar-texto: #bb4d00;                /* text-amber-700 */
+            --c-exito-texto: #007a55;                /* text-emerald-700 */
+        }
+        @supports (color: oklch(0% 0 0)) {
+            :root {
+                --c-rojo: oklch(63.7% 0.237 25.331);
+                --c-rojo-10: oklch(63.7% 0.237 25.331 / 0.1);
+                --c-rojo-15: oklch(63.7% 0.237 25.331 / 0.15);
+                --c-rojo-30: oklch(63.7% 0.237 25.331 / 0.3);
+                --c-rojo-55: oklch(63.7% 0.237 25.331 / 0.55);
+                --c-rojo-90: oklch(63.7% 0.237 25.331 / 0.9);
+                --c-rojo-claro: oklch(80.8% 0.114 19.571);
+                --c-rojo-fuerte: oklch(57.7% 0.245 27.325);
+                --c-rojo-grave: oklch(50.5% 0.213 27.518);
+                --c-rojo-texto: oklch(70.4% 0.191 22.216);
+                --c-rojo-pastilla: oklch(80.8% 0.114 19.571);
+                --c-ambar-texto: oklch(87.9% 0.169 91.605);
+                --c-exito-texto: oklch(84.5% 0.143 164.978);
+            }
+            html[data-theme="light"] {
+                --c-rojo-texto: oklch(57.7% 0.245 27.325);
+                --c-rojo-pastilla: oklch(50.5% 0.213 27.518);
+                --c-ambar-texto: oklch(55.5% 0.163 48.998);
+                --c-exito-texto: oklch(50.8% 0.118 165.612);
+            }
+        }
+        .brand-logo .logo-disco { fill: var(--c-brandsoft); }
+
         * {
             margin: 0;
             padding: 0;
@@ -1400,8 +1505,8 @@ HTML_TEMPLATE = r"""
         }
         
         body {
-            background-color: #000000;
-            color: #ffffff;
+            background-color: var(--c-surface);
+            color: var(--c-ink);
             font-family: 'Arial', sans-serif;
             min-height: 100vh;
             padding: 20px;
@@ -1412,25 +1517,25 @@ HTML_TEMPLATE = r"""
             max-width: 1600px;
             width: 100%;
             margin: 0 auto;
-            background: #111111;
+            background: var(--c-card);
             border-radius: 10px;
             padding: 30px;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
-            border: 1px solid #333333;
+            box-shadow: 0 0 20px var(--c-brand-5);
+            border: 1px solid var(--c-ink-10);
         }
         
         h1 {
             text-align: center;
             font-size: 2.5em;
             margin-bottom: 10px;
-            color: #00ffff;
+            color: var(--c-brand);
             font-weight: 300;
             letter-spacing: 2px;
         }
         
         .subtitle {
             text-align: center;
-            color: #888888;
+            color: var(--c-ink-60);
             margin-bottom: 30px;
             font-size: 1em;
             letter-spacing: 1px;
@@ -1448,14 +1553,14 @@ HTML_TEMPLATE = r"""
         }
 
         .camera-box {
-            background: #222222;
+            background: var(--c-surface);
             border-radius: 8px;
             padding: 20px;
-            border: 1px solid #333333;
+            border: 1px solid var(--c-ink-10);
         }
         
         .camera-title {
-            color: #00ffff;
+            color: var(--c-ink);
             font-size: 1.2em;
             margin-bottom: 15px;
             text-align: center;
@@ -1466,18 +1571,18 @@ HTML_TEMPLATE = r"""
         }
         
         .camera-title.active {
-            color: #00ff00;
+            color: var(--c-exito-texto);
         }
         
         .camera-title .status-dot {
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: #ff0000;
+            background: var(--c-rojo);
         }
         
         .camera-title.active .status-dot {
-            background: #00ff00;
+            background: var(--c-mint);
         }
         
         /* PROPORCION REAL DE LA CAMARA.
@@ -1493,8 +1598,8 @@ HTML_TEMPLATE = r"""
             border-radius: 5px;
             overflow: hidden;
             margin-top: 10px;
-            border: 1px solid #333333;
-            background: #000000;
+            border: 1px solid var(--c-ink-10);
+            background: var(--c-shade);
             width: 100%;
             aspect-ratio: var(--ar, 4 / 3);
             /* Tope de altura para que en un monitor ancho con UNA sola cámara
@@ -1525,12 +1630,12 @@ HTML_TEMPLATE = r"""
         .aviso-barra {
             position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
             padding: 10px 14px; font-size: 0.92em; font-weight: 600;
-            background: #b3261e; color: #ffffff; text-align: center;
+            background: var(--c-rojo-fuerte); color: var(--c-blanco); text-align: center;
             transform: translateY(-100%); transition: transform .2s ease;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, .4);
+            box-shadow: 0 2px 10px var(--c-velo);
         }
         .aviso-barra.visible { transform: translateY(0); }
-        .aviso-barra.fatal { background: #7f1d1d; }
+        .aviso-barra.fatal { background: var(--c-rojo-grave); }
 
         /* Linea de estado bajo cada camara: legibilidad por encima de efectos.
            Dice lo que hace falta para diagnosticar sin abrir la consola:
@@ -1541,11 +1646,11 @@ HTML_TEMPLATE = r"""
             gap: 6px 14px;
             margin-top: 8px;
             font-size: 0.82em;
-            color: #9aa4ad;
+            color: var(--c-ink-60);
             font-family: 'Courier New', monospace;
         }
-        .stream-stats b { color: #00ffff; font-weight: 600; }
-        .stream-stats .warn { color: #ffb020; }
+        .stream-stats b { color: var(--c-brand); font-weight: 600; }
+        .stream-stats .warn { color: var(--c-ambar-texto); }
 
         /* Camara ausente: se oculta su tarjeta entera en vez de dejar un hueco
            negro con controles que no hacen nada. */
@@ -1559,26 +1664,26 @@ HTML_TEMPLATE = r"""
         }
         
         .info-item {
-            background: #333333;
+            background: var(--c-ink-5);
             padding: 10px;
             border-radius: 5px;
             text-align: center;
         }
         
         .info-label {
-            color: #888888;
+            color: var(--c-ink-70);
             font-size: 0.8em;
             margin-bottom: 5px;
         }
         
         .info-value {
-            color: #ffffff;
+            color: var(--c-ink);
             font-size: 1.1em;
             font-weight: bold;
         }
         
         .info-value.recording {
-            color: #ff0000;
+            color: var(--c-rojo-texto);
         }
         
         .status-container {
@@ -1589,15 +1694,15 @@ HTML_TEMPLATE = r"""
         }
         
         .status-box {
-            background: #222222;
+            background: var(--c-surface);
             padding: 15px;
             border-radius: 8px;
             text-align: center;
-            border: 1px solid #333333;
+            border: 1px solid var(--c-ink-10);
         }
         
         .status-title {
-            color: #888888;
+            color: var(--c-brand);
             font-size: 0.9em;
             margin-bottom: 8px;
             text-transform: uppercase;
@@ -1605,7 +1710,7 @@ HTML_TEMPLATE = r"""
         }
         
         .status-value {
-            color: #00ffff;
+            color: var(--c-ink);
             font-size: 1.2em;
             font-weight: bold;
         }
@@ -1618,9 +1723,9 @@ HTML_TEMPLATE = r"""
         }
         
         .control-button {
-            background: #222222;
-            color: #ffffff;
-            border: 1px solid #333333;
+            background: var(--c-card);
+            color: var(--c-ink-70);
+            border: 1px solid var(--c-ink-15);
             padding: 12px;
             border-radius: 5px;
             cursor: pointer;
@@ -1629,18 +1734,20 @@ HTML_TEMPLATE = r"""
         }
         
         .control-button:hover {
-            background: #333333;
-            border-color: #00ffff;
+            color: var(--c-ink);
+            border-color: var(--c-brand-30);
         }
         
         .control-button.recording {
-            background: #ff0000;
-            color: #ffffff;
+            background: var(--c-rojo-15);
+            color: var(--c-rojo-pastilla);
+            border-color: var(--c-rojo-30);
         }
         
         .control-button.active {
-            background: #00ffff;
-            color: #000000;
+            background: linear-gradient(to right, var(--c-brand), var(--c-deep));
+            color: var(--c-blanco);
+            border-color: transparent;
         }
         
         .tab-container {
@@ -1657,8 +1764,8 @@ HTML_TEMPLATE = r"""
         }
         
         .tab-button {
-            background: #222222;
-            color: #ffffff;
+            background: var(--c-card);
+            color: var(--c-ink-70);
             border: none;
             padding: 10px 20px;
             border-radius: 5px;
@@ -1666,8 +1773,8 @@ HTML_TEMPLATE = r"""
         }
         
         .tab-button.active {
-            background: #00ffff;
-            color: #000000;
+            background: linear-gradient(to right, var(--c-brand), var(--c-deep));
+            color: var(--c-blanco);
         }
         
         .tab-content {
@@ -1685,20 +1792,20 @@ HTML_TEMPLATE = r"""
         }
         
         .video-card {
-            background: #222222;
+            background: var(--c-surface);
             border-radius: 8px;
             overflow: hidden;
-            border: 1px solid #333333;
+            border: 1px solid var(--c-ink-10);
         }
         
         .video-thumbnail {
             width: 100%;
             height: 180px;
-            background: #000;
+            background: linear-gradient(to bottom right, var(--c-deep), var(--c-shade), var(--c-shade));
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #888;
+            color: var(--c-blanco-70);
         }
         
         .video-info {
@@ -1706,21 +1813,21 @@ HTML_TEMPLATE = r"""
         }
         
         .video-title {
-            color: #ffffff;
+            color: var(--c-ink);
             margin-bottom: 10px;
             font-size: 1.1em;
         }
         
         .video-meta {
-            color: #888;
+            color: var(--c-ink-60);
             font-size: 0.9em;
             margin-bottom: 10px;
         }
         
         .video-camera {
             display: inline-block;
-            background: #333;
-            color: #00ffff;
+            background: var(--c-brand-10);
+            color: var(--c-brand);
             padding: 3px 8px;
             border-radius: 3px;
             font-size: 0.8em;
@@ -1733,8 +1840,8 @@ HTML_TEMPLATE = r"""
         }
         
         .video-action-btn {
-            background: #333;
-            color: #fff;
+            background: var(--c-ink-5);
+            color: var(--c-ink);
             border: none;
             padding: 8px 15px;
             border-radius: 5px;
@@ -1743,15 +1850,15 @@ HTML_TEMPLATE = r"""
         }
         
         .video-action-btn:hover {
-            background: #444;
+            background: var(--c-ink-10);
         }
         
         .position-indicator {
-            background: #222222;
+            background: var(--c-surface);
             padding: 20px;
             border-radius: 8px;
             margin: 20px 0;
-            border: 1px solid #333333;
+            border: 1px solid var(--c-ink-10);
         }
         
         .position-grid {
@@ -1764,7 +1871,7 @@ HTML_TEMPLATE = r"""
         }
         
         .position-cell {
-            background: #333333;
+            background: var(--c-ink-5);
             border-radius: 5px;
             display: flex;
             align-items: center;
@@ -1772,20 +1879,20 @@ HTML_TEMPLATE = r"""
             transition: all 0.3s ease;
             border: 2px solid transparent;
             font-size: 24px;
-            color: #888888;
+            color: var(--c-ink-60);
         }
         
         .position-cell.active {
-            background: #00ffff;
-            border-color: #ffffff;
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
-            color: #000000;
+            background: linear-gradient(to right, var(--c-brand), var(--c-deep));
+            border-color: transparent;
+            box-shadow: 0 0 15px var(--c-brand-40);
+            color: var(--c-blanco);
         }
         
         .footer {
             text-align: center;
             margin-top: 30px;
-            color: #444444;
+            color: var(--c-ink-60);
             font-size: 0.8em;
         }
         
@@ -1837,7 +1944,7 @@ HTML_TEMPLATE = r"""
         }
         .brand-logo {
             flex: 0 0 auto;
-            filter: drop-shadow(0 0 8px rgba(79, 216, 210, 0.45));
+            filter: drop-shadow(0 0 8px var(--c-brandsoft-45));
         }
         .wordmark {
             font-weight: 800;
@@ -1845,20 +1952,20 @@ HTML_TEMPLATE = r"""
             letter-spacing: 1px;
             line-height: 1;
         }
-        .wm-medi { color: #4FD8D2; }
-        .wm-bot { color: #ffffff; }
+        .wm-medi { color: var(--c-brandsoft); }
+        .wm-bot { color: var(--c-ink); }
         .brand-tag {
             display: block;
             font-size: 0.4em;
             font-weight: 400;
             letter-spacing: 3px;
-            color: #888888;
+            color: var(--c-ink-60);
             margin-top: 4px;
         }
         .theme-toggle {
-            background: #222222;
-            color: #ffffff;
-            border: 1px solid #333333;
+            background: transparent;
+            color: var(--c-ink-70);
+            border: 1px solid var(--c-ink-10);
             padding: 10px 18px;
             border-radius: 30px;
             cursor: pointer;
@@ -1867,8 +1974,8 @@ HTML_TEMPLATE = r"""
             white-space: nowrap;
         }
         .theme-toggle:hover {
-            border-color: #4FD8D2;
-            background: #333333;
+            color: var(--c-ink);
+            background: var(--c-ink-5);
         }
         /*  El enlace al Pastillero comparte estilo con el boton de tema, pero
             es un <a>: hay que quitarle el subrayado y centrarlo como al resto,
@@ -1886,96 +1993,53 @@ HTML_TEMPLATE = r"""
             flex-wrap: wrap;      /* en movil caen a la linea de abajo */
         }
         .panel-box {
-            background: #222222;
+            background: var(--c-surface);
             padding: 20px;
             border-radius: 8px;
         }
-
-        /* ===== Tema Claro ===== */
-        html[data-theme="light"] body { background-color: #eef1f5; color: #15202b; }
-        html[data-theme="light"] .container { background: #ffffff; border-color: #d4dae0; box-shadow: 0 0 24px rgba(10, 166, 160, 0.12); }
-        html[data-theme="light"] h1 { color: #0aa6a0; }
-        html[data-theme="light"] .subtitle { color: #5a6772; }
-        html[data-theme="light"] .camera-box { background: #f4f7fa; border-color: #d4dae0; }
-        html[data-theme="light"] .camera-title { color: #0aa6a0; }
-        html[data-theme="light"] .camera-title.active { color: #0a8f2a; }
-        html[data-theme="light"] .info-item { background: #e9eef3; }
-        html[data-theme="light"] .info-label { color: #5a6772; }
-        html[data-theme="light"] .info-value { color: #15202b; }
-        html[data-theme="light"] .info-value.recording { color: #d11a2a; }
-        html[data-theme="light"] .status-box { background: #f4f7fa; border-color: #d4dae0; }
-        html[data-theme="light"] .status-title { color: #5a6772; }
-        html[data-theme="light"] .status-value { color: #0aa6a0; }
-        html[data-theme="light"] .control-button { background: #f4f7fa; color: #15202b; border-color: #d4dae0; }
-        html[data-theme="light"] .control-button:hover { background: #e3e9ef; border-color: #0aa6a0; }
-        html[data-theme="light"] .control-button.active { background: #0aa6a0; color: #ffffff; }
-        html[data-theme="light"] .control-button.recording { background: #d11a2a; color: #ffffff; }
-        html[data-theme="light"] .tab-button { background: #f4f7fa; color: #15202b; }
-        html[data-theme="light"] .tab-button.active { background: #0aa6a0; color: #ffffff; }
-        html[data-theme="light"] .panel-box { background: #f4f7fa; }
-        html[data-theme="light"] .video-card { background: #f4f7fa; border-color: #d4dae0; }
-        html[data-theme="light"] .video-title { color: #15202b; }
-        html[data-theme="light"] .video-meta { color: #5a6772; }
-        html[data-theme="light"] .video-camera { background: #e3e9ef; color: #0aa6a0; }
-        html[data-theme="light"] .video-action-btn { background: #e3e9ef; color: #15202b; }
-        html[data-theme="light"] .video-action-btn:hover { background: #d4dae0; }
-        html[data-theme="light"] .position-indicator { background: #f4f7fa; border-color: #d4dae0; }
-        html[data-theme="light"] .position-cell { background: #e3e9ef; color: #5a6772; }
-        html[data-theme="light"] .position-cell.active { background: #0aa6a0; border-color: #ffffff; color: #ffffff; }
-        /* #9aa6b2 sobre blanco daba un contraste de 2,48: por debajo del
-           minimo legible. Medido con el navegador; ahora 4,6. */
-        html[data-theme="light"] .footer { color: #5a6772; }
-        html[data-theme="light"] .theme-toggle { background: #f4f7fa; color: #15202b; border-color: #d4dae0; }
-        html[data-theme="light"] .theme-toggle:hover { background: #e3e9ef; border-color: #0aa6a0; }
-        html[data-theme="light"] .wm-bot { color: #15202b; }
-        html[data-theme="light"] .brand-tag { color: #5a6772; }
 
         /* ===== Joystick / Movimiento ===== */
         /* Botonera de movimiento (los 6 movimientos del robot) */
         .mov-panel { margin-top: 10px; }
         .mov-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-        .mov-vel { margin-top: 8px; font-size: .78em; color: #00ffff; }
+        .mov-vel { margin-top: 8px; font-size: .78em; color: var(--c-ink-70); }
         .mov-vel label { display: block; margin-bottom: 2px; }
-        .mov-vel input[type=range] { width: 100%; accent-color: #00ffff; }
-        html[data-theme="light"] .mov-vel { color: #0a7c78; }
+        .mov-vel input[type=range] { width: 100%; accent-color: var(--c-brand); }
         .mov-btn {
-            background: #1a1a1a; color: #00ffff; border: 1px solid #00ffff;
+            background: var(--c-card); color: var(--c-ink-70); border: 1px solid var(--c-ink-15);
             border-radius: 6px; padding: 8px 4px; font-size: .78em; cursor: pointer;
             transition: background .15s ease;
         }
-        .mov-btn:hover, .mov-btn:active { background: #00ffff; color: #000; }
-        .mov-btn.stop { border-color: #ff5555; color: #ff5555; }
-        .mov-btn.stop:hover { background: #ff5555; color: #000; }
-        html[data-theme="light"] .mov-btn { background: #eef4f8; color: #0a7c78; border-color: #0aa6a0; }
+        .mov-btn:hover { border-color: var(--c-brand-30); color: var(--c-ink); }
+        .mov-btn:active {
+            background: linear-gradient(to right, var(--c-brand), var(--c-deep));
+            color: var(--c-blanco); border-color: transparent;
+        }
+        .mov-btn.stop { border-color: var(--c-rojo-30); color: var(--c-rojo-texto); }
+        .mov-btn.stop:hover { background: var(--c-rojo-10); color: var(--c-rojo-texto); }
+        .mov-btn.stop:active { background: var(--c-rojo); color: var(--c-blanco); border-color: transparent; }
 
         .joystick-wrap { display: flex; justify-content: center; margin: 20px 0; }
         .joystick-base {
             position: relative; width: 180px; height: 180px; border-radius: 50%;
-            background: #333333; border: 3px solid #00ffff; touch-action: none; cursor: pointer;
+            background: var(--c-card); border: 3px solid var(--c-brand); touch-action: none; cursor: pointer;
         }
         .joystick-stick {
             position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px;
-            border-radius: 50%; background: #00ffff; box-shadow: 0 0 12px rgba(0, 255, 255, 0.6);
+            border-radius: 50%; background: linear-gradient(to bottom right, var(--c-brand), var(--c-deep)); box-shadow: 0 0 12px var(--c-brand-40);
             transition: transform 0.05s linear; pointer-events: none;
         }
         .dpad { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 20px 0; }
         .dpad-row { display: flex; gap: 10px; }
         .move-btn {
             width: 60px; height: 60px; font-size: 1.4em; border-radius: 10px;
-            background: #222222; color: #00ffff; border: 1px solid #333333; cursor: pointer;
+            background: var(--c-card); color: var(--c-brand); border: 1px solid var(--c-ink-15); cursor: pointer;
             transition: all 0.15s ease; user-select: none; -webkit-user-select: none;
         }
-        .move-btn:hover { border-color: #00ffff; }
-        .move-btn.active, .move-btn:active { background: #00ffff; color: #000000; }
-        .move-stop { color: #ff5555; }
-        .move-status { text-align: center; color: #888888; margin-top: 10px; font-weight: bold; }
-
-        html[data-theme="light"] .joystick-base { background: #e3e9ef; border-color: #0aa6a0; }
-        html[data-theme="light"] .joystick-stick { background: #0aa6a0; box-shadow: 0 0 12px rgba(10, 166, 160, 0.5); }
-        html[data-theme="light"] .move-btn { background: #f4f7fa; color: #0aa6a0; border-color: #d4dae0; }
-        html[data-theme="light"] .move-btn:hover { border-color: #0aa6a0; }
-        html[data-theme="light"] .move-btn.active, html[data-theme="light"] .move-btn:active { background: #0aa6a0; color: #ffffff; }
-        html[data-theme="light"] .move-status { color: #5a6772; }
+        .move-btn:hover { border-color: var(--c-brand-30); }
+        .move-btn.active, .move-btn:active { background: linear-gradient(to right, var(--c-brand), var(--c-deep)); color: var(--c-blanco); }
+        .move-stop { color: var(--c-rojo-texto); }
+        .move-status { text-align: center; color: var(--c-ink-60); margin-top: 10px; font-weight: bold; }
 
         /* ===== Joystick translúcido dentro de la cámara + pantalla completa ===== */
         /*  Los botones de encima del video van en una FILA FLEX, no cada uno
@@ -1989,25 +2053,25 @@ HTML_TEMPLATE = r"""
             max-width: calc(100% - 20px);
         }
         .fs-btn {
-            background: rgba(0, 0, 0, 0.5); color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: var(--c-velo); color: var(--c-blanco);
+            border: 1px solid var(--c-blanco-35);
             padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.85em;
             white-space: nowrap;
         }
-        .fs-btn:hover { background: rgba(0, 0, 0, 0.75); border-color: #4FD8D2; }
+        .fs-btn:hover { background: var(--c-velo-fuerte); border-color: var(--c-brandsoft); }
         /*  Sonando: se ve de un vistazo que el microfono esta abierto. */
-        .fs-btn.sonando { background: rgba(10, 166, 160, 0.85); border-color: #4FD8D2; }
+        .fs-btn.sonando { background: linear-gradient(to right, var(--c-brand), var(--c-deep)); border-color: var(--c-brandsoft); }
         /*  Hablando: ROJO, no verde como el de escuchar. Son cosas distintas
             (una saca audio del robot, la otra lo mete) y con el mismo color
             no se sabria de un vistazo cual esta abierta. Rojo es ademas lo
             que todo el mundo asocia a "estas emitiendo". */
         .fs-btn.hablando {
-            background: rgba(214, 48, 49, 0.9); border-color: #ff7675;
+            background: var(--c-rojo-90); border-color: var(--c-rojo-claro);
             animation: latido 1.2s ease-in-out infinite;
         }
         @keyframes latido {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(214, 48, 49, 0.55); }
-            50%      { box-shadow: 0 0 0 6px rgba(214, 48, 49, 0); }
+            0%, 100% { box-shadow: 0 0 0 0 var(--c-rojo-55); }
+            50%      { box-shadow: 0 0 0 6px transparent; }
         }
         /*  Quien haya pedido menos animaciones no quiere un boton latiendo. */
         @media (prefers-reduced-motion: reduce) {
@@ -2029,7 +2093,7 @@ HTML_TEMPLATE = r"""
         .cam-joystick .joystick-base { width: 110px; height: 110px; }
         .cam-joystick .joystick-stick { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
         .cam-joy-dirs {
-            font-size: 0.8em; color: #fff; background: rgba(0, 0, 0, 0.45);
+            font-size: 0.8em; color: var(--c-blanco); background: var(--c-velo);
             padding: 2px 10px; border-radius: 10px; font-weight: bold;
         }
         /* ============ PANTALLA COMPLETA ============
@@ -2044,7 +2108,7 @@ HTML_TEMPLATE = r"""
         .camera-stage:fullscreen,
         .camera-stage:-webkit-full-screen,
         .camera-stage.pseudo-fs {
-            background: #000;
+            background: var(--c-shade);
             display: flex;
             flex-direction: column;
             width: 100%;
@@ -2097,7 +2161,7 @@ HTML_TEMPLATE = r"""
         }
 
         /* ============ CONTROLES EN MÓVIL ============ */
-        .vel-aviso { min-height: 1em; font-size: .9em; color: #ff6b6b; }
+        .vel-aviso { min-height: 1em; font-size: .9em; color: var(--c-rojo-texto); }
         .mov-vel input[type=range] {
             /* Alto de dedo, no de ratón: 24 px de zona activa. Antes el
                control nativo tenía ~4 px de alto y era difícil de agarrar. */
@@ -2124,7 +2188,7 @@ HTML_TEMPLATE = r"""
         <div class="brand-bar">
             <div class="brand">
                 <svg class="brand-logo" viewBox="0 0 100 100" width="52" height="52" aria-label="Logo MEDIBOT">
-                    <circle cx="50" cy="50" r="40" fill="#4FD8D2"/>
+                    <circle class="logo-disco" cx="50" cy="50" r="40"/>
                     <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
                         <line x1="50" y1="10" x2="50" y2="90"/>
                         <line x1="10" y1="50" x2="90" y2="50"/>

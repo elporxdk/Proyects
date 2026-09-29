@@ -214,11 +214,31 @@ class PruebasTema(unittest.TestCase):
         self.assertIn("localStorage.setItem('medibot-theme'", self.js)
         self.assertIn("localStorage.getItem('medibot-theme')", self.js)
 
+    def _css(self):
+        return self.html[self.html.index("<style>"):self.html.index("</style>")]
+
     def test_hay_estilos_para_el_modo_claro(self):
-        claros = re.findall(r'html\[data-theme="light"\]', self.html)
-        self.assertGreater(len(claros), 10,
-                           "El modo claro necesita estilos propios para tarjetas, "
-                           "botones, textos y controles.")
+        """Los colores son tokens (los de la web de MEDIBOT) y el tema claro
+        los redefine. Si se le olvida uno, esa pieza se queda con el color
+        oscuro en la pagina clara: texto claro sobre fondo blanco."""
+        css = self._css()
+        raiz = re.search(r":root\s*\{([^}]*)\}", css).group(1)
+        claro = re.search(r'html\[data-theme="light"\]\s*\{([^}]*)\}', css).group(1)
+        #  Los que dependen del tema: la paleta de la web y sus transparencias.
+        #  El blanco, los velos sobre el video y los rojos de aviso son iguales
+        #  en los dos temas y no hace falta repetirlos.
+        del_tema = re.findall(r"(--c-(?:ink|surface|card|brand|brandsoft|deep|mint|shade)"
+                              r"(?:-\d+)?)\s*:", raiz)
+        self.assertGreater(len(del_tema), 10)
+        faltan = [t for t in del_tema if not re.search(re.escape(t) + r"\s*:", claro)]
+        self.assertFalse(faltan, f"Sin valor en el tema claro: {faltan}")
+
+    def test_no_queda_ningun_color_escrito_a_mano_en_el_css(self):
+        """Un color fijo en una regla no cambia con el tema."""
+        sin_paleta = re.sub(r'(:root|html\[data-theme="light"\])\s*\{[^}]*\}', "",
+                            self._css())
+        fijos = sorted(set(re.findall(r"#[0-9a-fA-F]{3,6}\b|rgba?\(", sin_paleta)))
+        self.assertFalse(fijos, f"Colores fijos fuera de la paleta: {fijos}")
 
 
 class PruebasControlesEsenciales(unittest.TestCase):

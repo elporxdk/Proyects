@@ -465,7 +465,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <title>Pillbox</title>
   <!--  Icono en linea (una pastilla). Sin esto el navegador pide /favicon.ico,
         Flask no lo sirve y queda un 404 en la consola en cada carga. -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='11' width='24' height='10' rx='5' fill='%231f5a8e'/%3E%3Cpath d='M16 11v10' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cstyle%3Erect%7Bfill:%2301baef%7Dpath%7Bstroke:%23fff%7D@media (prefers-color-scheme:dark)%7Brect%7Bfill:%237fe9ed%7Dpath%7Bstroke:%2306161f%7D%7D%3C/style%3E%3Crect x='4' y='11' width='24' height='10' rx='5'/%3E%3Cpath d='M16 11v10' stroke-width='2'/%3E%3C/svg%3E">
   <script>
     /*  El tema se aplica AQUI, antes de que se pinte nada. Si se hiciera al
         final del <body>, la pagina se dibujaria primero en claro y luego
@@ -483,11 +483,12 @@ HTML_PAGE = """<!DOCTYPE html>
     })();
   </script>
   <style>
-    /*  TEMA CLARO (el de siempre) y TEMA OSCURO.
-        Antes los 30 colores estaban escritos a mano por todo el CSS, asi que
-        no habia forma de cambiar de tema sin reescribirlo entero. Ahora cada
-        color tiene un nombre por lo que SIGNIFICA (--peligro, --texto-tenue)
-        y el tema oscuro solo redefine esos nombres. */
+    /*  TEMA CLARO y TEMA OSCURO, con los colores de la web de MEDIBOT
+        (rama web, src/index.css): la misma paleta en el mismo tono.
+        Cada color tiene un nombre por lo que SIGNIFICA (--peligro-texto,
+        --texto-tenue) y el tema oscuro solo redefine esos nombres. Al lado
+        va de que color de la web sale; "ink/60" es el azul ink al 60 %,
+        igual que text-ink/60 en Tailwind. */
     :root {
       /*  color-scheme se lo dice al NAVEGADOR, no al CSS: con el pone en su
           tono los trozos que dibuja el sistema y que ninguna variable
@@ -495,46 +496,96 @@ HTML_PAGE = """<!DOCTYPE html>
           la barra de desplazamiento). Sin esto, en oscuro salia un reloj
           blanco deslumbrante en medio de la pagina. */
       color-scheme: light;
-      --fondo: #f4f7fc;          --tarjeta: #ffffff;
-      --panel: #f9fbfd;          --suave: #eef3f9;
-      --suave-hover: #dce6f0;    --neutro: #f0f2f6;
-      --borde: #e9edf4;          --borde-fuerte: #d6dee9;
-      --borde-activo: #b6cae0;
-      --texto-titulo: #0b2b4a;   --texto: #1f3a57;
-      --texto-tenue: #5a728c;    --texto-debil: #8a99ab;
-      --acento: #1f5a8e;         --acento-hover: #164a73;
-      --acento-suave: #dff0fa;
-      --exito: #1f8e6b;          --exito-hover: #167556;
-      --exito-suave: #d4edda;    --exito-texto: #0e6b3e;
-      --peligro: #cf3e4a;        --peligro-hover: #b3323d;
-      --peligro-suave: #fdecea;
-      --aviso: #e6a020;          --aviso-hover: #cc8d1a;
-      --aviso-suave: #fdf0d5;    --aviso-texto: #8a5a00;
-      --sombra: rgba(0,20,40,0.12);
-      --sombra-suave: rgba(0,0,0,.04);
+      --fondo: #f4fafb;                        /* surface */
+      --tarjeta: #ffffff;                      /* card */
+      --panel: #f4fafb;                        /* surface */
+      --suave: rgba(10, 61, 92, 0.05);         /* ink/5 */
+      --suave-hover: rgba(10, 61, 92, 0.1);    /* ink/10 */
+      --borde: rgba(10, 61, 92, 0.1);          /* ink/10 */
+      --borde-fuerte: rgba(10, 61, 92, 0.15);  /* ink/15 */
+      --borde-activo: rgba(1, 186, 239, 0.3);  /* brand/30 */
+      --borde-hover: rgba(1, 186, 239, 0.4);   /* brand/40 */
+      --texto-titulo: #0a3d5c;                 /* ink */
+      --texto: rgba(10, 61, 92, 0.7);          /* ink/70 */
+      --texto-tenue: rgba(10, 61, 92, 0.6);    /* ink/60 */
+      --texto-pastilla: rgba(10, 61, 92, 0.5); /* ink/50 */
+      --texto-debil: rgba(10, 61, 92, 0.4);    /* ink/40 */
+      --acento: #01baef;                       /* brand */
+      --acento-fin: #0b4f6c;                   /* deep: final del degradado */
+      --acento-suave: rgba(1, 186, 239, 0.1);  /* brand/10 */
+      --sobre-acento: #ffffff;                 /* white */
+      --exito: #34d399;                        /* mint */
+      --exito-suave: rgba(52, 211, 153, 0.15); /* mint/15 */
+      --sombra: rgba(10, 61, 92, 0.05);        /* shade/5 */
+      --sombra-acento: rgba(1, 186, 239, 0.05);/* brand/5 */
+      /*  Rojo, ambar y verde de Tailwind 4, los que usa la web. En hex;
+          su valor exacto (oklch) va mas abajo, en @supports. */
+      --exito-texto: #007a55;                  /* emerald-700 */
+      --peligro-suave: rgba(251, 44, 54, 0.15);/* red-500/15 */
+      --peligro-hover: rgba(251, 44, 54, 0.1); /* red-500/10 */
+      --peligro-borde: rgba(251, 44, 54, 0.3); /* red-500/30 */
+      --peligro-texto: #e7000b;                /* red-600 */
+      --peligro-pastilla: #c10007;             /* red-700 */
+      --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
+      --aviso-texto: #bb4d00;                  /* amber-700 */
     }
-    /*  Los tonos "suaves" en oscuro NO son el color claro original: sobre
-        fondo negro deslumbrarian. Se usan versiones oscuras del mismo matiz,
-        con el texto en el tono claro, que es lo que mantiene el contraste. */
+    /*  En oscuro la web no se limita a invertir: fondos de azul muy
+        desaturado (no gris) y el texto de las pastillas en el tono claro de
+        cada color, que es lo que mantiene el contraste. */
     html[data-theme="dark"] {
       color-scheme: dark;
-      --fondo: #0f1419;          --tarjeta: #171d24;
-      --panel: #1c232b;          --suave: #232c36;
-      --suave-hover: #2c3742;    --neutro: #232c36;
-      --borde: #2a333d;          --borde-fuerte: #3a4653;
-      --borde-activo: #4e6478;
-      --texto-titulo: #e8eef5;   --texto: #d3dce6;
-      --texto-tenue: #9aabbd;    --texto-debil: #7c8b9c;
-      --acento: #4a9fe0;         --acento-hover: #6bb4ec;
-      --acento-suave: #16354d;
-      --exito: #2fb587;          --exito-hover: #46c79a;
-      --exito-suave: #143529;    --exito-texto: #6fdcb2;
-      --peligro: #e05561;        --peligro-hover: #ea6f79;
-      --peligro-suave: #3a1a1e;
-      --aviso: #f0b04a;          --aviso-hover: #f6c268;
-      --aviso-suave: #3a2c10;    --aviso-texto: #f2c87a;
-      --sombra: rgba(0,0,0,0.55);
-      --sombra-suave: rgba(0,0,0,.25);
+      --fondo: #06161f;                        /* surface */
+      --tarjeta: #0e2733;                      /* card */
+      --panel: #06161f;                        /* surface */
+      --suave: rgba(219, 234, 243, 0.05);      /* ink/5 */
+      --suave-hover: rgba(219, 234, 243, 0.1); /* ink/10 */
+      --borde: rgba(219, 234, 243, 0.1);       /* ink/10 */
+      --borde-fuerte: rgba(219, 234, 243, 0.15); /* ink/15 */
+      --borde-activo: rgba(34, 201, 245, 0.3); /* brand/30 */
+      --borde-hover: rgba(34, 201, 245, 0.4);  /* brand/40 */
+      --texto-titulo: #dbeaf3;                 /* ink */
+      --texto: rgba(219, 234, 243, 0.7);       /* ink/70 */
+      --texto-tenue: rgba(219, 234, 243, 0.6); /* ink/60 */
+      --texto-pastilla: rgba(219, 234, 243, 0.5); /* ink/50 */
+      --texto-debil: rgba(219, 234, 243, 0.4); /* ink/40 */
+      --acento: #22c9f5;                       /* brand */
+      --acento-fin: #0b4f6c;                   /* deep */
+      --acento-suave: rgba(34, 201, 245, 0.1); /* brand/10 */
+      --sobre-acento: #ffffff;                 /* white */
+      --exito: #34d399;                        /* mint */
+      --exito-suave: rgba(52, 211, 153, 0.15); /* mint/15 */
+      --sombra: rgba(5, 18, 26, 0.05);         /* shade/5 */
+      --sombra-acento: rgba(34, 201, 245, 0.05); /* brand/5 */
+      --exito-texto: #5ee9b5;                  /* emerald-300 */
+      --peligro-suave: rgba(251, 44, 54, 0.15);/* red-500/15 */
+      --peligro-hover: rgba(251, 44, 54, 0.1); /* red-500/10 */
+      --peligro-borde: rgba(251, 44, 54, 0.3); /* red-500/30 */
+      --peligro-texto: #ff6467;                /* red-400 */
+      --peligro-pastilla: #ffa2a2;             /* red-300 */
+      --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
+      --aviso-texto: #ffd230;                  /* amber-300 */
+    }
+    @supports (color: oklch(0% 0 0)) {
+      :root {
+        --exito-texto: oklch(50.8% 0.118 165.612);
+        --peligro-suave: oklch(63.7% 0.237 25.331 / 0.15);
+        --peligro-hover: oklch(63.7% 0.237 25.331 / 0.1);
+        --peligro-borde: oklch(63.7% 0.237 25.331 / 0.3);
+        --peligro-texto: oklch(57.7% 0.245 27.325);
+        --peligro-pastilla: oklch(50.5% 0.213 27.518);
+        --aviso-suave: oklch(76.9% 0.188 70.08 / 0.15);
+        --aviso-texto: oklch(55.5% 0.163 48.998);
+      }
+      html[data-theme="dark"] {
+        --exito-texto: oklch(84.5% 0.143 164.978);
+        --peligro-suave: oklch(63.7% 0.237 25.331 / 0.15);
+        --peligro-hover: oklch(63.7% 0.237 25.331 / 0.1);
+        --peligro-borde: oklch(63.7% 0.237 25.331 / 0.3);
+        --peligro-texto: oklch(70.4% 0.191 22.216);
+        --peligro-pastilla: oklch(80.8% 0.114 19.571);
+        --aviso-suave: oklch(76.9% 0.188 70.08 / 0.15);
+        --aviso-texto: oklch(87.9% 0.169 91.605);
+      }
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
@@ -542,22 +593,22 @@ HTML_PAGE = """<!DOCTYPE html>
     .app { max-width: 1200px; width: 100%; background: var(--tarjeta); border-radius: 32px; box-shadow: 0 20px 60px var(--sombra); padding: 30px 35px 40px; transition: all .3s ease; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 10px; }
     .header h1 { font-size: 26px; font-weight: 600; color: var(--texto-titulo); letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
-    .header h1 span { background: var(--suave); padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: var(--acento); }
-    .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: var(--peligro-suave); color: var(--peligro-hover); }
+    .header h1 span { background: var(--acento-suave); padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: var(--acento); }
+    .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: var(--peligro-suave); color: var(--peligro-pastilla); }
     .serial-pill.ok { background: var(--exito-suave); color: var(--exito-texto); }
     .serial-pill.sync { background: var(--exito-suave); color: var(--exito-texto); }
     .serial-pill.desync { background: var(--aviso-suave); color: var(--aviso-texto); }
-    .serial-pill.neutro { background: var(--suave); color: var(--texto-tenue); }
-    .btn-back { background: var(--suave); border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: var(--acento); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
+    .serial-pill.neutro { background: var(--suave); color: var(--texto-pastilla); }
+    .btn-back { background: var(--suave); border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: var(--texto-titulo); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
     .btn-back:hover { background: var(--suave-hover); }
     .btn-back.hidden { display: none; }
     /*  El enlace a Medibot comparte estilo con los botones, pero es un <a>:
         hay que quitarle el subrayado, porque si no desentona en la fila. */
     a.btn-back { text-decoration: none; }
     .compartments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 22px; margin-top: 10px; }
-    .compartment-card { background: var(--tarjeta); border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px var(--sombra-suave); border: 1px solid var(--borde); cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
-    .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px var(--sombra); border-color: var(--borde-activo); }
-    .compartment-number { font-size: 18px; font-weight: 700; color: var(--texto); letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .compartment-card { background: var(--tarjeta); border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px var(--sombra); border: 1px solid var(--borde); cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
+    .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px var(--sombra-acento); border-color: var(--borde-activo); }
+    .compartment-number { font-size: 18px; font-weight: 700; color: var(--texto-titulo); letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
     .compartment-number .badge { font-size: 12px; font-weight: 500; background: var(--acento-suave); color: var(--acento); padding: 2px 12px; border-radius: 30px; letter-spacing: .3px; }
     .compartment-number .badge.completed { background: var(--exito-suave); color: var(--exito-texto); }
     .preview-data { font-size: 14px; color: var(--texto); line-height: 1.5; margin-top: 4px; flex: 1; }
@@ -573,21 +624,22 @@ HTML_PAGE = """<!DOCTYPE html>
     .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 18px 22px; background: var(--panel); padding: 24px 26px; border-radius: 24px; border: 1px solid var(--borde); margin-bottom: 20px; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
     .form-group label { font-size: 13px; font-weight: 500; color: var(--texto); }
-    .form-group input { padding: 10px 14px; border: 1px solid var(--borde-fuerte); border-radius: 14px; font-size: 15px; background: var(--tarjeta); transition: .2s; outline: none; width: 100%; }
-    .form-group input:focus { border-color: var(--acento); box-shadow: 0 0 0 3px rgba(31,90,142,.12); }
+    .form-group input { padding: 10px 14px; border: 1px solid var(--borde-fuerte); border-radius: 14px; font-size: 15px; background: var(--tarjeta); color: var(--texto-titulo); transition: .2s; outline: none; width: 100%; }
+    .form-group input::placeholder { color: var(--texto-debil); }
+    .form-group input:focus { border-color: var(--acento); }
     .btn-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; align-items: center; }
-    .btn { border: none; padding: 10px 28px; border-radius: 40px; font-weight: 500; font-size: 15px; cursor: pointer; transition: .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto); }
+    .btn { border: none; padding: 10px 28px; border-radius: 40px; font-weight: 500; font-size: 15px; cursor: pointer; transition: .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
     .btn:disabled { opacity: .6; cursor: default; }
-    .btn-primary { background: var(--acento); color: var(--tarjeta); }
-    .btn-primary:hover { background: var(--acento-hover); }
-    .btn-success { background: var(--exito); color: var(--tarjeta); }
-    .btn-success:hover { background: var(--exito-hover); }
-    .btn-danger { background: var(--peligro); color: var(--tarjeta); }
+    /*  Los botones son los de la web: el principal con el degradado de la
+        marca y letra blanca; los demas de contorno, y el de borrar en rojo. */
+    .btn-primary, .btn-success { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); }
+    .btn-primary:not(:disabled):hover, .btn-success:not(:disabled):hover { opacity: .9; }
+    .btn-danger { background: transparent; border: 1px solid var(--peligro-borde); color: var(--peligro-texto); }
     .btn-danger:hover { background: var(--peligro-hover); }
-    .btn-warning { background: var(--aviso); color: var(--tarjeta); }
-    .btn-warning:hover { background: var(--aviso-hover); }
-    .btn-outline { background: transparent; border: 1.5px solid var(--borde-fuerte); }
-    .btn-outline:hover { background: var(--suave); }
+    .btn-warning { background: transparent; border: 1px solid var(--borde-fuerte); color: var(--texto); }
+    .btn-warning:hover { border-color: var(--borde-hover); color: var(--acento); }
+    .btn-outline { background: transparent; border: 1.5px solid var(--borde-fuerte); color: var(--texto); }
+    .btn-outline:hover { background: var(--suave); border-color: var(--borde-hover); color: var(--texto-titulo); }
     .btn-mini { padding: 5px 14px; font-size: 13px; border-radius: 30px; }
     .saved-data { background: var(--panel); padding: 24px 26px; border-radius: 24px; border: 1px solid var(--borde); margin-bottom: 20px; }
     .saved-data .row { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 8px 0; border-bottom: 1px solid var(--borde); }
@@ -604,10 +656,11 @@ HTML_PAGE = """<!DOCTYPE html>
     .sched-row .hora { font-weight: 700; font-size: 16px; min-width: 60px; }
     .sched-row .dias { color: var(--acento); font-weight: 500; min-width: 130px; }
     .sched-row .estado { font-size: 12px; padding: 2px 12px; border-radius: 30px; background: var(--exito-suave); color: var(--exito-texto); }
-    .sched-row .estado.off { background: var(--neutro); color: var(--texto-debil); }
+    .sched-row .estado.off { background: var(--suave); color: var(--texto-pastilla); }
     .sched-form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
-    .sched-form input[type=time] { padding: 8px 12px; border: 1px solid var(--borde-fuerte); border-radius: 12px; font-size: 15px; }
+    .sched-form input[type=time] { padding: 8px 12px; border: 1px solid var(--borde-fuerte); border-radius: 12px; font-size: 15px; background: var(--tarjeta); color: var(--texto-titulo); }
     .day-check { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--texto); background: var(--tarjeta); border: 1px solid var(--borde-fuerte); border-radius: 10px; padding: 6px 10px; cursor: pointer; user-select: none; }
+    .day-check:hover { border-color: var(--borde-activo); color: var(--texto-titulo); }
     .day-check input { accent-color: var(--acento); }
     .hist-row { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 0; border-bottom: 1px solid var(--borde); font-size: 13.5px; color: var(--texto); }
     .hist-row:last-child { border-bottom: none; }

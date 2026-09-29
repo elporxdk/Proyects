@@ -24,8 +24,8 @@ firmware/        Lo que se sube al Arduino / ESP, un sketch por carpeta
                  (el IDE de Arduino exige que la carpeta se llame igual que
                  el .ino, si no, no lo abre).
 verificador-whatsapp/  Herramienta aparte, sin relacion con el robot.
-paleta/          Los colores de las dos webs (camara y pastillero). Solo
-                 documentacion: el robot no la usa.
+paleta/          La paleta de la web de MEDIBOT, que usan las dos interfaces
+                 (camara y pastillero). Solo documentacion.
 legado/          Versiones sustituidas. Se guardan por referencia; no se usan.
 ```
 
@@ -180,6 +180,15 @@ El tema tambien alcanza a los controles que dibuja el sistema y no el CSS (el
 reloj del horario, las casillas de los dias, la barra de desplazamiento):
 llevan `color-scheme`, que sin el dejaba un reloj blanco deslumbrante en medio
 de la pagina oscura.
+
+Los colores de las dos interfaces son los de la **web de MEDIBOT** (rama `web`,
+`src/index.css`): los mismos tokens (`ink`, `surface`, `card`, `brand`,
+`deep`, `brandsoft`, `mint`, `shade`) con el mismo valor en cada tema, y para
+avisos el rojo, el ambar y el verde de Tailwind que usa la web. En Medibot van
+como `--c-ink`, `--c-brand`...; el Pastillero conserva sus nombres
+(`--texto-tenue`, `--peligro-texto`...) con esos valores. Si la web cambia su
+paleta, hay que cambiarla en los dos ficheros. La lista completa, con donde va
+cada color, esta en `paleta/`.
 
 ### He actualizado el codigo y la interfaz sale IGUAL que antes
 

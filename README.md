@@ -8,7 +8,7 @@ Código del proyecto MEDIBOT. Qué hay en cada carpeta:
 * **`herramientas/`**: utilidades de simulación y depuración sin hardware.
 * **`legado/`**: versiones antiguas de los scripts.
 * **`medibot/`**: los scripts de la Raspberry Pi y la comunicación con el Arduino.
-* **`paleta/`**: la paleta de colores de las dos webs (cámara y pastillero), en HTML y en imagen.
+* **`paleta/`**: la paleta de colores de la web de MEDIBOT, la que usan las interfaces de la cámara y del pastillero, en HTML y en imagen.
 * **`pruebas/`**: bancos de pruebas y módulos de depuración.
 * **`verificador-whatsapp/`**: comprueba con `whatsapp-web.js` qué números de la lista de doctores tienen WhatsApp.
 

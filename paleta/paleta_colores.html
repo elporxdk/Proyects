@@ -4,22 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Paleta MEDIBOT</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;800&family=Chivo+Mono:wght@400;500&display=swap">
 <style>
-  /* Layout: una columna de 1180 px. Por interfaz: ficha de marca, las dos
-     hojas de la paleta principal (oscuro | claro) y la tabla completa, cuyas
-     columnas Oscuro y Claro llevan el fondo real de cada tema. */
+  /* Layout: una columna de 1180 px. Arriba la paleta de la web de MEDIBOT en
+     dos hojas (oscuro y claro); debajo, una tabla por interfaz con cada pieza,
+     su token y su color en los dos temas, pintada con el fondo real de cada uno.
+     La pagina usa la misma paleta que documenta. */
   :root {
-    --bg: #f1f3f5;
+    --bg: #f4fafb;
     --surface: #ffffff;
-    --ink: #15191d;
-    --muted: #56606a;
-    --line: #d5dadf;
-    --accent: #0a7c78;
-    --sans: "Chivo", "Segoe UI", Arial, sans-serif;
-    --mono: "Chivo Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --ink: #0a3d5c;
+    --muted: rgba(10, 61, 92, 0.72);
+    --line: rgba(10, 61, 92, 0.12);
+    --accent: #0b4f6c;
+    --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --fs-xs: 0.75rem;
     --fs-sm: 0.8125rem;
     --fs-base: 0.9375rem;
@@ -29,55 +27,36 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0e1113;
-      --surface: #15191c;
-      --ink: #e6e9ec;
-      --muted: #99a2aa;
-      --line: #262c31;
-      --accent: #4fd8d2;
+      --bg: #06161f;
+      --surface: #0e2733;
+      --ink: #dbeaf3;
+      --muted: rgba(219, 234, 243, 0.72);
+      --line: rgba(219, 234, 243, 0.12);
+      --accent: #22c9f5;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0e1113;
-    --surface: #15191c;
-    --ink: #e6e9ec;
-    --muted: #99a2aa;
-    --line: #262c31;
-    --accent: #4fd8d2;
+    --bg: #06161f;
+    --surface: #0e2733;
+    --ink: #dbeaf3;
+    --muted: rgba(219, 234, 243, 0.72);
+    --line: rgba(219, 234, 243, 0.12);
+    --accent: #22c9f5;
     color-scheme: dark;
   }
 
-  /* Muestras. Son los colores REALES de cada interfaz y no siguen el tema
-     de quien mira: son el contenido de la pagina. Cada bloque fija a la vez
-     su fondo y su texto, asi que se lee igual en claro y en oscuro. */
-  .look-medibot-dark {
-    --s-page: #000000; --s-text: #ffffff; --s-muted: #888888;
-    --s-line: #333333; --s-edge: #333333; --s-head: #00ffff; --s-head-w: 400;
-    --s-tag-bg: transparent; --s-tag-fg: #888888; --s-tag-pad: 0;
-    --s-font: Arial, "Liberation Sans", Helvetica, sans-serif;
-    --s-radius: 10px; --s-chip-r: 5px;
+  /* Muestras: los colores REALES de cada tema. No siguen el tema de quien
+     mira, son el contenido. Cada bloque fija a la vez su fondo y su texto. */
+  .look-dark {
+    --s-page: #06161f; --s-text: #dbeaf3; --s-muted: rgba(219, 234, 243, 0.6);
+    --s-line: rgba(219, 234, 243, 0.1); --s-edge: rgba(219, 234, 243, 0.15);
+    --s-tag-bg: rgba(34, 201, 245, 0.1); --s-tag-fg: #22c9f5; --s-focus: #22c9f5;
   }
-  .look-medibot-light {
-    --s-page: #eef1f5; --s-text: #15202b; --s-muted: #5a6772;
-    --s-line: #d4dae0; --s-edge: #d4dae0; --s-head: #0aa6a0; --s-head-w: 400;
-    --s-tag-bg: transparent; --s-tag-fg: #5a6772; --s-tag-pad: 0;
-    --s-font: Arial, "Liberation Sans", Helvetica, sans-serif;
-    --s-radius: 10px; --s-chip-r: 5px;
-  }
-  .look-pillbox-dark {
-    --s-page: #0f1419; --s-text: #d3dce6; --s-muted: #9aabbd;
-    --s-line: #2a333d; --s-edge: #3a4653; --s-head: #e8eef5; --s-head-w: 600;
-    --s-tag-bg: #232c36; --s-tag-fg: #4a9fe0; --s-tag-pad: 3px 12px;
-    --s-font: "Segoe UI", Roboto, system-ui, sans-serif;
-    --s-radius: 24px; --s-chip-r: 14px;
-  }
-  .look-pillbox-light {
-    --s-page: #f4f7fc; --s-text: #1f3a57; --s-muted: #5a728c;
-    --s-line: #e9edf4; --s-edge: #d6dee9; --s-head: #0b2b4a; --s-head-w: 600;
-    --s-tag-bg: #eef3f9; --s-tag-fg: #1f5a8e; --s-tag-pad: 3px 12px;
-    --s-font: "Segoe UI", Roboto, system-ui, sans-serif;
-    --s-radius: 24px; --s-chip-r: 14px;
+  .look-light {
+    --s-page: #f4fafb; --s-text: #0a3d5c; --s-muted: rgba(10, 61, 92, 0.6);
+    --s-line: rgba(10, 61, 92, 0.1); --s-edge: rgba(10, 61, 92, 0.15);
+    --s-tag-bg: rgba(1, 186, 239, 0.1); --s-tag-fg: #01baef; --s-focus: #0b4f6c;
   }
 
   * { box-sizing: border-box; }
@@ -106,7 +85,7 @@
   .eyebrow {
     margin: 0 0 10px;
     font-size: var(--fs-xs);
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--accent);
@@ -119,51 +98,23 @@
     letter-spacing: -0.02em;
     text-wrap: balance;
   }
-  .lead {
-    margin: 16px 0 0;
-    max-width: 62ch;
-    font-size: var(--fs-md);
-    color: var(--muted);
-  }
-  .jump {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-    gap: 14px;
-    margin-top: 30px;
-  }
-  .jump-card {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-    padding: 16px 18px 18px;
-    background: var(--surface);
+  .lead { margin: 16px 0 0; max-width: 64ch; font-size: var(--fs-md); color: var(--muted); }
+  .jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+  .jump a {
+    padding: 7px 16px;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    font-size: var(--fs-sm);
+    font-weight: 600;
     text-decoration: none;
     transition: border-color 0.15s ease;
   }
-  .jump-card:hover { border-color: var(--accent); }
-  .jump-strip {
-    display: flex;
-    height: 30px;
-    margin-bottom: 8px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    overflow: hidden;
-  }
-  .jump-strip i { flex: 1; background: var(--c); }
-  .jump-name { font-size: var(--fs-md); font-weight: 700; }
-  .jump-meta { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); overflow-wrap: anywhere; }
+  .jump a:hover { border-color: var(--accent); }
 
-  /* ---------- Seccion de cada interfaz ---------- */
-  .iface { margin-top: 76px; scroll-margin-top: 16px; }
-  .iface-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 20px 28px;
-  }
+  /* ---------- Secciones ---------- */
+  .iface { margin-top: 72px; scroll-margin-top: 16px; }
+  .iface-head { display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px; }
   .iface-head .meta { flex: 1 1 320px; min-width: 0; }
   h2 {
     margin: 0;
@@ -173,110 +124,79 @@
     letter-spacing: -0.01em;
     text-wrap: balance;
   }
-  .iface-head .meta > p { margin: 6px 0 0; color: var(--muted); }
+  .iface-head .meta > p { margin: 6px 0 0; color: var(--muted); max-width: 70ch; }
   .facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 14px 0 0; }
   .facts div { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
-  .facts dt {
-    font-size: var(--fs-xs);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
+  .facts dt { font-size: var(--fs-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
   .facts dd { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
-  /* Fichas de marca: copia de la cabecera de cada web, en su tema de arranque */
-  .brand-tile { display: flex; align-items: center; flex: none; max-width: 100%; }
-  .bt-medibot {
-    gap: 14px;
-    padding: 18px 24px 18px 20px;
-    background: #111111;
-    border: 1px solid #333333;
-    border-radius: 10px;
-    box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
-    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
-  }
-  .bt-medibot svg { flex: none; filter: drop-shadow(0 0 8px rgba(79, 216, 210, 0.45)); }
-  .bt-word { font-size: 1.75rem; font-weight: 800; letter-spacing: 1px; line-height: 1; }
-  .bt-medi { color: #4fd8d2; }
-  .bt-bot { color: #ffffff; }
-  .bt-tag {
-    display: block;
-    margin-top: 5px;
-    font-size: 0.4em;
-    font-weight: 400;
-    letter-spacing: 3px;
-    color: #888888;
-  }
-  .bt-pillbox {
-    gap: 12px;
-    padding: 18px 26px 18px 20px;
-    background: #171d24;
-    border: 1px solid #2a333d;
-    border-radius: 24px;
-    font-family: "Segoe UI", Roboto, system-ui, sans-serif;
-  }
-  .bt-pillbox svg { flex: none; }
-  .bt-pill-h {
+  /* Fichas de marca: en el tema oscuro, el de arranque */
+  .brand-tile {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: -0.3px;
-    color: #e8eef5;
+    flex: none;
+    max-width: 100%;
+    gap: 12px;
+    padding: 18px 26px 18px 20px;
+    background: #0e2733;
+    border: 1px solid rgba(219, 234, 243, 0.1);
+    border-radius: 16px;
   }
-  .bt-pill-n {
-    padding: 4px 14px;
-    background: #232c36;
-    border-radius: 40px;
-    font-size: 16px;
-    font-weight: 500;
-    color: #4a9fe0;
-    letter-spacing: 0;
+  .bt-web { font-family: system-ui, "Segoe UI", Roboto, sans-serif; }
+  .bt-web svg path { fill: #7fe9ed; }
+  .bt-web-word { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .bt-soft { color: #7fe9ed; }
+  .bt-ink { color: #dbeaf3; }
+  .bt-medibot {
+    gap: 14px;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(34, 201, 245, 0.05);
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
   }
+  .bt-medibot svg { flex: none; filter: drop-shadow(0 0 8px rgba(127, 233, 237, 0.45)); }
+  .bt-word { font-size: 1.75rem; font-weight: 800; letter-spacing: 1px; line-height: 1; }
+  .bt-tag { display: block; margin-top: 5px; font-size: 0.4em; font-weight: 400; letter-spacing: 3px; color: rgba(219, 234, 243, 0.6); }
+  .bt-pillbox { border-radius: 24px; font-family: "Segoe UI", Roboto, system-ui, sans-serif; }
+  .bt-pill-h { display: flex; align-items: center; gap: 8px; font-size: 26px; font-weight: 600; letter-spacing: -0.3px; color: #dbeaf3; }
+  .bt-pill-n { padding: 4px 14px; background: rgba(34, 201, 245, 0.1); border-radius: 40px; font-size: 16px; font-weight: 500; color: #22c9f5; letter-spacing: 0; }
 
-  .block-h {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 14px;
-    margin: 36px 0 14px;
-  }
+  .block-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 36px 0 14px; }
   .block-h h3 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
   .block-h p { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
 
-  /* ---------- Hojas de la paleta principal ---------- */
-  .sheets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  @media (min-width: 1100px) {
-    .sheets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
+  /* ---------- Hojas de la paleta ---------- */
+  .sheets { display: grid; gap: 16px; }
   .sheet {
     min-width: 0;
-    padding: 20px;
+    padding: 22px;
     background: var(--s-page);
     color: var(--s-text);
-    font-family: var(--s-font);
+    font-family: var(--sans);
     border: 1px solid var(--line);
-    border-radius: var(--s-radius);
+    border-radius: 24px;
   }
-  .sheet-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 16px; }
-  .sheet-title { font-size: 1.05rem; font-weight: var(--s-head-w); color: var(--s-head); }
+  .sheet-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 18px; }
+  .sheet-title { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.01em; color: var(--s-text); }
   .sheet-tag {
-    padding: var(--s-tag-pad);
+    padding: 2px 11px;
     background: var(--s-tag-bg);
-    border-radius: 40px;
-    font-size: 0.78rem;
-    font-weight: 500;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
     color: var(--s-tag-fg);
   }
-  .chips {
-    display: grid;
-    grid-template-columns: repeat(var(--cols-phone), minmax(0, 1fr));
-    gap: 16px 10px;
+  .grupo + .grupo { margin-top: 22px; }
+  .grupo-t {
+    margin: 0 0 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--s-muted);
   }
-  @media (min-width: 600px) {
-    .chips { grid-template-columns: repeat(var(--cols-wide), minmax(0, 1fr)); }
-  }
+  .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 10px; }
+  @media (min-width: 600px) { .chips { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+  @media (min-width: 1000px) { .chips { grid-template-columns: repeat(9, minmax(0, 1fr)); } }
   .chip, .sw {
     margin: 0;
     padding: 0;
@@ -287,62 +207,48 @@
     text-align: left;
     cursor: pointer;
   }
-  .chip { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .chip { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .chip-color {
     display: block;
     height: 64px;
-    margin-bottom: 3px;
+    margin-bottom: 4px;
     background: var(--c);
-    border-radius: var(--s-chip-r);
+    border-radius: 12px;
     box-shadow: inset 0 0 0 1px var(--s-edge);
     transition: transform 0.15s ease;
   }
-  @media (min-width: 600px) { .chip-color { height: 76px; } }
+  @media (min-width: 600px) { .chip-color { height: 72px; } }
   .chip:hover .chip-color { transform: translateY(-2px); }
-  .chip-name { font-size: 0.8rem; font-weight: 600; line-height: 1.25; color: var(--s-text); overflow-wrap: anywhere; }
-  /* margin-top:auto: los codigos quedan alineados en cada fila aunque un
-     nombre ocupe dos lineas */
-  .chip-code { margin-top: auto; font-family: var(--mono); font-size: 0.75rem; color: var(--s-muted); }
-  .chip:focus-visible, .sw:focus-visible {
-    outline: 2px solid var(--s-head);
-    outline-offset: 4px;
-    border-radius: 6px;
-  }
-  /* Colores con transparencia: sobre un damero, como en cualquier editor */
+  .chip-name { font-size: 0.8rem; font-weight: 700; line-height: 1.25; color: var(--s-text); overflow-wrap: anywhere; }
+  .chip-tok { font-family: var(--mono); font-size: 0.7rem; color: var(--s-muted); }
+  /* margin-top:auto: los codigos quedan alineados aunque un nombre ocupe dos lineas */
+  .chip-code { margin-top: auto; font-family: var(--mono); font-size: 0.75rem; color: var(--s-text); }
+  .chip:focus-visible, .sw:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 4px; border-radius: 8px; }
+  /* Transparencias: sobre un damero, como en cualquier editor */
   .chip-color.alfa, .sw-color.alfa {
     background:
       linear-gradient(var(--c), var(--c)),
       repeating-conic-gradient(#d4d4d4 0% 25%, #ffffff 0% 50%) 0 0 / 10px 10px;
   }
   @media (prefers-reduced-motion: reduce) {
-    .chip-color, .jump-card { transition: none; }
+    .chip-color, .jump a { transition: none; }
     .chip:hover .chip-color { transform: none; }
   }
 
-  /* ---------- Tabla completa ---------- */
-  .table-wrap {
-    overflow-x: auto;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-  }
+  /* ---------- Tablas ---------- */
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
   .st { width: 100%; border-collapse: collapse; }
   .st th, .st td { padding: 12px 16px; text-align: left; vertical-align: middle; }
   .st thead th.lab {
     width: 46%;
     font-size: var(--fs-xs);
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);
     border-bottom: 1px solid var(--line);
   }
-  .st .sc {
-    background: var(--s-page);
-    color: var(--s-text);
-    font-family: var(--s-font);
-    border-bottom: 1px solid var(--s-line);
-  }
+  .st .sc { background: var(--s-page); color: var(--s-text); border-bottom: 1px solid var(--s-line); }
   .st thead .sc { white-space: nowrap; }
   .st thead .sc .sheet-title { font-size: 0.95rem; margin-right: 8px; }
   .st tr.grp th {
@@ -351,20 +257,17 @@
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--ink);
     border-bottom: 1px solid var(--line);
   }
-  .st tbody th[scope="row"] {
-    font-weight: 400;
-    vertical-align: top;
-    border-bottom: 1px solid var(--line);
-  }
-  .tk { display: block; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--accent); }
-  .nm { display: block; font-weight: 600; }
-  .use { display: block; max-width: 60ch; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); }
+  .st tbody th[scope="row"] { font-weight: 400; vertical-align: top; border-bottom: 1px solid var(--line); }
+  .nm { display: block; font-weight: 700; }
+  .use { display: block; max-width: 62ch; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); }
+  .tk { display: inline-block; margin-top: 6px; font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent); }
+  .tk + .tk::before { content: "= "; color: var(--muted); }
+  .tk + .tk { margin-left: 6px; }
   .same {
     display: inline-block;
-    margin-top: 7px;
+    margin: 6px 0 0 8px;
     padding: 1px 9px;
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -372,20 +275,13 @@
     color: var(--muted);
   }
   .sw { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .sw-color {
-    flex: none;
-    width: 36px;
-    height: 36px;
-    background: var(--c);
-    border-radius: 7px;
-    box-shadow: inset 0 0 0 1px var(--s-edge);
-  }
+  .sw-color { flex: none; width: 36px; height: 36px; background: var(--c); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--s-edge); }
   .sw-text { display: flex; flex-direction: column; min-width: 0; }
   .sw-code { font-family: var(--mono); font-size: 0.8125rem; color: var(--s-text); overflow-wrap: anywhere; }
   .sw-sub { font-family: var(--mono); font-size: 0.6875rem; color: var(--s-muted); }
   .sw:hover .sw-code { text-decoration: underline; text-underline-offset: 3px; }
 
-  /* Movil: nombre arriba, y debajo las dos muestras lado a lado */
+  /* Movil: nombre arriba y debajo las dos muestras lado a lado */
   @media (max-width: 639px) {
     .st, .st thead, .st tbody { display: block; }
     .st tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -397,10 +293,9 @@
     .sw-color { width: 30px; height: 30px; }
   }
 
-  /* ---------- Notas finales ---------- */
   .notes { margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line); }
   .notes h2 { font-size: var(--fs-md); }
-  .notes p { max-width: 70ch; margin: 10px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+  .notes p { max-width: 72ch; margin: 10px 0 0; color: var(--muted); font-size: var(--fs-sm); }
   .notes code { color: var(--ink); overflow-wrap: anywhere; }
 
   .toast {
@@ -412,10 +307,10 @@
     padding: 10px 16px;
     background: var(--ink);
     color: var(--bg);
-    border-radius: 10px;
+    border-radius: 12px;
     font-family: var(--mono);
     font-size: var(--fs-sm);
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 8px 28px rgba(5, 18, 26, 0.3);
     z-index: 10;
   }
 </style>
@@ -425,97 +320,108 @@
   <header>
     <p class="eyebrow">MEDIBOT · interfaces web</p>
     <h1>Paleta de colores</h1>
-    <p class="lead">Los colores exactos de las dos webs de MEDIBOT, copiados de su CSS: la de la cámara y la del pastillero. Las dos arrancan en tema oscuro y tienen también tema claro. Pulsa un color para copiar su código.</p>
-    <nav class="jump" aria-label="Interfaces">
-      <a class="jump-card" href="#camara">
-        <span class="jump-strip" data-tira="medibot" aria-hidden="true"></span>
-        <span class="jump-name">Cámara · Medibot</span>
-        <span class="jump-meta">Vision_MEDIBOT.py · puerto 5000</span>
-      </a>
-      <a class="jump-card" href="#pastillero">
-        <span class="jump-strip" data-tira="pillbox" aria-hidden="true"></span>
-        <span class="jump-name">Pastillero · Pillbox</span>
-        <span class="jump-meta">Pastillero.py · puerto 5001</span>
-      </a>
+    <p class="lead">Las webs de la cámara y del pastillero usan los colores de la web de MEDIBOT: los mismos tokens de su <code>src/index.css</code> (rama <code>web</code>), con el mismo valor, en tema oscuro y claro. Pulsa un color para copiar su código.</p>
+    <nav class="jump" aria-label="Secciones">
+      <a href="#paleta">La paleta</a>
+      <a href="#camara">Cámara · Medibot</a>
+      <a href="#pastillero">Pastillero · Pillbox</a>
     </nav>
   </header>
 
-  <section class="iface" id="camara" aria-labelledby="h-camara">
-    <div class="export" id="export-medibot">
+  <section class="iface" id="paleta" aria-labelledby="h-paleta">
+    <div class="export" id="export-paleta">
       <div class="iface-head">
-        <div class="brand-tile bt-medibot" aria-hidden="true">
-          <svg viewBox="0 0 100 100" width="46" height="46">
-            <circle cx="50" cy="50" r="40" fill="#4FD8D2"/>
-            <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
-              <line x1="50" y1="10" x2="50" y2="90"/>
-              <line x1="10" y1="50" x2="90" y2="50"/>
-              <line x1="21.7" y1="21.7" x2="78.3" y2="78.3"/>
-              <line x1="78.3" y1="21.7" x2="21.7" y2="78.3"/>
-            </g>
-            <circle cx="50" cy="50" r="15" fill="#ffffff"/>
+        <div class="brand-tile bt-web" aria-hidden="true">
+          <svg viewBox="0 0 100 100" width="44" height="44">
+            <path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/>
+            <path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/>
+            <path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/>
+            <path d="M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z"/>
+            <path d="M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z"/>
+            <path d="M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z"/>
+            <path d="M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z"/>
+            <path d="M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z"/>
           </svg>
-          <span class="bt-word"><span class="bt-medi">MEDI</span><span class="bt-bot">BOT</span><span class="bt-tag">VISIÓN ARTIFICIAL</span></span>
+          <span class="bt-web-word"><span class="bt-soft">MEDI</span><span class="bt-ink">BOT</span></span>
         </div>
         <div class="meta">
-          <h2 id="h-camara">Cámara · Medibot</h2>
-          <p>Cámaras en directo, movimiento del robot, audio y vídeos grabados.</p>
+          <h2 id="h-paleta">La paleta de la web</h2>
+          <p>Nueve colores con nombre, y el rojo, el ámbar y el verde de Tailwind para avisos y estados. Es la que usan ya las dos interfaces.</p>
           <dl class="facts">
-            <div><dt>Archivo</dt><dd><code>medibot/Vision_MEDIBOT.py</code></dd></div>
-            <div><dt>Puerto</dt><dd>5000</dd></div>
-            <div><dt>Letra</dt><dd>Arial</dd></div>
+            <div><dt>Origen</dt><dd>rama <code>web</code>, <code>src/index.css</code></dd></div>
+            <div><dt>Avisos</dt><dd>Tailwind 4.3.3</dd></div>
             <div><dt>Arranca en</dt><dd>oscuro</dd></div>
           </dl>
         </div>
       </div>
       <div class="block-h">
-        <h3>Paleta principal</h3>
-        <p>Los diez colores que más se ven, en el mismo orden en los dos temas.</p>
+        <h3>Los colores</h3>
+        <p>En el mismo orden en los dos temas. Los que no cambian (deep, mint y los rojos) son iguales a propósito, como en la web.</p>
       </div>
-      <div class="sheets" id="principal-medibot" style="--cols-wide: 5; --cols-phone: 2"></div>
+      <div class="sheets" id="hojas"></div>
+    </div>
+  </section>
+
+  <section class="iface" id="camara" aria-labelledby="h-camara">
+    <div class="iface-head">
+      <div class="brand-tile bt-medibot" aria-hidden="true">
+        <svg viewBox="0 0 100 100" width="46" height="46">
+          <circle cx="50" cy="50" r="40" fill="#7fe9ed"/>
+          <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+            <line x1="50" y1="10" x2="50" y2="90"/>
+            <line x1="10" y1="50" x2="90" y2="50"/>
+            <line x1="21.7" y1="21.7" x2="78.3" y2="78.3"/>
+            <line x1="78.3" y1="21.7" x2="21.7" y2="78.3"/>
+          </g>
+          <circle cx="50" cy="50" r="15" fill="#ffffff"/>
+        </svg>
+        <span class="bt-word"><span class="bt-soft">MEDI</span><span class="bt-ink">BOT</span><span class="bt-tag">VISIÓN ARTIFICIAL</span></span>
+      </div>
+      <div class="meta">
+        <h2 id="h-camara">Cámara · Medibot</h2>
+        <p>Cámaras en directo, movimiento del robot, audio y vídeos grabados. Sus colores van en tokens con el nombre de la web (<code>--c-ink</code>, <code>--c-brand</code>…); el tema claro solo los redefine.</p>
+        <dl class="facts">
+          <div><dt>Archivo</dt><dd><code>medibot/Vision_MEDIBOT.py</code></dd></div>
+          <div><dt>Puerto</dt><dd>5000</dd></div>
+          <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+        </dl>
+      </div>
     </div>
     <div class="block-h">
-      <h3>Todos los colores</h3>
-      <p>Cada color con el sitio de la página donde aparece.</p>
+      <h3>Dónde va cada color</h3>
+      <p>Cada pieza de la página con el token que usa.</p>
     </div>
-    <div class="table-wrap" id="tabla-medibot"></div>
+    <div class="table-wrap" id="tabla-camara"></div>
   </section>
 
   <section class="iface" id="pastillero" aria-labelledby="h-pastillero">
-    <div class="export" id="export-pillbox">
-      <div class="iface-head">
-        <div class="brand-tile bt-pillbox" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="42" height="42"><rect x="4" y="11" width="24" height="10" rx="5" fill="#1f5a8e"/><path d="M16 11v10" stroke="#fff" stroke-width="2"/></svg>
-          <span class="bt-pill-h">Pillbox <span class="bt-pill-n">8 / 8</span></span>
-        </div>
-        <div class="meta">
-          <h2 id="h-pastillero">Pastillero · Pillbox</h2>
-          <p>Compartimientos, horarios de dispensado automático e historial.</p>
-          <dl class="facts">
-            <div><dt>Archivo</dt><dd><code>medibot/Pastillero.py</code></dd></div>
-            <div><dt>Puerto</dt><dd>5001</dd></div>
-            <div><dt>Letra</dt><dd>Segoe UI, Roboto o la del sistema</dd></div>
-            <div><dt>Arranca en</dt><dd>oscuro</dd></div>
-          </dl>
-        </div>
+    <div class="iface-head">
+      <div class="brand-tile bt-pillbox" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="42" height="42"><rect x="4" y="11" width="24" height="10" rx="5" fill="#7fe9ed"/><path d="M16 11v10" stroke="#06161f" stroke-width="2"/></svg>
+        <span class="bt-pill-h">Pillbox <span class="bt-pill-n">3 / 8</span></span>
       </div>
-      <div class="block-h">
-        <h3>Paleta principal</h3>
-        <p>Doce de sus colores, en el mismo orden en los dos temas.</p>
+      <div class="meta">
+        <h2 id="h-pastillero">Pastillero · Pillbox</h2>
+        <p>Compartimientos, horarios de dispensado automático e historial. Conserva sus variables por lo que significan (<code>--texto-tenue</code>, <code>--peligro-texto</code>…), ahora con los colores de la web.</p>
+        <dl class="facts">
+          <div><dt>Archivo</dt><dd><code>medibot/Pastillero.py</code></dd></div>
+          <div><dt>Puerto</dt><dd>5001</dd></div>
+          <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+        </dl>
       </div>
-      <div class="sheets" id="principal-pillbox" style="--cols-wide: 6; --cols-phone: 3"></div>
     </div>
     <div class="block-h">
-      <h3>Todas las variables</h3>
-      <p>Las 29 variables de color del CSS, con su nombre en el código, más el anillo de foco y el icono.</p>
+      <h3>Sus variables</h3>
+      <p>Cada variable del pastillero con el color de la web del que sale.</p>
     </div>
-    <div class="table-wrap" id="tabla-pillbox"></div>
+    <div class="table-wrap" id="tabla-pastillero"></div>
   </section>
 
   <footer class="notes">
     <h2>De dónde sale cada color</h2>
-    <p>Del CSS que sirven las dos webs: <code>HTML_TEMPLATE</code> en <code>medibot/Vision_MEDIBOT.py</code> y <code>HTML_PAGE</code> en <code>medibot/Pastillero.py</code>. Revisado el 29 de septiembre de 2026.</p>
-    <p>No están los colores que el CSS de la cámara guarda para piezas que la página ya no tiene (título grande, subtítulo, pestañas, rejilla de posición, cruceta de movimiento y estadísticas bajo el vídeo): <code>#9AA4AD</code>, <code>#FFB020</code> y el brillo <code>rgba(0, 255, 255, 0.5)</code>. No se ven en ningún sitio. Tampoco entra la ventana de escritorio de Medibot (Tkinter): esta es la paleta de la web.</p>
-    <p>Si cambia el CSS de alguna de las dos webs, esta paleta hay que actualizarla a mano.</p>
+    <p>Los nueve tokens, de <code>src/index.css</code> en la rama <code>web</code>. El rojo, el ámbar y el verde, del tema de Tailwind 4.3.3, que es la versión que usa la web. Esos tres la web los escribe en <code>oklch</code>; las interfaces llevan el mismo valor en <code>oklch</code> y, para los navegadores que no lo entienden, su equivalente en hex, que es el que aparece aquí. Revisado el 29 de septiembre de 2026.</p>
+    <p>El número tras un nombre es la transparencia, como en Tailwind: ink/60 es el color ink al 60 %. Por eso cambian con el tema: el ink claro al 60 % sobre fondo oscuro, el ink oscuro al 60 % sobre fondo claro.</p>
+    <p>La ventana de escritorio de Medibot (Tkinter) no está incluida: esta es la paleta de las webs. Si la web cambia su paleta, hay que cambiar los tokens de <code>Vision_MEDIBOT.py</code>, las variables de <code>Pastillero.py</code> y esta página.</p>
   </footer>
 </div>
 
@@ -525,249 +431,285 @@
 (function () {
   'use strict';
 
-  /* n = nombre, u = donde se ve, d = tema oscuro, l = tema claro
-     (sin l: igual en los dos temas), t = variable CSS del pastillero. */
-  var PALETAS = {
-    medibot: {
-      cabecera: 'Color y dónde se ve',
-      principal: [
-        ['Fondo', '#000000', '#EEF1F5'],
-        ['Contenedor', '#111111', '#FFFFFF'],
-        ['Tarjetas', '#222222', '#F4F7FA'],
-        ['Bordes', '#333333', '#D4DAE0'],
-        ['Texto', '#FFFFFF', '#15202B'],
-        ['Texto secundario', '#888888', '#5A6772'],
-        ['Acento', '#00FFFF', '#0AA6A0'],
-        ['Turquesa MEDIBOT', '#4FD8D2', '#4FD8D2'],
-        ['Cámara activa', '#00FF00', '#0A8F2A'],
-        ['Grabando', '#FF0000', '#D11A2A']
-      ],
-      grupos: [
-        { titulo: 'Superficies y bordes', filas: [
-          { n: 'Fondo de la página', u: 'Detrás de todo', d: '#000000', l: '#EEF1F5' },
-          { n: 'Contenedor', u: 'El recuadro que lo agrupa todo', d: '#111111', l: '#FFFFFF' },
-          { n: 'Tarjetas y botones', u: 'Recuadros de las cámaras y del estado, botones de control, tarjetas de vídeo y los botones Pastillero y Modo', d: '#222222', l: '#F4F7FA' },
-          { n: 'Casillas de dato', u: '«Estado» y «Grabando», debajo de cada cámara', d: '#333333', l: '#E9EEF3' },
-          { n: 'Botón al pasar el ratón', u: 'Botones de control y de la cabecera; también Reproducir, Descargar y la base del joystick', d: '#333333', l: '#E3E9EF' },
-          { n: 'Reproducir y Descargar al pasar el ratón', u: 'Botones de cada vídeo grabado', d: '#444444', l: '#D4DAE0' },
-          { n: 'Botonera de movimiento', u: 'Fondo de los botones para mover el robot', d: '#1A1A1A', l: '#EEF4F8' },
-          { n: 'Bordes', u: 'Contenedor, tarjetas y botones', d: '#333333', l: '#D4DAE0' }
-        ]},
-        { titulo: 'Texto', filas: [
-          { n: 'Texto principal', u: 'Valores, botones, títulos de vídeo y el «BOT» del logotipo', d: '#FFFFFF', l: '#15202B' },
-          { n: 'Texto secundario', u: 'Etiquetas, «VISIÓN ARTIFICIAL», «Estado Sistema» y los datos de cada vídeo', d: '#888888', l: '#5A6772' },
-          { n: 'Pie de página', u: '«Medibot», al final de la página', d: '#444444', l: '#5A6772' }
-        ]},
-        { titulo: 'Acento', filas: [
-          { n: 'Acento', u: 'Títulos de las cámaras, valor del estado, botón activo, bordes al pasar el ratón y joystick', d: '#00FFFF', l: '#0AA6A0' },
-          { n: 'Texto sobre el acento', u: 'Letra de un botón activo', d: '#000000', l: '#FFFFFF' },
-          { n: 'Letra de la botonera', u: 'Botones de movimiento y el rótulo «Velocidad»', d: '#00FFFF', l: '#0A7C78' },
-          { n: 'Borde de la botonera', u: 'Botones de movimiento', d: '#00FFFF', l: '#0AA6A0' },
-          { n: 'Borde de la cabecera al pasar el ratón', u: 'Botones Pastillero y Modo', d: '#4FD8D2', l: '#0AA6A0' },
-          { n: 'Barra de velocidad', u: 'El deslizador para elegir la velocidad', d: '#00FFFF' }
-        ]},
-        { titulo: 'Marca', filas: [
-          { n: 'Turquesa MEDIBOT', u: 'Círculo del logo, «MEDI» del logotipo e icono de la pestaña', d: '#4FD8D2' },
-          { n: 'Blanco del logo', u: 'Rayos y centro del logo', d: '#FFFFFF' },
-          { n: 'Centro del icono de la pestaña', u: 'El punto oscuro del favicon', d: '#111111' },
-          { n: 'Brillo del logo', u: 'Halo alrededor del logo', d: 'rgba(79, 216, 210, 0.45)' }
-        ]},
-        { titulo: 'Estados', filas: [
-          { n: 'Cámara en marcha', u: 'Título de la cámara cuando está activa', d: '#00FF00', l: '#0A8F2A' },
-          { n: 'Punto: cámara activa', u: 'Punto junto al título de la cámara', d: '#00FF00' },
-          { n: 'Punto: cámara parada', u: 'El mismo punto con la cámara inactiva', d: '#FF0000' },
-          { n: 'Grabando', u: '«Sí» en Grabando y el botón de grabar mientras graba', d: '#FF0000', l: '#D11A2A' },
-          { n: 'Parar', u: 'Botón PARAR de la botonera; en claro solo sale al pasar el ratón', d: '#FF5555' },
-          { n: 'Aviso de velocidad', u: 'Mensaje debajo de la barra de velocidad', d: '#FF6B6B' }
-        ]},
-        { titulo: 'Barra de avisos', filas: [
-          { n: 'Aviso', u: 'Franja de arriba cuando algo falla', d: '#B3261E' },
-          { n: 'Aviso grave', u: 'La misma franja cuando falla la propia página', d: '#7F1D1D' },
-          { n: 'Sombra de la franja', u: 'Debajo de la franja', d: 'rgba(0, 0, 0, 0.4)' }
-        ]},
-        { titulo: 'Sobre el vídeo', filas: [
-          { n: 'Fondo del vídeo', u: 'Detrás de la imagen, en pantalla completa y en las miniaturas', d: '#000000' },
-          { n: 'Marco del vídeo', u: 'Borde de la imagen de la cámara', d: '#333333' },
-          { n: 'Texto de la miniatura', u: 'Nombre de la cámara en cada vídeo grabado', d: '#888888' },
-          { n: 'Botones sobre el vídeo', u: 'Altavoz, micrófono y Pantalla completa', d: 'rgba(0, 0, 0, 0.5)' },
-          { n: 'Botones sobre el vídeo al pasar el ratón', u: 'Los mismos botones', d: 'rgba(0, 0, 0, 0.75)' },
-          { n: 'Letra de esos botones', u: 'Texto e iconos', d: '#FFFFFF' },
-          { n: 'Borde de esos botones', u: 'En reposo', d: 'rgba(255, 255, 255, 0.35)' },
-          { n: 'Borde al pasar el ratón o escuchando', u: 'Los mismos botones', d: '#4FD8D2' },
-          { n: 'Escuchando', u: 'Altavoz mientras suena el micrófono de la cámara', d: 'rgba(10, 166, 160, 0.85)' },
-          { n: 'Hablando', u: 'Micrófono mientras mantienes pulsado para hablar', d: 'rgba(214, 48, 49, 0.9)' },
-          { n: 'Borde al hablar', u: 'El mismo botón', d: '#FF7675' },
-          { n: 'Latido al hablar', u: 'Anillo que late alrededor del botón y se desvanece', d: 'rgba(214, 48, 49, 0.55)' },
-          { n: 'Rótulo del joystick', u: 'Fondo de «Dir: …»', d: 'rgba(0, 0, 0, 0.45)' }
-        ]},
-        { titulo: 'Brillos', filas: [
-          { n: 'Brillo del contenedor', u: 'Halo alrededor del recuadro principal', d: 'rgba(0, 255, 255, 0.1)', l: 'rgba(10, 166, 160, 0.12)' },
-          { n: 'Brillo del joystick', u: 'Halo de la bola del joystick', d: 'rgba(0, 255, 255, 0.6)', l: 'rgba(10, 166, 160, 0.5)' }
-        ]}
-      ]
-    },
+  /* Cada token: [oscuro, claro, de donde sale]. Son los valores que llevan
+     las interfaces en su CSS. Los de Tailwind llevan ademas su valor exacto
+     en oklch (o), que es el que se pinta aqui. */
+  var T = {
+    '--c-surface':   ['#06161F', '#F4FAFB', 'surface'],
+    '--c-card':      ['#0E2733', '#FFFFFF', 'card'],
+    '--c-ink':       ['#DBEAF3', '#0A3D5C', 'ink'],
+    '--c-brand':     ['#22C9F5', '#01BAEF', 'brand'],
+    '--c-deep':      ['#0B4F6C', '#0B4F6C', 'deep'],
+    '--c-brandsoft': ['#7FE9ED', '#5EE1E6', 'brandsoft'],
+    '--c-mint':      ['#34D399', '#34D399', 'mint'],
+    '--c-shade':     ['#05121A', '#0A3D5C', 'shade'],
+    '--c-footer':    ['#04121A', '#0A3D5C', 'footer'],
 
-    pillbox: {
-      cabecera: 'Variable CSS y dónde se ve',
-      principal: [
-        ['Fondo', '#0F1419', '#F4F7FC'],
-        ['Tarjeta', '#171D24', '#FFFFFF'],
-        ['Panel', '#1C232B', '#F9FBFD'],
-        ['Suave', '#232C36', '#EEF3F9'],
-        ['Borde', '#2A333D', '#E9EDF4'],
-        ['Títulos', '#E8EEF5', '#0B2B4A'],
-        ['Texto', '#D3DCE6', '#1F3A57'],
-        ['Texto tenue', '#9AABBD', '#5A728C'],
-        ['Acento', '#4A9FE0', '#1F5A8E'],
-        ['Éxito', '#2FB587', '#1F8E6B'],
-        ['Peligro', '#E05561', '#CF3E4A'],
-        ['Aviso', '#F0B04A', '#E6A020']
-      ],
-      grupos: [
-        { titulo: 'Superficies', filas: [
-          { t: '--fondo', n: 'Fondo', u: 'Detrás de todo', d: '#0F1419', l: '#F4F7FC' },
-          { t: '--tarjeta', n: 'Tarjeta', u: 'Recuadro principal, tarjetas de compartimiento, campos y casillas de días; también la letra de los botones de color', d: '#171D24', l: '#FFFFFF' },
-          { t: '--panel', n: 'Panel', u: 'Formulario, datos guardados, historial y horarios', d: '#1C232B', l: '#F9FBFD' },
-          { t: '--suave', n: 'Suave', u: 'Botones de arriba (MEDIBOT, Modo Claro…), contador de compartimientos y botones normales', d: '#232C36', l: '#EEF3F9' },
-          { t: '--suave-hover', n: 'Suave al pasar el ratón', u: 'Los botones de arriba', d: '#2C3742', l: '#DCE6F0' },
-          { t: '--neutro', n: 'Neutro', u: 'Etiqueta de un horario en pausa', d: '#232C36', l: '#F0F2F6' }
-        ]},
-        { titulo: 'Bordes', filas: [
-          { t: '--borde', n: 'Borde', u: 'Tarjetas, paneles y líneas entre filas', d: '#2A333D', l: '#E9EDF4' },
-          { t: '--borde-fuerte', n: 'Borde fuerte', u: 'Campos de texto, hora, casillas de días y botones de contorno (Cancelar, Pausar)', d: '#3A4653', l: '#D6DEE9' },
-          { t: '--borde-activo', n: 'Borde activo', u: 'Tarjeta de compartimiento al pasar el ratón', d: '#4E6478', l: '#B6CAE0' }
-        ]},
-        { titulo: 'Texto', filas: [
-          { t: '--texto-titulo', n: 'Títulos', u: '«Pillbox», «Compartimiento N», títulos de panel y datos guardados', d: '#E8EEF5', l: '#0B2B4A' },
-          { t: '--texto', n: 'Texto', u: 'Texto normal, número de compartimiento y etiquetas del formulario', d: '#D3DCE6', l: '#1F3A57' },
-          { t: '--texto-tenue', n: 'Texto tenue', u: 'Subtítulos, etiquetas en mayúsculas, fechas del historial y avisos', d: '#9AABBD', l: '#5A728C' },
-          { t: '--texto-debil', n: 'Texto débil', u: '«Sin datos» y la letra de un horario en pausa', d: '#7C8B9C', l: '#8A99AB' }
-        ]},
-        { titulo: 'Acento', filas: [
-          { t: '--acento', n: 'Acento', u: 'Letra de los botones de arriba, botones Dispensar y Agregar horario, días del horario, campo activo y acciones MANUAL', d: '#4A9FE0', l: '#1F5A8E' },
-          { t: '--acento-hover', n: 'Acento al pasar el ratón', u: 'Botones Dispensar y Agregar horario', d: '#6BB4EC', l: '#164A73' },
-          { t: '--acento-suave', n: 'Acento suave', u: 'Etiqueta «Pendiente»', d: '#16354D', l: '#DFF0FA' }
-        ]},
-        { titulo: 'Éxito', filas: [
-          { t: '--exito', n: 'Éxito', u: 'Botón Completado y acciones AUTO del historial', d: '#2FB587', l: '#1F8E6B' },
-          { t: '--exito-hover', n: 'Éxito al pasar el ratón', u: 'Botón Completado', d: '#46C79A', l: '#167556' },
-          { t: '--exito-suave', n: 'Éxito suave', u: 'Pastillas «Conectado» y «Sincronizado», etiqueta «Completado» y horario activo', d: '#143529', l: '#D4EDDA' },
-          { t: '--exito-texto', n: 'Letra de éxito', u: 'Texto de esas pastillas y etiquetas', d: '#6FDCB2', l: '#0E6B3E' }
-        ]},
-        { titulo: 'Peligro', filas: [
-          { t: '--peligro', n: 'Peligro', u: 'Botones Eliminar y Quitar', d: '#E05561', l: '#CF3E4A' },
-          { t: '--peligro-hover', n: 'Peligro al pasar el ratón', u: 'Esos botones; también la letra de «Desconectado»', d: '#EA6F79', l: '#B3323D' },
-          { t: '--peligro-suave', n: 'Peligro suave', u: 'Pastilla «Desconectado»', d: '#3A1A1E', l: '#FDECEA' }
-        ]},
-        { titulo: 'Aviso', filas: [
-          { t: '--aviso', n: 'Aviso', u: 'Botón Editar', d: '#F0B04A', l: '#E6A020' },
-          { t: '--aviso-hover', n: 'Aviso al pasar el ratón', u: 'Botón Editar', d: '#F6C268', l: '#CC8D1A' },
-          { t: '--aviso-suave', n: 'Aviso suave', u: 'Pastilla «Desincronizado»', d: '#3A2C10', l: '#FDF0D5' },
-          { t: '--aviso-texto', n: 'Letra de aviso', u: 'Texto de «Desincronizado»', d: '#F2C87A', l: '#8A5A00' }
-        ]},
-        { titulo: 'Sombras', filas: [
-          { t: '--sombra', n: 'Sombra', u: 'Recuadro principal y tarjeta al pasar el ratón', d: 'rgba(0, 0, 0, 0.55)', l: 'rgba(0, 20, 40, 0.12)' },
-          { t: '--sombra-suave', n: 'Sombra suave', u: 'Tarjetas de compartimiento', d: 'rgba(0, 0, 0, 0.25)', l: 'rgba(0, 0, 0, 0.04)' },
-          { n: 'Anillo de foco', u: 'Alrededor del campo en el que escribes', d: 'rgba(31, 90, 142, 0.12)' }
-        ]},
-        { titulo: 'Icono de la pestaña', filas: [
-          { n: 'Pastilla', u: 'Cuerpo de la pastilla del favicon', d: '#1F5A8E' },
-          { n: 'Raya', u: 'Línea del centro de la pastilla', d: '#FFFFFF' }
-        ]}
-      ]
-    }
+    '--c-ink-5':  ['rgba(219, 234, 243, 0.05)', 'rgba(10, 61, 92, 0.05)', 'ink/5'],
+    '--c-ink-10': ['rgba(219, 234, 243, 0.1)',  'rgba(10, 61, 92, 0.1)',  'ink/10'],
+    '--c-ink-15': ['rgba(219, 234, 243, 0.15)', 'rgba(10, 61, 92, 0.15)', 'ink/15'],
+    '--c-ink-40': ['rgba(219, 234, 243, 0.4)',  'rgba(10, 61, 92, 0.4)',  'ink/40'],
+    '--c-ink-50': ['rgba(219, 234, 243, 0.5)',  'rgba(10, 61, 92, 0.5)',  'ink/50'],
+    '--c-ink-60': ['rgba(219, 234, 243, 0.6)',  'rgba(10, 61, 92, 0.6)',  'ink/60'],
+    '--c-ink-70': ['rgba(219, 234, 243, 0.7)',  'rgba(10, 61, 92, 0.7)',  'ink/70'],
+    '--c-brand-5':  ['rgba(34, 201, 245, 0.05)', 'rgba(1, 186, 239, 0.05)', 'brand/5'],
+    '--c-brand-10': ['rgba(34, 201, 245, 0.1)',  'rgba(1, 186, 239, 0.1)',  'brand/10'],
+    '--c-brand-30': ['rgba(34, 201, 245, 0.3)',  'rgba(1, 186, 239, 0.3)',  'brand/30'],
+    '--c-brand-40': ['rgba(34, 201, 245, 0.4)',  'rgba(1, 186, 239, 0.4)',  'brand/40'],
+    '--c-brandsoft-45': ['rgba(127, 233, 237, 0.45)', 'rgba(94, 225, 230, 0.45)', 'brandsoft/45'],
+    '--c-mint-15':  ['rgba(52, 211, 153, 0.15)', 'rgba(52, 211, 153, 0.15)', 'mint/15'],
+    '--c-shade-5':  ['rgba(5, 18, 26, 0.05)',    'rgba(10, 61, 92, 0.05)',   'shade/5'],
+
+    '--c-blanco':      ['#FFFFFF', '#FFFFFF', 'white'],
+    '--c-blanco-35':   ['rgba(255, 255, 255, 0.35)', 'rgba(255, 255, 255, 0.35)', 'white/35'],
+    '--c-blanco-70':   ['rgba(255, 255, 255, 0.7)',  'rgba(255, 255, 255, 0.7)',  'white/70'],
+    '--c-velo':        ['rgba(4, 18, 26, 0.6)', 'rgba(4, 18, 26, 0.6)', 'footer oscuro al 60 %'],
+    '--c-velo-fuerte': ['rgba(4, 18, 26, 0.8)', 'rgba(4, 18, 26, 0.8)', 'footer oscuro al 80 %'],
+
+    '--c-rojo':    ['#FB2C36', '#FB2C36', 'red-500', 'oklch(63.7% 0.237 25.331)', 'oklch(63.7% 0.237 25.331)'],
+    '--c-rojo-10': ['rgba(251, 44, 54, 0.1)',  'rgba(251, 44, 54, 0.1)',  'red-500/10', 'oklch(63.7% 0.237 25.331 / 0.1)',  'oklch(63.7% 0.237 25.331 / 0.1)'],
+    '--c-rojo-15': ['rgba(251, 44, 54, 0.15)', 'rgba(251, 44, 54, 0.15)', 'red-500/15', 'oklch(63.7% 0.237 25.331 / 0.15)', 'oklch(63.7% 0.237 25.331 / 0.15)'],
+    '--c-rojo-30': ['rgba(251, 44, 54, 0.3)',  'rgba(251, 44, 54, 0.3)',  'red-500/30', 'oklch(63.7% 0.237 25.331 / 0.3)',  'oklch(63.7% 0.237 25.331 / 0.3)'],
+    '--c-rojo-55': ['rgba(251, 44, 54, 0.55)', 'rgba(251, 44, 54, 0.55)', 'red-500/55', 'oklch(63.7% 0.237 25.331 / 0.55)', 'oklch(63.7% 0.237 25.331 / 0.55)'],
+    '--c-rojo-90': ['rgba(251, 44, 54, 0.9)',  'rgba(251, 44, 54, 0.9)',  'red-500/90', 'oklch(63.7% 0.237 25.331 / 0.9)',  'oklch(63.7% 0.237 25.331 / 0.9)'],
+    '--c-rojo-claro':    ['#FFA2A2', '#FFA2A2', 'red-300', 'oklch(80.8% 0.114 19.571)', 'oklch(80.8% 0.114 19.571)'],
+    '--c-rojo-fuerte':   ['#E7000B', '#E7000B', 'red-600', 'oklch(57.7% 0.245 27.325)', 'oklch(57.7% 0.245 27.325)'],
+    '--c-rojo-grave':    ['#C10007', '#C10007', 'red-700', 'oklch(50.5% 0.213 27.518)', 'oklch(50.5% 0.213 27.518)'],
+    '--c-rojo-texto':    ['#FF6467', '#E7000B', 'red-400 · red-600', 'oklch(70.4% 0.191 22.216)', 'oklch(57.7% 0.245 27.325)'],
+    '--c-rojo-pastilla': ['#FFA2A2', '#C10007', 'red-300 · red-700', 'oklch(80.8% 0.114 19.571)', 'oklch(50.5% 0.213 27.518)'],
+    '--c-ambar':         ['#FE9A00', '#FE9A00', 'amber-500', 'oklch(76.9% 0.188 70.08)', 'oklch(76.9% 0.188 70.08)'],
+    '--c-ambar-15':      ['rgba(254, 154, 0, 0.15)', 'rgba(254, 154, 0, 0.15)', 'amber-500/15', 'oklch(76.9% 0.188 70.08 / 0.15)', 'oklch(76.9% 0.188 70.08 / 0.15)'],
+    '--c-ambar-texto':   ['#FFD230', '#BB4D00', 'amber-300 · amber-700', 'oklch(87.9% 0.169 91.605)', 'oklch(55.5% 0.163 48.998)'],
+    '--c-exito-texto':   ['#5EE9B5', '#007A55', 'emerald-300 · emerald-700', 'oklch(84.5% 0.143 164.978)', 'oklch(50.8% 0.118 165.612)'],
+
+    /* El icono de la pestana no sigue al tema de la pagina sino al del
+       sistema, como el favicon de la web: brand en claro, brandsoft en oscuro. */
+    '--icono':       ['#7FE9ED', '#01BAEF', 'brandsoft · brand'],
+    '--icono-raya':  ['#06161F', '#FFFFFF', 'surface · white']
+  };
+  var DEGRADADOS = {
+    marca: { css: function (t) { return 'linear-gradient(to right, ' + v('--c-brand', t) + ', ' + v('--c-deep', t) + ')'; }, k: 'brand → deep' },
+    video: { css: function (t) { return 'linear-gradient(to bottom right, ' + v('--c-deep', t) + ', ' + v('--c-shade', t) + ', ' + v('--c-shade', t) + ')'; }, k: 'deep → shade' }
   };
 
+  var HOJA = {
+    marca: [['Fondo', '--c-surface'], ['Tarjeta', '--c-card'], ['Texto', '--c-ink'], ['Marca', '--c-brand'], ['Profundo', '--c-deep'],
+            ['Marca suave', '--c-brandsoft'], ['Menta', '--c-mint'], ['Sombra', '--c-shade'], ['Pie', '--c-footer']],
+    avisos: [['Rojo', '--c-rojo'], ['Rojo texto', '--c-rojo-texto'], ['Rojo pastilla', '--c-rojo-pastilla'],
+             ['Ámbar', '--c-ambar'], ['Ámbar texto', '--c-ambar-texto'], ['Verde texto', '--c-exito-texto']]
+  };
+
+  /* n = pieza, u = donde se ve, t = token (o degradado). */
+  var CAMARA = [
+    { titulo: 'Superficies', filas: [
+      { n: 'Fondo de la página', u: 'Detrás de todo', t: '--c-surface' },
+      { n: 'Contenedor', u: 'El recuadro que lo agrupa todo', t: '--c-card' },
+      { n: 'Recuadros', u: 'Las cámaras, «Estado Sistema» y las tarjetas de vídeo', t: '--c-surface' },
+      { n: 'Casillas de dato', u: '«Estado» y «Grabando», debajo de cada cámara; también Reproducir y Descargar', t: '--c-ink-5' },
+      { n: 'Bordes', u: 'Contenedor, recuadros y marco del vídeo; Reproducir y Descargar al pasar el ratón', t: '--c-ink-10' },
+      { n: 'Borde de los botones', u: 'Botones de control y de movimiento', t: '--c-ink-15' },
+      { n: 'Fondo del vídeo', u: 'Detrás de la imagen y en pantalla completa', t: '--c-shade' },
+      { n: 'Miniatura de vídeo', u: 'Como el vídeo de la web: de deep a shade', t: 'video' }
+    ]},
+    { titulo: 'Texto', filas: [
+      { n: 'Texto principal', u: 'Valores, títulos de cámara y de vídeo, y el «BOT» del logotipo', t: '--c-ink' },
+      { n: 'Letra de botones y etiquetas', u: 'Botones de control, de movimiento, Pastillero y Modo; «Estado», «Velocidad»', t: '--c-ink-70' },
+      { n: 'Texto secundario', u: 'Datos de cada vídeo, «VISIÓN ARTIFICIAL» y el pie', t: '--c-ink-60' },
+      { n: 'Rótulo «ESTADO SISTEMA»', u: 'Como los rótulos en mayúsculas de la web', t: '--c-brand' }
+    ]},
+    { titulo: 'Marca', filas: [
+      { n: 'Logo y «MEDI»', u: 'El círculo del logo y la primera mitad del nombre', t: '--c-brandsoft' },
+      { n: 'Brillo del logo', u: 'Halo alrededor del logo', t: '--c-brandsoft-45' },
+      { n: 'Brillo del contenedor', u: 'Halo alrededor del recuadro principal', t: '--c-brand-5' },
+      { n: 'Icono de la pestaña', u: 'Sigue al tema del sistema, como el de la web; el punto del centro es ink #0A3D5C', t: '--icono' }
+    ]},
+    { titulo: 'Botones y mandos', filas: [
+      { n: 'Botón activo', u: '«Detener Sistema», «Reconocimiento: ON», un movimiento pulsado, el altavoz escuchando', t: 'marca' },
+      { n: 'Letra sobre el degradado', u: 'Siempre blanca, como en la web', t: '--c-blanco' },
+      { n: 'Borde al pasar el ratón', u: 'Botones de control y de movimiento', t: '--c-brand-30' },
+      { n: 'Pastillero y Modo al pasar el ratón', u: 'Fondo', t: '--c-ink-5' },
+      { n: 'Botonera de movimiento', u: 'Fondo de los botones', t: '--c-card' },
+      { n: 'Barra de velocidad y aro del joystick', u: 'La bola del joystick lleva el degradado', t: '--c-brand' },
+      { n: 'Brillo del joystick', u: 'Halo de la bola', t: '--c-brand-40' }
+    ]},
+    { titulo: 'Estados y avisos', filas: [
+      { n: 'Cámara en marcha', u: 'Título de la cámara activa', t: '--c-exito-texto' },
+      { n: 'Punto: cámara activa', u: 'Junto al título', t: '--c-mint' },
+      { n: 'Punto: cámara parada', u: 'El mismo punto; también PARAR pulsado', t: '--c-rojo' },
+      { n: 'Letra roja', u: '«Sí» en Grabando, PARAR y el aviso de la velocidad', t: '--c-rojo-texto' },
+      { n: 'Botón grabando', u: 'Fondo de «Detener Grabación»', t: '--c-rojo-15' },
+      { n: 'Letra del botón grabando', u: 'Como las pastillas de alerta de la web', t: '--c-rojo-pastilla' },
+      { n: 'Borde rojo', u: 'PARAR y el botón grabando', t: '--c-rojo-30' },
+      { n: 'PARAR al pasar el ratón', u: 'Fondo', t: '--c-rojo-10' },
+      { n: 'Barra de avisos', u: 'Franja de arriba cuando algo falla', t: '--c-rojo-fuerte' },
+      { n: 'Barra de avisos grave', u: 'Cuando falla la propia página', t: '--c-rojo-grave' }
+    ]},
+    { titulo: 'Sobre el vídeo', filas: [
+      { n: 'Botones sobre el vídeo', u: 'Altavoz, micrófono, Pantalla completa y «Dir:» del joystick; sombra de la barra de avisos', t: '--c-velo' },
+      { n: 'Botones sobre el vídeo al pasar el ratón', u: 'Los mismos', t: '--c-velo-fuerte' },
+      { n: 'Borde de esos botones', u: 'Al pasar el ratón o escuchando, brandsoft', t: '--c-blanco-35' },
+      { n: 'Texto de la miniatura', u: 'Nombre de la cámara en cada vídeo', t: '--c-blanco-70' },
+      { n: 'Hablando', u: 'Micrófono mientras mantienes pulsado', t: '--c-rojo-90' },
+      { n: 'Borde al hablar', u: 'El mismo botón', t: '--c-rojo-claro' },
+      { n: 'Latido al hablar', u: 'Anillo que late alrededor del botón', t: '--c-rojo-55' }
+    ]}
+  ];
+
+  /* v = variable del pastillero, t = color de la web del que sale. */
+  var PASTILLERO = [
+    { titulo: 'Superficies', filas: [
+      { v: '--fondo', t: '--c-surface', u: 'Detrás de todo' },
+      { v: '--tarjeta', t: '--c-card', u: 'Recuadro principal, tarjetas de compartimiento, campos y casillas de días' },
+      { v: '--panel', t: '--c-surface', u: 'Formulario, datos guardados, historial y horarios' },
+      { v: '--suave', t: '--c-ink-5', u: 'Botones de arriba, «Volver al menu», horario en pausa y pastilla «sin verificar»' },
+      { v: '--suave-hover', t: '--c-ink-10', u: 'Los botones de arriba al pasar el ratón' }
+    ]},
+    { titulo: 'Bordes', filas: [
+      { v: '--borde', t: '--c-ink-10', u: 'Tarjetas, paneles y líneas entre filas' },
+      { v: '--borde-fuerte', t: '--c-ink-15', u: 'Campos, hora, casillas de días y botones de contorno' },
+      { v: '--borde-activo', t: '--c-brand-30', u: 'Tarjeta de compartimiento y casillas al pasar el ratón' },
+      { v: '--borde-hover', t: '--c-brand-40', u: 'Editar, Cancelar y Pausar al pasar el ratón' }
+    ]},
+    { titulo: 'Texto', filas: [
+      { v: '--texto-titulo', t: '--c-ink', u: 'Títulos, número de compartimiento, datos guardados y letra de los botones de arriba' },
+      { v: '--texto', t: '--c-ink-70', u: 'Texto normal, etiquetas del formulario y botones de contorno' },
+      { v: '--texto-tenue', t: '--c-ink-60', u: 'Subtítulos, etiquetas en mayúsculas, fechas y avisos' },
+      { v: '--texto-pastilla', t: '--c-ink-50', u: 'Pastillas neutras: «Pausado» y «sin verificar»' },
+      { v: '--texto-debil', t: '--c-ink-40', u: '«Sin datos» y el texto de ejemplo de los campos' }
+    ]},
+    { titulo: 'Marca', filas: [
+      { v: '--acento', t: '--c-brand', u: 'Contador, «Pendiente», días del horario, campo activo, acciones MANUAL' },
+      { v: '--acento-fin', t: '--c-deep', u: 'Final del degradado' },
+      { v: 'Botón principal', t: 'marca', u: 'Dispensar, Completado y Agregar horario' },
+      { v: '--sobre-acento', t: '--c-blanco', u: 'Letra de esos botones' },
+      { v: '--acento-suave', t: '--c-brand-10', u: 'Fondo del contador y de «Pendiente»' }
+    ]},
+    { titulo: 'Todo bien', filas: [
+      { v: '--exito', t: '--c-mint', u: 'Acciones AUTO del historial' },
+      { v: '--exito-suave', t: '--c-mint-15', u: 'Fondo de «Conectado», «Sincronizado», «Completado» y horario activo' },
+      { v: '--exito-texto', t: '--c-exito-texto', u: 'Letra de esas pastillas' }
+    ]},
+    { titulo: 'Peligro', filas: [
+      { v: '--peligro-suave', t: '--c-rojo-15', u: 'Fondo de «Desconectado»' },
+      { v: '--peligro-pastilla', t: '--c-rojo-pastilla', u: 'Letra de «Desconectado»' },
+      { v: '--peligro-borde', t: '--c-rojo-30', u: 'Borde de Eliminar y Quitar' },
+      { v: '--peligro-texto', t: '--c-rojo-texto', u: 'Letra de Eliminar y Quitar' },
+      { v: '--peligro-hover', t: '--c-rojo-10', u: 'Eliminar y Quitar al pasar el ratón' }
+    ]},
+    { titulo: 'Aviso', filas: [
+      { v: '--aviso-suave', t: '--c-ambar-15', u: 'Fondo de «Desincronizado»' },
+      { v: '--aviso-texto', t: '--c-ambar-texto', u: 'Letra de «Desincronizado»' }
+    ]},
+    { titulo: 'Sombras', filas: [
+      { v: '--sombra', t: '--c-shade-5', u: 'Recuadro principal y tarjetas' },
+      { v: '--sombra-acento', t: '--c-brand-5', u: 'Tarjeta de compartimiento al pasar el ratón' }
+    ]},
+    { titulo: 'Icono de la pestaña', filas: [
+      { v: 'Pastilla', t: '--icono', u: 'Sigue al tema del sistema, como el de la web' },
+      { v: 'Raya', t: '--icono-raya', u: 'La línea del centro' }
+    ]}
+  ];
+
+  function i(t) { return t === 'dark' ? 0 : 1; }
   function nombreTema(t) { return t === 'dark' ? 'oscuro' : 'claro'; }
+  /* El codigo que se ve y se copia (hex o rgba) */
+  function v(tok, t) { return T[tok][i(t)]; }
+  /* Lo que se pinta: el valor exacto en oklch si es de Tailwind */
+  function pinta(tok, t) { return T[tok][3] ? T[tok][3 + i(t)] : T[tok][i(t)]; }
+  function igual(tok) { return DEGRADADOS[tok] ? false : T[tok][0] === T[tok][1]; }
 
   function detalle(code) {
     if (code.charAt(0) === '#') {
       var n = parseInt(code.slice(1), 16);
       return 'RGB ' + ((n >> 16) & 255) + ' ' + ((n >> 8) & 255) + ' ' + (n & 255);
     }
-    var alfa = parseFloat(code.slice(code.lastIndexOf(',') + 1));
-    return 'opacidad ' + Math.round(alfa * 100) + ' %';
+    return 'opacidad ' + Math.round(parseFloat(code.slice(code.lastIndexOf(',') + 1)) * 100) + ' %';
   }
 
-  function muestra(code, clase) {
-    var alfa = code.charAt(0) !== '#';
-    return '<span class="' + clase + (alfa ? ' alfa' : '') + '" style="--c: ' + code + '"></span>';
+  function muestra(tok, t, clase) {
+    if (DEGRADADOS[tok]) {
+      return '<span class="' + clase + '" style="--c: #000; background: ' + DEGRADADOS[tok].css(t) + '"></span>';
+    }
+    var alfa = v(tok, t).charAt(0) !== '#';
+    return '<span class="' + clase + (alfa ? ' alfa' : '') + '" style="--c: ' + pinta(tok, t) + '"></span>';
   }
 
-  function pintarTiras() {
-    Array.prototype.forEach.call(document.querySelectorAll('[data-tira]'), function (el) {
-      var p = PALETAS[el.getAttribute('data-tira')];
-      el.innerHTML = p.principal.map(function (f) {
-        return '<i style="--c: ' + f[1] + '"></i>';
-      }).join('');
-    });
-  }
-
-  function pintarHojas(clave) {
-    var p = PALETAS[clave];
-    document.getElementById('principal-' + clave).innerHTML = ['dark', 'light'].map(function (t) {
-      var i = t === 'dark' ? 1 : 2;
-      var fichas = p.principal.map(function (f) {
-        var code = f[i];
-        return '<button type="button" class="chip" data-code="' + code + '" aria-label="Copiar ' + code + ', ' + f[0] + ', tema ' + nombreTema(t) + '">' +
-            muestra(code, 'chip-color') +
-            '<span class="chip-name">' + f[0] + '</span>' +
-            '<span class="chip-code">' + code + '</span>' +
-          '</button>';
-      }).join('');
-      return '<div class="sheet look-' + clave + '-' + t + '">' +
+  function pintarHojas() {
+    document.getElementById('hojas').innerHTML = ['dark', 'light'].map(function (t) {
+      function grupo(titulo, lista) {
+        return '<div class="grupo"><p class="grupo-t">' + titulo + '</p><div class="chips">' + lista.map(function (f) {
+          var code = v(f[1], t);
+          return '<button type="button" class="chip" data-code="' + code + '" aria-label="Copiar ' + code + ', ' + f[0] + ', tema ' + nombreTema(t) + '">' +
+              muestra(f[1], t, 'chip-color') +
+              '<span class="chip-name">' + f[0] + '</span>' +
+              '<span class="chip-tok">' + T[f[1]][2].split(' · ')[i(t) && T[f[1]][2].indexOf(' · ') > 0 ? 1 : 0] + '</span>' +
+              '<span class="chip-code">' + code + '</span>' +
+            '</button>';
+        }).join('') + '</div></div>';
+      }
+      return '<div class="sheet look-' + t + '">' +
           '<div class="sheet-head"><span class="sheet-title">Tema ' + nombreTema(t) + '</span>' +
           (t === 'dark' ? '<span class="sheet-tag">el de arranque</span>' : '') + '</div>' +
-          '<div class="chips">' + fichas + '</div>' +
+          grupo('Marca y superficies', HOJA.marca) +
+          grupo('Avisos y estados · Tailwind', HOJA.avisos) +
         '</div>';
     }).join('');
   }
 
-  function celda(clave, t, code, nombre) {
-    return '<td class="sc look-' + clave + '-' + t + '">' +
-        '<button type="button" class="sw" data-code="' + code + '" aria-label="Copiar ' + code + ', ' + nombre + ', tema ' + nombreTema(t) + '">' +
-          muestra(code, 'sw-color') +
-          '<span class="sw-text"><span class="sw-code">' + code + '</span><span class="sw-sub">' + detalle(code) + '</span></span>' +
+  function celda(tok, t, nombre) {
+    var code, sub;
+    if (DEGRADADOS[tok]) { code = 'degradado'; sub = DEGRADADOS[tok].k; }
+    else {
+      code = v(tok, t);
+      var k = T[tok][2].split(' · ');
+      sub = T[tok][3] ? (k[k.length > 1 ? i(t) : 0]) : detalle(code);
+    }
+    var copia = DEGRADADOS[tok] ? DEGRADADOS[tok].css(t) : code;
+    return '<td class="sc look-' + t + '">' +
+        '<button type="button" class="sw" data-code="' + copia + '" aria-label="Copiar ' + code + ', ' + nombre + ', tema ' + nombreTema(t) + '">' +
+          muestra(tok, t, 'sw-color') +
+          '<span class="sw-text"><span class="sw-code">' + code + '</span><span class="sw-sub">' + sub + '</span></span>' +
         '</button>' +
       '</td>';
   }
 
-  function pintarTabla(clave) {
-    var p = PALETAS[clave];
+  function etiquetaToken(tok) {
+    if (DEGRADADOS[tok]) { return '<code class="tk">' + DEGRADADOS[tok].k + '</code>'; }
+    return (tok.indexOf('--c-') === 0 ? '<code class="tk">' + tok + '</code>' : '') + '<code class="tk">' + T[tok][2] + '</code>';
+  }
+
+  function pintarTabla(id, cabecera, grupos, esPastillero) {
     var html = '<table class="st"><thead><tr>' +
-      '<th scope="col" class="lab">' + p.cabecera + '</th>' +
-      '<th scope="col" class="sc look-' + clave + '-dark"><span class="sheet-title">Oscuro</span><span class="sheet-tag">de arranque</span></th>' +
-      '<th scope="col" class="sc look-' + clave + '-light"><span class="sheet-title">Claro</span></th>' +
+      '<th scope="col" class="lab">' + cabecera + '</th>' +
+      '<th scope="col" class="sc look-dark"><span class="sheet-title">Oscuro</span><span class="sheet-tag">de arranque</span></th>' +
+      '<th scope="col" class="sc look-light"><span class="sheet-title">Claro</span></th>' +
       '</tr></thead>';
-    p.grupos.forEach(function (g) {
+    grupos.forEach(function (g) {
       html += '<tbody><tr class="grp"><th colspan="3" scope="rowgroup">' + g.titulo + '</th></tr>';
       g.filas.forEach(function (f) {
-        html += '<tr><th scope="row">' +
-            (f.t ? '<code class="tk">' + f.t + '</code>' : '') +
-            '<span class="nm">' + f.n + '</span>' +
-            (f.u ? '<span class="use">' + f.u + '</span>' : '') +
-            (f.l ? '' : '<span class="same">Igual en los dos temas</span>') +
-          '</th>' +
-          celda(clave, 'dark', f.d, f.n) +
-          celda(clave, 'light', f.l || f.d, f.n) +
-          '</tr>';
+        var nombre = esPastillero ? f.v : f.n;
+        var cabeza = esPastillero
+          ? (f.v.indexOf('--') === 0 ? '<code class="nm">' + f.v + '</code>' : '<span class="nm">' + f.v + '</span>') +
+            '<span class="use">' + f.u + '</span>' +
+            (DEGRADADOS[f.t] ? '<code class="tk">' + DEGRADADOS[f.t].k + '</code>' : '<code class="tk">' + T[f.t][2] + '</code>')
+          : '<span class="nm">' + f.n + '</span>' + (f.u ? '<span class="use">' + f.u + '</span>' : '') + etiquetaToken(f.t);
+        html += '<tr><th scope="row">' + cabeza + (igual(f.t) ? '<span class="same">igual en los dos temas</span>' : '') + '</th>' +
+          celda(f.t, 'dark', nombre) + celda(f.t, 'light', nombre) + '</tr>';
       });
       html += '</tbody>';
     });
-    document.getElementById('tabla-' + clave).innerHTML = html + '</table>';
+    document.getElementById(id).innerHTML = html + '</table>';
   }
 
   /* ---------- Copiar al pulsar ---------- */
   var toast = document.getElementById('toast');
   var tToast = null;
-
   function avisar(texto) {
     toast.textContent = texto;
     toast.hidden = false;
     clearTimeout(tToast);
     tToast = setTimeout(function () { toast.hidden = true; }, 1800);
   }
-
   function copiarAMano(code) {
     var ta = document.createElement('textarea');
     ta.value = code;
@@ -781,7 +723,6 @@
     document.body.removeChild(ta);
     avisar(ok ? 'Copiado: ' + code : 'No se pudo copiar. El código es ' + code);
   }
-
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-code]');
     if (!b) { return; }
@@ -796,11 +737,9 @@
     }
   });
 
-  pintarTiras();
-  ['medibot', 'pillbox'].forEach(function (clave) {
-    pintarHojas(clave);
-    pintarTabla(clave);
-  });
+  pintarHojas();
+  pintarTabla('tabla-camara', 'Pieza y token', CAMARA, false);
+  pintarTabla('tabla-pastillero', 'Variable y color de la web', PASTILLERO, true);
 })();
 </script>
 </body>
