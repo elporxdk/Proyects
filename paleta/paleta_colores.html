@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Paleta MEDIBOT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;800&family=Chivo+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: una columna de 1180 px. Por interfaz: ficha de marca, las dos
+     hojas de la paleta principal (oscuro | claro) y la tabla completa, cuyas
+     columnas Oscuro y Claro llevan el fondo real de cada tema. */
+  :root {
+    --bg: #f1f3f5;
+    --surface: #ffffff;
+    --ink: #15191d;
+    --muted: #56606a;
+    --line: #d5dadf;
+    --accent: #0a7c78;
+    --sans: "Chivo", "Segoe UI", Arial, sans-serif;
+    --mono: "Chivo Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --fs-xs: 0.75rem;
+    --fs-sm: 0.8125rem;
+    --fs-base: 0.9375rem;
+    --fs-md: 1.125rem;
+    --fs-lg: 1.625rem;
+    --fs-xl: clamp(2.25rem, 6vw, 3.25rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1113;
+      --surface: #15191c;
+      --ink: #e6e9ec;
+      --muted: #99a2aa;
+      --line: #262c31;
+      --accent: #4fd8d2;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1113;
+    --surface: #15191c;
+    --ink: #e6e9ec;
+    --muted: #99a2aa;
+    --line: #262c31;
+    --accent: #4fd8d2;
+    color-scheme: dark;
+  }
+
+  /* Muestras. Son los colores REALES de cada interfaz y no siguen el tema
+     de quien mira: son el contenido de la pagina. Cada bloque fija a la vez
+     su fondo y su texto, asi que se lee igual en claro y en oscuro. */
+  .look-medibot-dark {
+    --s-page: #000000; --s-text: #ffffff; --s-muted: #888888;
+    --s-line: #333333; --s-edge: #333333; --s-head: #00ffff; --s-head-w: 400;
+    --s-tag-bg: transparent; --s-tag-fg: #888888; --s-tag-pad: 0;
+    --s-font: Arial, "Liberation Sans", Helvetica, sans-serif;
+    --s-radius: 10px; --s-chip-r: 5px;
+  }
+  .look-medibot-light {
+    --s-page: #eef1f5; --s-text: #15202b; --s-muted: #5a6772;
+    --s-line: #d4dae0; --s-edge: #d4dae0; --s-head: #0aa6a0; --s-head-w: 400;
+    --s-tag-bg: transparent; --s-tag-fg: #5a6772; --s-tag-pad: 0;
+    --s-font: Arial, "Liberation Sans", Helvetica, sans-serif;
+    --s-radius: 10px; --s-chip-r: 5px;
+  }
+  .look-pillbox-dark {
+    --s-page: #0f1419; --s-text: #d3dce6; --s-muted: #9aabbd;
+    --s-line: #2a333d; --s-edge: #3a4653; --s-head: #e8eef5; --s-head-w: 600;
+    --s-tag-bg: #232c36; --s-tag-fg: #4a9fe0; --s-tag-pad: 3px 12px;
+    --s-font: "Segoe UI", Roboto, system-ui, sans-serif;
+    --s-radius: 24px; --s-chip-r: 14px;
+  }
+  .look-pillbox-light {
+    --s-page: #f4f7fc; --s-text: #1f3a57; --s-muted: #5a728c;
+    --s-line: #e9edf4; --s-edge: #d6dee9; --s-head: #0b2b4a; --s-head-w: 600;
+    --s-tag-bg: #eef3f9; --s-tag-fg: #1f5a8e; --s-tag-pad: 3px 12px;
+    --s-font: "Segoe UI", Roboto, system-ui, sans-serif;
+    --s-radius: 24px; --s-chip-r: 14px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs-base);
+    line-height: 1.55;
+  }
+  code { font-family: var(--mono); font-size: 0.92em; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding-inline: clamp(16px, 4vw, 40px);
+    padding-block: 44px 88px;
+  }
+
+  /* ---------- Cabecera ---------- */
+  .eyebrow {
+    margin: 0 0 10px;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 0;
+    font-size: var(--fs-xl);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  .lead {
+    margin: 16px 0 0;
+    max-width: 62ch;
+    font-size: var(--fs-md);
+    color: var(--muted);
+  }
+  .jump {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+    gap: 14px;
+    margin-top: 30px;
+  }
+  .jump-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding: 16px 18px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+  .jump-card:hover { border-color: var(--accent); }
+  .jump-strip {
+    display: flex;
+    height: 30px;
+    margin-bottom: 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .jump-strip i { flex: 1; background: var(--c); }
+  .jump-name { font-size: var(--fs-md); font-weight: 700; }
+  .jump-meta { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); overflow-wrap: anywhere; }
+
+  /* ---------- Seccion de cada interfaz ---------- */
+  .iface { margin-top: 76px; scroll-margin-top: 16px; }
+  .iface-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px 28px;
+  }
+  .iface-head .meta { flex: 1 1 320px; min-width: 0; }
+  h2 {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .iface-head .meta > p { margin: 6px 0 0; color: var(--muted); }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 14px 0 0; }
+  .facts div { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .facts dt {
+    font-size: var(--fs-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .facts dd { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+
+  /* Fichas de marca: copia de la cabecera de cada web, en su tema de arranque */
+  .brand-tile { display: flex; align-items: center; flex: none; max-width: 100%; }
+  .bt-medibot {
+    gap: 14px;
+    padding: 18px 24px 18px 20px;
+    background: #111111;
+    border: 1px solid #333333;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+  }
+  .bt-medibot svg { flex: none; filter: drop-shadow(0 0 8px rgba(79, 216, 210, 0.45)); }
+  .bt-word { font-size: 1.75rem; font-weight: 800; letter-spacing: 1px; line-height: 1; }
+  .bt-medi { color: #4fd8d2; }
+  .bt-bot { color: #ffffff; }
+  .bt-tag {
+    display: block;
+    margin-top: 5px;
+    font-size: 0.4em;
+    font-weight: 400;
+    letter-spacing: 3px;
+    color: #888888;
+  }
+  .bt-pillbox {
+    gap: 12px;
+    padding: 18px 26px 18px 20px;
+    background: #171d24;
+    border: 1px solid #2a333d;
+    border-radius: 24px;
+    font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+  }
+  .bt-pillbox svg { flex: none; }
+  .bt-pill-h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: #e8eef5;
+  }
+  .bt-pill-n {
+    padding: 4px 14px;
+    background: #232c36;
+    border-radius: 40px;
+    font-size: 16px;
+    font-weight: 500;
+    color: #4a9fe0;
+    letter-spacing: 0;
+  }
+
+  .block-h {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px;
+    margin: 36px 0 14px;
+  }
+  .block-h h3 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
+  .block-h p { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+
+  /* ---------- Hojas de la paleta principal ---------- */
+  .sheets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  @media (min-width: 1100px) {
+    .sheets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .sheet {
+    min-width: 0;
+    padding: 20px;
+    background: var(--s-page);
+    color: var(--s-text);
+    font-family: var(--s-font);
+    border: 1px solid var(--line);
+    border-radius: var(--s-radius);
+  }
+  .sheet-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 16px; }
+  .sheet-title { font-size: 1.05rem; font-weight: var(--s-head-w); color: var(--s-head); }
+  .sheet-tag {
+    padding: var(--s-tag-pad);
+    background: var(--s-tag-bg);
+    border-radius: 40px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--s-tag-fg);
+  }
+  .chips {
+    display: grid;
+    grid-template-columns: repeat(var(--cols-phone), minmax(0, 1fr));
+    gap: 16px 10px;
+  }
+  @media (min-width: 600px) {
+    .chips { grid-template-columns: repeat(var(--cols-wide), minmax(0, 1fr)); }
+  }
+  .chip, .sw {
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .chip { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .chip-color {
+    display: block;
+    height: 64px;
+    margin-bottom: 3px;
+    background: var(--c);
+    border-radius: var(--s-chip-r);
+    box-shadow: inset 0 0 0 1px var(--s-edge);
+    transition: transform 0.15s ease;
+  }
+  @media (min-width: 600px) { .chip-color { height: 76px; } }
+  .chip:hover .chip-color { transform: translateY(-2px); }
+  .chip-name { font-size: 0.8rem; font-weight: 600; line-height: 1.25; color: var(--s-text); overflow-wrap: anywhere; }
+  /* margin-top:auto: los codigos quedan alineados en cada fila aunque un
+     nombre ocupe dos lineas */
+  .chip-code { margin-top: auto; font-family: var(--mono); font-size: 0.75rem; color: var(--s-muted); }
+  .chip:focus-visible, .sw:focus-visible {
+    outline: 2px solid var(--s-head);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+  /* Colores con transparencia: sobre un damero, como en cualquier editor */
+  .chip-color.alfa, .sw-color.alfa {
+    background:
+      linear-gradient(var(--c), var(--c)),
+      repeating-conic-gradient(#d4d4d4 0% 25%, #ffffff 0% 50%) 0 0 / 10px 10px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chip-color, .jump-card { transition: none; }
+    .chip:hover .chip-color { transform: none; }
+  }
+
+  /* ---------- Tabla completa ---------- */
+  .table-wrap {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .st { width: 100%; border-collapse: collapse; }
+  .st th, .st td { padding: 12px 16px; text-align: left; vertical-align: middle; }
+  .st thead th.lab {
+    width: 46%;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+  .st .sc {
+    background: var(--s-page);
+    color: var(--s-text);
+    font-family: var(--s-font);
+    border-bottom: 1px solid var(--s-line);
+  }
+  .st thead .sc { white-space: nowrap; }
+  .st thead .sc .sheet-title { font-size: 0.95rem; margin-right: 8px; }
+  .st tr.grp th {
+    padding: 22px 16px 8px;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+  }
+  .st tbody th[scope="row"] {
+    font-weight: 400;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+  }
+  .tk { display: block; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--accent); }
+  .nm { display: block; font-weight: 600; }
+  .use { display: block; max-width: 60ch; margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); }
+  .same {
+    display: inline-block;
+    margin-top: 7px;
+    padding: 1px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: var(--fs-xs);
+    color: var(--muted);
+  }
+  .sw { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .sw-color {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    background: var(--c);
+    border-radius: 7px;
+    box-shadow: inset 0 0 0 1px var(--s-edge);
+  }
+  .sw-text { display: flex; flex-direction: column; min-width: 0; }
+  .sw-code { font-family: var(--mono); font-size: 0.8125rem; color: var(--s-text); overflow-wrap: anywhere; }
+  .sw-sub { font-family: var(--mono); font-size: 0.6875rem; color: var(--s-muted); }
+  .sw:hover .sw-code { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* Movil: nombre arriba, y debajo las dos muestras lado a lado */
+  @media (max-width: 639px) {
+    .st, .st thead, .st tbody { display: block; }
+    .st tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .st thead th.lab { display: none; }
+    .st tbody th[scope="row"], .st tr.grp th { grid-column: 1 / -1; }
+    .st th, .st td { padding: 11px 12px; }
+    .st thead .sc { white-space: normal; }
+    .sw { gap: 9px; }
+    .sw-color { width: 30px; height: 30px; }
+  }
+
+  /* ---------- Notas finales ---------- */
+  .notes { margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line); }
+  .notes h2 { font-size: var(--fs-md); }
+  .notes p { max-width: 70ch; margin: 10px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+  .notes code { color: var(--ink); overflow-wrap: anywhere; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    max-width: calc(100% - 32px);
+    padding: 10px 16px;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 10px;
+    font-family: var(--mono);
+    font-size: var(--fs-sm);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">MEDIBOT · interfaces web</p>
+    <h1>Paleta de colores</h1>
+    <p class="lead">Los colores exactos de las dos webs de MEDIBOT, copiados de su CSS: la de la cámara y la del pastillero. Las dos arrancan en tema oscuro y tienen también tema claro. Pulsa un color para copiar su código.</p>
+    <nav class="jump" aria-label="Interfaces">
+      <a class="jump-card" href="#camara">
+        <span class="jump-strip" data-tira="medibot" aria-hidden="true"></span>
+        <span class="jump-name">Cámara · Medibot</span>
+        <span class="jump-meta">Vision_MEDIBOT.py · puerto 5000</span>
+      </a>
+      <a class="jump-card" href="#pastillero">
+        <span class="jump-strip" data-tira="pillbox" aria-hidden="true"></span>
+        <span class="jump-name">Pastillero · Pillbox</span>
+        <span class="jump-meta">Pastillero.py · puerto 5001</span>
+      </a>
+    </nav>
+  </header>
+
+  <section class="iface" id="camara" aria-labelledby="h-camara">
+    <div class="export" id="export-medibot">
+      <div class="iface-head">
+        <div class="brand-tile bt-medibot" aria-hidden="true">
+          <svg viewBox="0 0 100 100" width="46" height="46">
+            <circle cx="50" cy="50" r="40" fill="#4FD8D2"/>
+            <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+              <line x1="50" y1="10" x2="50" y2="90"/>
+              <line x1="10" y1="50" x2="90" y2="50"/>
+              <line x1="21.7" y1="21.7" x2="78.3" y2="78.3"/>
+              <line x1="78.3" y1="21.7" x2="21.7" y2="78.3"/>
+            </g>
+            <circle cx="50" cy="50" r="15" fill="#ffffff"/>
+          </svg>
+          <span class="bt-word"><span class="bt-medi">MEDI</span><span class="bt-bot">BOT</span><span class="bt-tag">VISIÓN ARTIFICIAL</span></span>
+        </div>
+        <div class="meta">
+          <h2 id="h-camara">Cámara · Medibot</h2>
+          <p>Cámaras en directo, movimiento del robot, audio y vídeos grabados.</p>
+          <dl class="facts">
+            <div><dt>Archivo</dt><dd><code>medibot/Vision_MEDIBOT.py</code></dd></div>
+            <div><dt>Puerto</dt><dd>5000</dd></div>
+            <div><dt>Letra</dt><dd>Arial</dd></div>
+            <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="block-h">
+        <h3>Paleta principal</h3>
+        <p>Los diez colores que más se ven, en el mismo orden en los dos temas.</p>
+      </div>
+      <div class="sheets" id="principal-medibot" style="--cols-wide: 5; --cols-phone: 2"></div>
+    </div>
+    <div class="block-h">
+      <h3>Todos los colores</h3>
+      <p>Cada color con el sitio de la página donde aparece.</p>
+    </div>
+    <div class="table-wrap" id="tabla-medibot"></div>
+  </section>
+
+  <section class="iface" id="pastillero" aria-labelledby="h-pastillero">
+    <div class="export" id="export-pillbox">
+      <div class="iface-head">
+        <div class="brand-tile bt-pillbox" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="42" height="42"><rect x="4" y="11" width="24" height="10" rx="5" fill="#1f5a8e"/><path d="M16 11v10" stroke="#fff" stroke-width="2"/></svg>
+          <span class="bt-pill-h">Pillbox <span class="bt-pill-n">8 / 8</span></span>
+        </div>
+        <div class="meta">
+          <h2 id="h-pastillero">Pastillero · Pillbox</h2>
+          <p>Compartimientos, horarios de dispensado automático e historial.</p>
+          <dl class="facts">
+            <div><dt>Archivo</dt><dd><code>medibot/Pastillero.py</code></dd></div>
+            <div><dt>Puerto</dt><dd>5001</dd></div>
+            <div><dt>Letra</dt><dd>Segoe UI, Roboto o la del sistema</dd></div>
+            <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="block-h">
+        <h3>Paleta principal</h3>
+        <p>Doce de sus colores, en el mismo orden en los dos temas.</p>
+      </div>
+      <div class="sheets" id="principal-pillbox" style="--cols-wide: 6; --cols-phone: 3"></div>
+    </div>
+    <div class="block-h">
+      <h3>Todas las variables</h3>
+      <p>Las 29 variables de color del CSS, con su nombre en el código, más el anillo de foco y el icono.</p>
+    </div>
+    <div class="table-wrap" id="tabla-pillbox"></div>
+  </section>
+
+  <footer class="notes">
+    <h2>De dónde sale cada color</h2>
+    <p>Del CSS que sirven las dos webs: <code>HTML_TEMPLATE</code> en <code>medibot/Vision_MEDIBOT.py</code> y <code>HTML_PAGE</code> en <code>medibot/Pastillero.py</code>. Revisado el 29 de septiembre de 2026.</p>
+    <p>No están los colores que el CSS de la cámara guarda para piezas que la página ya no tiene (título grande, subtítulo, pestañas, rejilla de posición, cruceta de movimiento y estadísticas bajo el vídeo): <code>#9AA4AD</code>, <code>#FFB020</code> y el brillo <code>rgba(0, 255, 255, 0.5)</code>. No se ven en ningún sitio. Tampoco entra la ventana de escritorio de Medibot (Tkinter): esta es la paleta de la web.</p>
+    <p>Si cambia el CSS de alguna de las dos webs, esta paleta hay que actualizarla a mano.</p>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* n = nombre, u = donde se ve, d = tema oscuro, l = tema claro
+     (sin l: igual en los dos temas), t = variable CSS del pastillero. */
+  var PALETAS = {
+    medibot: {
+      cabecera: 'Color y dónde se ve',
+      principal: [
+        ['Fondo', '#000000', '#EEF1F5'],
+        ['Contenedor', '#111111', '#FFFFFF'],
+        ['Tarjetas', '#222222', '#F4F7FA'],
+        ['Bordes', '#333333', '#D4DAE0'],
+        ['Texto', '#FFFFFF', '#15202B'],
+        ['Texto secundario', '#888888', '#5A6772'],
+        ['Acento', '#00FFFF', '#0AA6A0'],
+        ['Turquesa MEDIBOT', '#4FD8D2', '#4FD8D2'],
+        ['Cámara activa', '#00FF00', '#0A8F2A'],
+        ['Grabando', '#FF0000', '#D11A2A']
+      ],
+      grupos: [
+        { titulo: 'Superficies y bordes', filas: [
+          { n: 'Fondo de la página', u: 'Detrás de todo', d: '#000000', l: '#EEF1F5' },
+          { n: 'Contenedor', u: 'El recuadro que lo agrupa todo', d: '#111111', l: '#FFFFFF' },
+          { n: 'Tarjetas y botones', u: 'Recuadros de las cámaras y del estado, botones de control, tarjetas de vídeo y los botones Pastillero y Modo', d: '#222222', l: '#F4F7FA' },
+          { n: 'Casillas de dato', u: '«Estado» y «Grabando», debajo de cada cámara', d: '#333333', l: '#E9EEF3' },
+          { n: 'Botón al pasar el ratón', u: 'Botones de control y de la cabecera; también Reproducir, Descargar y la base del joystick', d: '#333333', l: '#E3E9EF' },
+          { n: 'Reproducir y Descargar al pasar el ratón', u: 'Botones de cada vídeo grabado', d: '#444444', l: '#D4DAE0' },
+          { n: 'Botonera de movimiento', u: 'Fondo de los botones para mover el robot', d: '#1A1A1A', l: '#EEF4F8' },
+          { n: 'Bordes', u: 'Contenedor, tarjetas y botones', d: '#333333', l: '#D4DAE0' }
+        ]},
+        { titulo: 'Texto', filas: [
+          { n: 'Texto principal', u: 'Valores, botones, títulos de vídeo y el «BOT» del logotipo', d: '#FFFFFF', l: '#15202B' },
+          { n: 'Texto secundario', u: 'Etiquetas, «VISIÓN ARTIFICIAL», «Estado Sistema» y los datos de cada vídeo', d: '#888888', l: '#5A6772' },
+          { n: 'Pie de página', u: '«Medibot», al final de la página', d: '#444444', l: '#5A6772' }
+        ]},
+        { titulo: 'Acento', filas: [
+          { n: 'Acento', u: 'Títulos de las cámaras, valor del estado, botón activo, bordes al pasar el ratón y joystick', d: '#00FFFF', l: '#0AA6A0' },
+          { n: 'Texto sobre el acento', u: 'Letra de un botón activo', d: '#000000', l: '#FFFFFF' },
+          { n: 'Letra de la botonera', u: 'Botones de movimiento y el rótulo «Velocidad»', d: '#00FFFF', l: '#0A7C78' },
+          { n: 'Borde de la botonera', u: 'Botones de movimiento', d: '#00FFFF', l: '#0AA6A0' },
+          { n: 'Borde de la cabecera al pasar el ratón', u: 'Botones Pastillero y Modo', d: '#4FD8D2', l: '#0AA6A0' },
+          { n: 'Barra de velocidad', u: 'El deslizador para elegir la velocidad', d: '#00FFFF' }
+        ]},
+        { titulo: 'Marca', filas: [
+          { n: 'Turquesa MEDIBOT', u: 'Círculo del logo, «MEDI» del logotipo e icono de la pestaña', d: '#4FD8D2' },
+          { n: 'Blanco del logo', u: 'Rayos y centro del logo', d: '#FFFFFF' },
+          { n: 'Centro del icono de la pestaña', u: 'El punto oscuro del favicon', d: '#111111' },
+          { n: 'Brillo del logo', u: 'Halo alrededor del logo', d: 'rgba(79, 216, 210, 0.45)' }
+        ]},
+        { titulo: 'Estados', filas: [
+          { n: 'Cámara en marcha', u: 'Título de la cámara cuando está activa', d: '#00FF00', l: '#0A8F2A' },
+          { n: 'Punto: cámara activa', u: 'Punto junto al título de la cámara', d: '#00FF00' },
+          { n: 'Punto: cámara parada', u: 'El mismo punto con la cámara inactiva', d: '#FF0000' },
+          { n: 'Grabando', u: '«Sí» en Grabando y el botón de grabar mientras graba', d: '#FF0000', l: '#D11A2A' },
+          { n: 'Parar', u: 'Botón PARAR de la botonera; en claro solo sale al pasar el ratón', d: '#FF5555' },
+          { n: 'Aviso de velocidad', u: 'Mensaje debajo de la barra de velocidad', d: '#FF6B6B' }
+        ]},
+        { titulo: 'Barra de avisos', filas: [
+          { n: 'Aviso', u: 'Franja de arriba cuando algo falla', d: '#B3261E' },
+          { n: 'Aviso grave', u: 'La misma franja cuando falla la propia página', d: '#7F1D1D' },
+          { n: 'Sombra de la franja', u: 'Debajo de la franja', d: 'rgba(0, 0, 0, 0.4)' }
+        ]},
+        { titulo: 'Sobre el vídeo', filas: [
+          { n: 'Fondo del vídeo', u: 'Detrás de la imagen, en pantalla completa y en las miniaturas', d: '#000000' },
+          { n: 'Marco del vídeo', u: 'Borde de la imagen de la cámara', d: '#333333' },
+          { n: 'Texto de la miniatura', u: 'Nombre de la cámara en cada vídeo grabado', d: '#888888' },
+          { n: 'Botones sobre el vídeo', u: 'Altavoz, micrófono y Pantalla completa', d: 'rgba(0, 0, 0, 0.5)' },
+          { n: 'Botones sobre el vídeo al pasar el ratón', u: 'Los mismos botones', d: 'rgba(0, 0, 0, 0.75)' },
+          { n: 'Letra de esos botones', u: 'Texto e iconos', d: '#FFFFFF' },
+          { n: 'Borde de esos botones', u: 'En reposo', d: 'rgba(255, 255, 255, 0.35)' },
+          { n: 'Borde al pasar el ratón o escuchando', u: 'Los mismos botones', d: '#4FD8D2' },
+          { n: 'Escuchando', u: 'Altavoz mientras suena el micrófono de la cámara', d: 'rgba(10, 166, 160, 0.85)' },
+          { n: 'Hablando', u: 'Micrófono mientras mantienes pulsado para hablar', d: 'rgba(214, 48, 49, 0.9)' },
+          { n: 'Borde al hablar', u: 'El mismo botón', d: '#FF7675' },
+          { n: 'Latido al hablar', u: 'Anillo que late alrededor del botón y se desvanece', d: 'rgba(214, 48, 49, 0.55)' },
+          { n: 'Rótulo del joystick', u: 'Fondo de «Dir: …»', d: 'rgba(0, 0, 0, 0.45)' }
+        ]},
+        { titulo: 'Brillos', filas: [
+          { n: 'Brillo del contenedor', u: 'Halo alrededor del recuadro principal', d: 'rgba(0, 255, 255, 0.1)', l: 'rgba(10, 166, 160, 0.12)' },
+          { n: 'Brillo del joystick', u: 'Halo de la bola del joystick', d: 'rgba(0, 255, 255, 0.6)', l: 'rgba(10, 166, 160, 0.5)' }
+        ]}
+      ]
+    },
+
+    pillbox: {
+      cabecera: 'Variable CSS y dónde se ve',
+      principal: [
+        ['Fondo', '#0F1419', '#F4F7FC'],
+        ['Tarjeta', '#171D24', '#FFFFFF'],
+        ['Panel', '#1C232B', '#F9FBFD'],
+        ['Suave', '#232C36', '#EEF3F9'],
+        ['Borde', '#2A333D', '#E9EDF4'],
+        ['Títulos', '#E8EEF5', '#0B2B4A'],
+        ['Texto', '#D3DCE6', '#1F3A57'],
+        ['Texto tenue', '#9AABBD', '#5A728C'],
+        ['Acento', '#4A9FE0', '#1F5A8E'],
+        ['Éxito', '#2FB587', '#1F8E6B'],
+        ['Peligro', '#E05561', '#CF3E4A'],
+        ['Aviso', '#F0B04A', '#E6A020']
+      ],
+      grupos: [
+        { titulo: 'Superficies', filas: [
+          { t: '--fondo', n: 'Fondo', u: 'Detrás de todo', d: '#0F1419', l: '#F4F7FC' },
+          { t: '--tarjeta', n: 'Tarjeta', u: 'Recuadro principal, tarjetas de compartimiento, campos y casillas de días; también la letra de los botones de color', d: '#171D24', l: '#FFFFFF' },
+          { t: '--panel', n: 'Panel', u: 'Formulario, datos guardados, historial y horarios', d: '#1C232B', l: '#F9FBFD' },
+          { t: '--suave', n: 'Suave', u: 'Botones de arriba (MEDIBOT, Modo Claro…), contador de compartimientos y botones normales', d: '#232C36', l: '#EEF3F9' },
+          { t: '--suave-hover', n: 'Suave al pasar el ratón', u: 'Los botones de arriba', d: '#2C3742', l: '#DCE6F0' },
+          { t: '--neutro', n: 'Neutro', u: 'Etiqueta de un horario en pausa', d: '#232C36', l: '#F0F2F6' }
+        ]},
+        { titulo: 'Bordes', filas: [
+          { t: '--borde', n: 'Borde', u: 'Tarjetas, paneles y líneas entre filas', d: '#2A333D', l: '#E9EDF4' },
+          { t: '--borde-fuerte', n: 'Borde fuerte', u: 'Campos de texto, hora, casillas de días y botones de contorno (Cancelar, Pausar)', d: '#3A4653', l: '#D6DEE9' },
+          { t: '--borde-activo', n: 'Borde activo', u: 'Tarjeta de compartimiento al pasar el ratón', d: '#4E6478', l: '#B6CAE0' }
+        ]},
+        { titulo: 'Texto', filas: [
+          { t: '--texto-titulo', n: 'Títulos', u: '«Pillbox», «Compartimiento N», títulos de panel y datos guardados', d: '#E8EEF5', l: '#0B2B4A' },
+          { t: '--texto', n: 'Texto', u: 'Texto normal, número de compartimiento y etiquetas del formulario', d: '#D3DCE6', l: '#1F3A57' },
+          { t: '--texto-tenue', n: 'Texto tenue', u: 'Subtítulos, etiquetas en mayúsculas, fechas del historial y avisos', d: '#9AABBD', l: '#5A728C' },
+          { t: '--texto-debil', n: 'Texto débil', u: '«Sin datos» y la letra de un horario en pausa', d: '#7C8B9C', l: '#8A99AB' }
+        ]},
+        { titulo: 'Acento', filas: [
+          { t: '--acento', n: 'Acento', u: 'Letra de los botones de arriba, botones Dispensar y Agregar horario, días del horario, campo activo y acciones MANUAL', d: '#4A9FE0', l: '#1F5A8E' },
+          { t: '--acento-hover', n: 'Acento al pasar el ratón', u: 'Botones Dispensar y Agregar horario', d: '#6BB4EC', l: '#164A73' },
+          { t: '--acento-suave', n: 'Acento suave', u: 'Etiqueta «Pendiente»', d: '#16354D', l: '#DFF0FA' }
+        ]},
+        { titulo: 'Éxito', filas: [
+          { t: '--exito', n: 'Éxito', u: 'Botón Completado y acciones AUTO del historial', d: '#2FB587', l: '#1F8E6B' },
+          { t: '--exito-hover', n: 'Éxito al pasar el ratón', u: 'Botón Completado', d: '#46C79A', l: '#167556' },
+          { t: '--exito-suave', n: 'Éxito suave', u: 'Pastillas «Conectado» y «Sincronizado», etiqueta «Completado» y horario activo', d: '#143529', l: '#D4EDDA' },
+          { t: '--exito-texto', n: 'Letra de éxito', u: 'Texto de esas pastillas y etiquetas', d: '#6FDCB2', l: '#0E6B3E' }
+        ]},
+        { titulo: 'Peligro', filas: [
+          { t: '--peligro', n: 'Peligro', u: 'Botones Eliminar y Quitar', d: '#E05561', l: '#CF3E4A' },
+          { t: '--peligro-hover', n: 'Peligro al pasar el ratón', u: 'Esos botones; también la letra de «Desconectado»', d: '#EA6F79', l: '#B3323D' },
+          { t: '--peligro-suave', n: 'Peligro suave', u: 'Pastilla «Desconectado»', d: '#3A1A1E', l: '#FDECEA' }
+        ]},
+        { titulo: 'Aviso', filas: [
+          { t: '--aviso', n: 'Aviso', u: 'Botón Editar', d: '#F0B04A', l: '#E6A020' },
+          { t: '--aviso-hover', n: 'Aviso al pasar el ratón', u: 'Botón Editar', d: '#F6C268', l: '#CC8D1A' },
+          { t: '--aviso-suave', n: 'Aviso suave', u: 'Pastilla «Desincronizado»', d: '#3A2C10', l: '#FDF0D5' },
+          { t: '--aviso-texto', n: 'Letra de aviso', u: 'Texto de «Desincronizado»', d: '#F2C87A', l: '#8A5A00' }
+        ]},
+        { titulo: 'Sombras', filas: [
+          { t: '--sombra', n: 'Sombra', u: 'Recuadro principal y tarjeta al pasar el ratón', d: 'rgba(0, 0, 0, 0.55)', l: 'rgba(0, 20, 40, 0.12)' },
+          { t: '--sombra-suave', n: 'Sombra suave', u: 'Tarjetas de compartimiento', d: 'rgba(0, 0, 0, 0.25)', l: 'rgba(0, 0, 0, 0.04)' },
+          { n: 'Anillo de foco', u: 'Alrededor del campo en el que escribes', d: 'rgba(31, 90, 142, 0.12)' }
+        ]},
+        { titulo: 'Icono de la pestaña', filas: [
+          { n: 'Pastilla', u: 'Cuerpo de la pastilla del favicon', d: '#1F5A8E' },
+          { n: 'Raya', u: 'Línea del centro de la pastilla', d: '#FFFFFF' }
+        ]}
+      ]
+    }
+  };
+
+  function nombreTema(t) { return t === 'dark' ? 'oscuro' : 'claro'; }
+
+  function detalle(code) {
+    if (code.charAt(0) === '#') {
+      var n = parseInt(code.slice(1), 16);
+      return 'RGB ' + ((n >> 16) & 255) + ' ' + ((n >> 8) & 255) + ' ' + (n & 255);
+    }
+    var alfa = parseFloat(code.slice(code.lastIndexOf(',') + 1));
+    return 'opacidad ' + Math.round(alfa * 100) + ' %';
+  }
+
+  function muestra(code, clase) {
+    var alfa = code.charAt(0) !== '#';
+    return '<span class="' + clase + (alfa ? ' alfa' : '') + '" style="--c: ' + code + '"></span>';
+  }
+
+  function pintarTiras() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tira]'), function (el) {
+      var p = PALETAS[el.getAttribute('data-tira')];
+      el.innerHTML = p.principal.map(function (f) {
+        return '<i style="--c: ' + f[1] + '"></i>';
+      }).join('');
+    });
+  }
+
+  function pintarHojas(clave) {
+    var p = PALETAS[clave];
+    document.getElementById('principal-' + clave).innerHTML = ['dark', 'light'].map(function (t) {
+      var i = t === 'dark' ? 1 : 2;
+      var fichas = p.principal.map(function (f) {
+        var code = f[i];
+        return '<button type="button" class="chip" data-code="' + code + '" aria-label="Copiar ' + code + ', ' + f[0] + ', tema ' + nombreTema(t) + '">' +
+            muestra(code, 'chip-color') +
+            '<span class="chip-name">' + f[0] + '</span>' +
+            '<span class="chip-code">' + code + '</span>' +
+          '</button>';
+      }).join('');
+      return '<div class="sheet look-' + clave + '-' + t + '">' +
+          '<div class="sheet-head"><span class="sheet-title">Tema ' + nombreTema(t) + '</span>' +
+          (t === 'dark' ? '<span class="sheet-tag">el de arranque</span>' : '') + '</div>' +
+          '<div class="chips">' + fichas + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function celda(clave, t, code, nombre) {
+    return '<td class="sc look-' + clave + '-' + t + '">' +
+        '<button type="button" class="sw" data-code="' + code + '" aria-label="Copiar ' + code + ', ' + nombre + ', tema ' + nombreTema(t) + '">' +
+          muestra(code, 'sw-color') +
+          '<span class="sw-text"><span class="sw-code">' + code + '</span><span class="sw-sub">' + detalle(code) + '</span></span>' +
+        '</button>' +
+      '</td>';
+  }
+
+  function pintarTabla(clave) {
+    var p = PALETAS[clave];
+    var html = '<table class="st"><thead><tr>' +
+      '<th scope="col" class="lab">' + p.cabecera + '</th>' +
+      '<th scope="col" class="sc look-' + clave + '-dark"><span class="sheet-title">Oscuro</span><span class="sheet-tag">de arranque</span></th>' +
+      '<th scope="col" class="sc look-' + clave + '-light"><span class="sheet-title">Claro</span></th>' +
+      '</tr></thead>';
+    p.grupos.forEach(function (g) {
+      html += '<tbody><tr class="grp"><th colspan="3" scope="rowgroup">' + g.titulo + '</th></tr>';
+      g.filas.forEach(function (f) {
+        html += '<tr><th scope="row">' +
+            (f.t ? '<code class="tk">' + f.t + '</code>' : '') +
+            '<span class="nm">' + f.n + '</span>' +
+            (f.u ? '<span class="use">' + f.u + '</span>' : '') +
+            (f.l ? '' : '<span class="same">Igual en los dos temas</span>') +
+          '</th>' +
+          celda(clave, 'dark', f.d, f.n) +
+          celda(clave, 'light', f.l || f.d, f.n) +
+          '</tr>';
+      });
+      html += '</tbody>';
+    });
+    document.getElementById('tabla-' + clave).innerHTML = html + '</table>';
+  }
+
+  /* ---------- Copiar al pulsar ---------- */
+  var toast = document.getElementById('toast');
+  var tToast = null;
+
+  function avisar(texto) {
+    toast.textContent = texto;
+    toast.hidden = false;
+    clearTimeout(tToast);
+    tToast = setTimeout(function () { toast.hidden = true; }, 1800);
+  }
+
+  function copiarAMano(code) {
+    var ta = document.createElement('textarea');
+    ta.value = code;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    avisar(ok ? 'Copiado: ' + code : 'No se pudo copiar. El código es ' + code);
+  }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-code]');
+    if (!b) { return; }
+    var code = b.getAttribute('data-code');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(
+        function () { avisar('Copiado: ' + code); },
+        function () { copiarAMano(code); }
+      );
+    } else {
+      copiarAMano(code);
+    }
+  });
+
+  pintarTiras();
+  ['medibot', 'pillbox'].forEach(function (clave) {
+    pintarHojas(clave);
+    pintarTabla(clave);
+  });
+})();
+</script>
+</body>
+</html>

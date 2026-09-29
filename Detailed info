@@ -24,6 +24,8 @@ firmware/        Lo que se sube al Arduino / ESP, un sketch por carpeta
                  (el IDE de Arduino exige que la carpeta se llame igual que
                  el .ino, si no, no lo abre).
 verificador-whatsapp/  Herramienta aparte, sin relacion con el robot.
+paleta/          Los colores de las dos webs (camara y pastillero). Solo
+                 documentacion: el robot no la usa.
 legado/          Versiones sustituidas. Se guardan por referencia; no se usan.
 ```
 
