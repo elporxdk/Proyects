@@ -130,7 +130,7 @@
   .facts dt { font-size: var(--fs-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
   .facts dd { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
-  /* Fichas de marca: en el tema oscuro, el de arranque */
+  /* Fichas de marca: en el tema claro, el de arranque */
   .brand-tile {
     display: flex;
     align-items: center;
@@ -138,27 +138,27 @@
     max-width: 100%;
     gap: 12px;
     padding: 18px 26px 18px 20px;
-    background: #0e2733;
-    border: 1px solid rgba(219, 234, 243, 0.1);
+    background: #ffffff;
+    border: 1px solid rgba(10, 61, 92, 0.1);
     border-radius: 16px;
   }
+  .brand-tile svg { flex: none; }
+  .brand-tile .rueda path { fill: #5ee1e6; }
   .bt-web { font-family: system-ui, "Segoe UI", Roboto, sans-serif; }
-  .bt-web svg path { fill: #7fe9ed; }
   .bt-web-word { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-  .bt-soft { color: #7fe9ed; }
-  .bt-ink { color: #dbeaf3; }
+  .bt-soft { color: #5ee1e6; }
+  .bt-ink { color: #0a3d5c; }
   .bt-medibot {
     gap: 14px;
     border-radius: 10px;
-    box-shadow: 0 0 20px rgba(34, 201, 245, 0.05);
+    box-shadow: 0 0 24px rgba(1, 186, 239, 0.05);
     font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
   }
-  .bt-medibot svg { flex: none; filter: drop-shadow(0 0 8px rgba(127, 233, 237, 0.45)); }
   .bt-word { font-size: 1.75rem; font-weight: 800; letter-spacing: 1px; line-height: 1; }
-  .bt-tag { display: block; margin-top: 5px; font-size: 0.4em; font-weight: 400; letter-spacing: 3px; color: rgba(219, 234, 243, 0.6); }
+  .bt-tag { display: block; margin-top: 5px; font-size: 0.4em; font-weight: 400; letter-spacing: 3px; color: rgba(10, 61, 92, 0.6); }
   .bt-pillbox { border-radius: 24px; font-family: "Segoe UI", Roboto, system-ui, sans-serif; }
-  .bt-pill-h { display: flex; align-items: center; gap: 8px; font-size: 26px; font-weight: 600; letter-spacing: -0.3px; color: #dbeaf3; }
-  .bt-pill-n { padding: 4px 14px; background: rgba(34, 201, 245, 0.1); border-radius: 40px; font-size: 16px; font-weight: 500; color: #22c9f5; letter-spacing: 0; }
+  .bt-pill-h { display: flex; align-items: center; gap: 8px; font-size: 26px; font-weight: 600; letter-spacing: -0.3px; color: #0a3d5c; }
+  .bt-pill-n { padding: 4px 14px; background: rgba(1, 186, 239, 0.1); border-radius: 40px; font-size: 16px; font-weight: 500; color: #01baef; letter-spacing: 0; }
 
   .block-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 36px 0 14px; }
   .block-h h3 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
@@ -320,7 +320,7 @@
   <header>
     <p class="eyebrow">MEDIBOT · interfaces web</p>
     <h1>Paleta de colores</h1>
-    <p class="lead">Las webs de la cámara y del pastillero usan los colores de la web de MEDIBOT: los mismos tokens de su <code>src/index.css</code> (rama <code>web</code>), con el mismo valor, en tema oscuro y claro. Pulsa un color para copiar su código.</p>
+    <p class="lead">Las webs de la cámara y del pastillero usan los colores de la web de MEDIBOT: los mismos tokens de su <code>src/index.css</code> (rama <code>web</code>), con el mismo valor, en tema claro (con el que arrancan) y oscuro. Pulsa un color para copiar su código.</p>
     <nav class="jump" aria-label="Secciones">
       <a href="#paleta">La paleta</a>
       <a href="#camara">Cámara · Medibot</a>
@@ -332,7 +332,7 @@
     <div class="export" id="export-paleta">
       <div class="iface-head">
         <div class="brand-tile bt-web" aria-hidden="true">
-          <svg viewBox="0 0 100 100" width="44" height="44">
+          <svg class="rueda" viewBox="0 0 100 100" width="44" height="44">
             <path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/>
             <path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/>
             <path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/>
@@ -350,7 +350,7 @@
           <dl class="facts">
             <div><dt>Origen</dt><dd>rama <code>web</code>, <code>src/index.css</code></dd></div>
             <div><dt>Avisos</dt><dd>Tailwind 4.3.3</dd></div>
-            <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+            <div><dt>Arranca en</dt><dd>claro</dd></div>
           </dl>
         </div>
       </div>
@@ -365,16 +365,7 @@
   <section class="iface" id="camara" aria-labelledby="h-camara">
     <div class="iface-head">
       <div class="brand-tile bt-medibot" aria-hidden="true">
-        <svg viewBox="0 0 100 100" width="46" height="46">
-          <circle cx="50" cy="50" r="40" fill="#7fe9ed"/>
-          <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
-            <line x1="50" y1="10" x2="50" y2="90"/>
-            <line x1="10" y1="50" x2="90" y2="50"/>
-            <line x1="21.7" y1="21.7" x2="78.3" y2="78.3"/>
-            <line x1="78.3" y1="21.7" x2="21.7" y2="78.3"/>
-          </g>
-          <circle cx="50" cy="50" r="15" fill="#ffffff"/>
-        </svg>
+        <svg class="rueda" viewBox="0 0 100 100" width="46" height="46"><path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/><path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/><path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/><path d="M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z"/><path d="M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z"/><path d="M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z"/><path d="M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z"/><path d="M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z"/></svg>
         <span class="bt-word"><span class="bt-soft">MEDI</span><span class="bt-ink">BOT</span><span class="bt-tag">VISIÓN ARTIFICIAL</span></span>
       </div>
       <div class="meta">
@@ -383,7 +374,7 @@
         <dl class="facts">
           <div><dt>Archivo</dt><dd><code>medibot/Vision_MEDIBOT.py</code></dd></div>
           <div><dt>Puerto</dt><dd>5000</dd></div>
-          <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+          <div><dt>Arranca en</dt><dd>claro</dd></div>
         </dl>
       </div>
     </div>
@@ -397,7 +388,7 @@
   <section class="iface" id="pastillero" aria-labelledby="h-pastillero">
     <div class="iface-head">
       <div class="brand-tile bt-pillbox" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="42" height="42"><rect x="4" y="11" width="24" height="10" rx="5" fill="#7fe9ed"/><path d="M16 11v10" stroke="#06161f" stroke-width="2"/></svg>
+        <svg viewBox="0 0 32 32" width="42" height="42"><rect x="4" y="11" width="24" height="10" rx="5" fill="#01baef"/><path d="M16 11v10" stroke="#ffffff" stroke-width="2"/></svg>
         <span class="bt-pill-h">Pillbox <span class="bt-pill-n">3 / 8</span></span>
       </div>
       <div class="meta">
@@ -406,7 +397,7 @@
         <dl class="facts">
           <div><dt>Archivo</dt><dd><code>medibot/Pastillero.py</code></dd></div>
           <div><dt>Puerto</dt><dd>5001</dd></div>
-          <div><dt>Arranca en</dt><dd>oscuro</dd></div>
+          <div><dt>Arranca en</dt><dd>claro</dd></div>
         </dl>
       </div>
     </div>
@@ -419,7 +410,7 @@
 
   <footer class="notes">
     <h2>De dónde sale cada color</h2>
-    <p>Los nueve tokens, de <code>src/index.css</code> en la rama <code>web</code>. El rojo, el ámbar y el verde, del tema de Tailwind 4.3.3, que es la versión que usa la web. Esos tres la web los escribe en <code>oklch</code>; las interfaces llevan el mismo valor en <code>oklch</code> y, para los navegadores que no lo entienden, su equivalente en hex, que es el que aparece aquí. Revisado el 29 de septiembre de 2026.</p>
+    <p>Los nueve tokens, de <code>src/index.css</code> en la rama <code>web</code>. El rojo, el ámbar y el verde, del tema de Tailwind 4.3.3, que es la versión que usa la web. Esos tres la web los escribe en <code>oklch</code>; las interfaces llevan el mismo valor en <code>oklch</code> y, para los navegadores que no lo entienden, su equivalente en hex, que es el que aparece aquí. Revisado el 30 de septiembre de 2026.</p>
     <p>El número tras un nombre es la transparencia, como en Tailwind: ink/60 es el color ink al 60 %. Por eso cambian con el tema: el ink claro al 60 % sobre fondo oscuro, el ink oscuro al 60 % sobre fondo claro.</p>
     <p>La ventana de escritorio de Medibot (Tkinter) no está incluida: esta es la paleta de las webs. Si la web cambia su paleta, hay que cambiar los tokens de <code>Vision_MEDIBOT.py</code>, las variables de <code>Pastillero.py</code> y esta página.</p>
   </footer>
@@ -456,7 +447,6 @@
     '--c-brand-10': ['rgba(34, 201, 245, 0.1)',  'rgba(1, 186, 239, 0.1)',  'brand/10'],
     '--c-brand-30': ['rgba(34, 201, 245, 0.3)',  'rgba(1, 186, 239, 0.3)',  'brand/30'],
     '--c-brand-40': ['rgba(34, 201, 245, 0.4)',  'rgba(1, 186, 239, 0.4)',  'brand/40'],
-    '--c-brandsoft-45': ['rgba(127, 233, 237, 0.45)', 'rgba(94, 225, 230, 0.45)', 'brandsoft/45'],
     '--c-mint-15':  ['rgba(52, 211, 153, 0.15)', 'rgba(52, 211, 153, 0.15)', 'mint/15'],
     '--c-shade-5':  ['rgba(5, 18, 26, 0.05)',    'rgba(10, 61, 92, 0.05)',   'shade/5'],
 
@@ -502,35 +492,34 @@
   /* n = pieza, u = donde se ve, t = token (o degradado). */
   var CAMARA = [
     { titulo: 'Superficies', filas: [
-      { n: 'Fondo de la página', u: 'Detrás de todo', t: '--c-surface' },
+      { n: 'Fondo de la página', u: 'Detrás de todo y en la pantalla de carga', t: '--c-surface' },
       { n: 'Contenedor', u: 'El recuadro que lo agrupa todo', t: '--c-card' },
       { n: 'Recuadros', u: 'Las cámaras, «Estado Sistema» y las tarjetas de vídeo', t: '--c-surface' },
       { n: 'Casillas de dato', u: '«Estado» y «Grabando», debajo de cada cámara; también Reproducir y Descargar', t: '--c-ink-5' },
       { n: 'Bordes', u: 'Contenedor, recuadros y marco del vídeo; Reproducir y Descargar al pasar el ratón', t: '--c-ink-10' },
-      { n: 'Borde de los botones', u: 'Botones de control y de movimiento', t: '--c-ink-15' },
+      { n: 'Borde de los botones', u: 'Botones de control, de movimiento y el control de velocidad', t: '--c-ink-15' },
       { n: 'Fondo del vídeo', u: 'Detrás de la imagen y en pantalla completa', t: '--c-shade' },
       { n: 'Miniatura de vídeo', u: 'Como el vídeo de la web: de deep a shade', t: 'video' }
     ]},
     { titulo: 'Texto', filas: [
       { n: 'Texto principal', u: 'Valores, títulos de cámara y de vídeo, y el «BOT» del logotipo', t: '--c-ink' },
-      { n: 'Letra de botones y etiquetas', u: 'Botones de control, de movimiento, Pastillero y Modo; «Estado», «Velocidad»', t: '--c-ink-70' },
+      { n: 'Letra de botones y etiquetas', u: 'Botones de control, de movimiento, de velocidad, Pastillero y Modo; «Estado», «Velocidad»', t: '--c-ink-70' },
       { n: 'Texto secundario', u: 'Datos de cada vídeo, «VISIÓN ARTIFICIAL» y el pie', t: '--c-ink-60' },
       { n: 'Rótulo «ESTADO SISTEMA»', u: 'Como los rótulos en mayúsculas de la web', t: '--c-brand' }
     ]},
     { titulo: 'Marca', filas: [
-      { n: 'Logo y «MEDI»', u: 'El círculo del logo y la primera mitad del nombre', t: '--c-brandsoft' },
-      { n: 'Brillo del logo', u: 'Halo alrededor del logo', t: '--c-brandsoft-45' },
+      { n: 'La rueda y «MEDI»', u: 'La rueda de la web: en la cabecera (girando), en la pantalla de carga y como bola del joystick; y la primera mitad del nombre', t: '--c-brandsoft' },
       { n: 'Brillo del contenedor', u: 'Halo alrededor del recuadro principal', t: '--c-brand-5' },
-      { n: 'Icono de la pestaña', u: 'Sigue al tema del sistema, como el de la web; el punto del centro es ink #0A3D5C', t: '--icono' }
+      { n: 'Icono de la pestaña', u: 'La rueda, como el favicon de la web: sigue al tema del sistema', t: '--icono' }
     ]},
     { titulo: 'Botones y mandos', filas: [
-      { n: 'Botón activo', u: '«Detener Sistema», «Reconocimiento: ON», un movimiento pulsado, el altavoz escuchando', t: 'marca' },
+      { n: 'Botón activo', u: '«Detener Sistema», «Reconocimiento: ON», «Control de velocidad: ON», un movimiento pulsado, el altavoz escuchando', t: 'marca' },
       { n: 'Letra sobre el degradado', u: 'Siempre blanca, como en la web', t: '--c-blanco' },
       { n: 'Borde al pasar el ratón', u: 'Botones de control y de movimiento', t: '--c-brand-30' },
       { n: 'Pastillero y Modo al pasar el ratón', u: 'Fondo', t: '--c-ink-5' },
       { n: 'Botonera de movimiento', u: 'Fondo de los botones', t: '--c-card' },
-      { n: 'Barra de velocidad y aro del joystick', u: 'La bola del joystick lleva el degradado', t: '--c-brand' },
-      { n: 'Brillo del joystick', u: 'Halo de la bola', t: '--c-brand-40' }
+      { n: 'Barra de velocidad y aro del joystick', u: 'Con la velocidad bloqueada, la barra se ve más apagada', t: '--c-brand' },
+      { n: 'Brillo del joystick', u: 'Halo de la rueda que hace de bola', t: '--c-brand-40' }
     ]},
     { titulo: 'Estados y avisos', filas: [
       { n: 'Cámara en marcha', u: 'Título de la cámara activa', t: '--c-exito-texto' },
@@ -582,7 +571,8 @@
       { v: '--acento-fin', t: '--c-deep', u: 'Final del degradado' },
       { v: 'Botón principal', t: 'marca', u: 'Dispensar, Completado y Agregar horario' },
       { v: '--sobre-acento', t: '--c-blanco', u: 'Letra de esos botones' },
-      { v: '--acento-suave', t: '--c-brand-10', u: 'Fondo del contador y de «Pendiente»' }
+      { v: '--acento-suave', t: '--c-brand-10', u: 'Fondo del contador y de «Pendiente»' },
+      { v: '--marca-suave', t: '--c-brandsoft', u: 'La rueda y «MEDI» de la pantalla de carga' }
     ]},
     { titulo: 'Todo bien', filas: [
       { v: '--exito', t: '--c-mint', u: 'Acciones AUTO del historial' },
@@ -635,7 +625,7 @@
   }
 
   function pintarHojas() {
-    document.getElementById('hojas').innerHTML = ['dark', 'light'].map(function (t) {
+    document.getElementById('hojas').innerHTML = ['light', 'dark'].map(function (t) {
       function grupo(titulo, lista) {
         return '<div class="grupo"><p class="grupo-t">' + titulo + '</p><div class="chips">' + lista.map(function (f) {
           var code = v(f[1], t);
@@ -649,7 +639,7 @@
       }
       return '<div class="sheet look-' + t + '">' +
           '<div class="sheet-head"><span class="sheet-title">Tema ' + nombreTema(t) + '</span>' +
-          (t === 'dark' ? '<span class="sheet-tag">el de arranque</span>' : '') + '</div>' +
+          (t === 'light' ? '<span class="sheet-tag">el de arranque</span>' : '') + '</div>' +
           grupo('Marca y superficies', HOJA.marca) +
           grupo('Avisos y estados · Tailwind', HOJA.avisos) +
         '</div>';
@@ -681,8 +671,8 @@
   function pintarTabla(id, cabecera, grupos, esPastillero) {
     var html = '<table class="st"><thead><tr>' +
       '<th scope="col" class="lab">' + cabecera + '</th>' +
-      '<th scope="col" class="sc look-dark"><span class="sheet-title">Oscuro</span><span class="sheet-tag">de arranque</span></th>' +
-      '<th scope="col" class="sc look-light"><span class="sheet-title">Claro</span></th>' +
+      '<th scope="col" class="sc look-light"><span class="sheet-title">Claro</span><span class="sheet-tag">de arranque</span></th>' +
+      '<th scope="col" class="sc look-dark"><span class="sheet-title">Oscuro</span></th>' +
       '</tr></thead>';
     grupos.forEach(function (g) {
       html += '<tbody><tr class="grp"><th colspan="3" scope="rowgroup">' + g.titulo + '</th></tr>';
@@ -694,7 +684,7 @@
             (DEGRADADOS[f.t] ? '<code class="tk">' + DEGRADADOS[f.t].k + '</code>' : '<code class="tk">' + T[f.t][2] + '</code>')
           : '<span class="nm">' + f.n + '</span>' + (f.u ? '<span class="use">' + f.u + '</span>' : '') + etiquetaToken(f.t);
         html += '<tr><th scope="row">' + cabeza + (igual(f.t) ? '<span class="same">igual en los dos temas</span>' : '') + '</th>' +
-          celda(f.t, 'dark', nombre) + celda(f.t, 'light', nombre) + '</tr>';
+          celda(f.t, 'light', nombre) + celda(f.t, 'dark', nombre) + '</tr>';
       });
       html += '</tbody>';
     });

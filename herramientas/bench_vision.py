@@ -262,7 +262,7 @@ def main():
         print("       MEDIBOT_CAM_AUTOEXP=0 python3 medibot/main.py")
     else:
         print(f"  El limite es NUESTRO (etapa '{peor['manda']}'). Que probar:")
-        print("    MEDIBOT_DETECT_ROJO=0   (quita ~1,3 ms/frame)")
+        print("    Color rojo apagado     (ya viene asi; encendido cuesta ~1,3 ms/frame)")
         print("    MEDIBOT_OVERLAY=0       (quita los textos dibujados)")
         print("    perfil web 'bajo'       (menos pixeles que comprimir)")
 

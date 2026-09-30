@@ -126,10 +126,18 @@ class PruebasSintaxisJS(unittest.TestCase):
                 self.assertEqual(r.returncode, 0,
                                  f"El JavaScript servido no compila:\n{r.stderr}")
 
-    def test_hay_un_solo_bloque_de_script(self):
-        self.assertEqual(len(bloques_script(plantilla_evaluada())), 1,
-                         "Si hay varios <script>, un error en uno no tumba los "
-                         "otros; revisa que esta prueba siga teniendo sentido.")
+    def test_solo_hay_el_script_del_tema_y_el_de_la_interfaz(self):
+        """Uno en la cabeza, que SOLO aplica el tema antes de pintar (si no,
+        quien eligio el oscuro ve primero la pagina en claro), y el de la
+        interfaz al final. Si aparece un tercero, revisa que esta prueba siga
+        teniendo sentido: un error en un <script> no tumba los otros."""
+        bloques = bloques_script(plantilla_evaluada())
+        self.assertEqual(len(bloques), 2)
+        cabeza = bloques[0]
+        self.assertIn("medibot-theme", cabeza)
+        self.assertIn("data-theme", cabeza)
+        self.assertLess(len(cabeza), 1200,
+                        "El script de la cabeza solo debe poner el tema")
 
 
 class PruebasCoherenciaDelDOM(unittest.TestCase):
@@ -217,28 +225,85 @@ class PruebasTema(unittest.TestCase):
     def _css(self):
         return self.html[self.html.index("<style>"):self.html.index("</style>")]
 
-    def test_hay_estilos_para_el_modo_claro(self):
-        """Los colores son tokens (los de la web de MEDIBOT) y el tema claro
-        los redefine. Si se le olvida uno, esa pieza se queda con el color
-        oscuro en la pagina clara: texto claro sobre fondo blanco."""
+    def test_el_modo_oscuro_redefine_todos_los_colores(self):
+        """Los colores son tokens (los de la web de MEDIBOT): :root lleva el
+        tema claro, que es el de arranque, y el oscuro los redefine. Si se le
+        olvida uno, esa pieza se queda con el color claro en la pagina oscura:
+        texto azul marino sobre fondo casi negro."""
         css = self._css()
         raiz = re.search(r":root\s*\{([^}]*)\}", css).group(1)
-        claro = re.search(r'html\[data-theme="light"\]\s*\{([^}]*)\}', css).group(1)
+        oscuro = re.search(r'html\[data-theme="dark"\]\s*\{([^}]*)\}', css).group(1)
         #  Los que dependen del tema: la paleta de la web y sus transparencias.
         #  El blanco, los velos sobre el video y los rojos de aviso son iguales
         #  en los dos temas y no hace falta repetirlos.
         del_tema = re.findall(r"(--c-(?:ink|surface|card|brand|brandsoft|deep|mint|shade)"
                               r"(?:-\d+)?)\s*:", raiz)
         self.assertGreater(len(del_tema), 10)
-        faltan = [t for t in del_tema if not re.search(re.escape(t) + r"\s*:", claro)]
-        self.assertFalse(faltan, f"Sin valor en el tema claro: {faltan}")
+        faltan = [t for t in del_tema if not re.search(re.escape(t) + r"\s*:", oscuro)]
+        self.assertFalse(faltan, f"Sin valor en el tema oscuro: {faltan}")
+
+    def test_arranca_en_CLARO(self):
+        """Se pidio el claro por defecto. Lo pone la cabeza antes de pintar, y
+        :root lleva el claro para que salga asi aunque falle el JavaScript."""
+        cabeza = self.html[:self.html.index("</head>")]
+        m = re.search(r"<script>(.*?)</script>", cabeza, re.S)
+        self.assertIsNotNone(m, "La cabeza ya no aplica el tema")
+        self.assertIn("t = 'light'", m.group(1))
+        self.assertIn("t !== 'dark'", m.group(1),
+                      "Un valor raro guardado tiene que caer en el claro")
+        raiz = re.search(r":root\s*\{([^}]*)\}", self._css()).group(1)
+        self.assertIn("color-scheme: light", raiz)
+        self.assertIn("|| 'light'", self.js)
 
     def test_no_queda_ningun_color_escrito_a_mano_en_el_css(self):
         """Un color fijo en una regla no cambia con el tema."""
-        sin_paleta = re.sub(r'(:root|html\[data-theme="light"\])\s*\{[^}]*\}', "",
+        sin_paleta = re.sub(r'(:root|html\[data-theme="dark"\])\s*\{[^}]*\}', "",
                             self._css())
         fijos = sorted(set(re.findall(r"#[0-9a-fA-F]{3,6}\b|rgba?\(", sin_paleta)))
         self.assertFalse(fijos, f"Colores fijos fuera de la paleta: {fijos}")
+
+
+class PruebasPeticionesNuevas(unittest.TestCase):
+    """Lo que se pidio despues de pasar a los colores de la web."""
+
+    def setUp(self):
+        self.html = plantilla_evaluada()
+        self.js = "\n".join(bloques_script(self.html))
+        self.src = fuente()
+
+    def test_la_deteccion_de_rojo_arranca_APAGADA(self):
+        self.assertIn('leer_booleano("MEDIBOT_DETECT_ROJO", False)', self.src)
+        m = re.search(r'id="rojoBtn">\s*(.*?)\s*</button>', self.html, re.S)
+        self.assertEqual(m.group(1), "Color rojo: OFF")
+
+    def test_la_velocidad_arranca_BLOQUEADA_y_un_boton_la_habilita(self):
+        rango = re.search(r'<input[^>]*id="velRange"[^>]*>', self.html)
+        self.assertIsNotNone(rango)
+        self.assertIn(" disabled", rango.group(0))
+        boton = re.search(r'<button[^>]*id="velToggle"[^>]*>(.*?)</button>',
+                          self.html, re.S)
+        self.assertIsNotNone(boton)
+        self.assertIn('onclick="alternarControlVelocidad()"', boton.group(0))
+        self.assertIn("function alternarControlVelocidad", self.js)
+        self.assertIn("rango.disabled = !on", self.js)
+
+    def test_la_rueda_de_la_web_esta_en_la_cabecera_el_joystick_y_la_carga(self):
+        """Los ocho sectores de MedibotLogo.tsx: el mismo dibujo que la web."""
+        sector = "M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906"
+        cabecera = re.search(r'<svg class="brand-logo[^>]*>.*?</svg>', self.html, re.S)
+        self.assertIn(sector, cabecera.group(0))
+        bola = re.search(r'<div class="joystick-stick" id="joyStick">.*?</div>',
+                         self.html, re.S)
+        self.assertIn(sector, bola.group(0))
+        carga = re.search(r'<div class="pantalla-carga" id="pantallaCarga".*?</svg>',
+                          self.html, re.S)
+        self.assertIn(sector, carga.group(0))
+
+    def test_la_pantalla_de_carga_no_puede_quedarse_puesta(self):
+        """Tapa los mandos del robot: se va sola aunque falle el JavaScript."""
+        regla = re.search(r"\.pantalla-carga \{([^}]*)\}", self.html)
+        self.assertIn("animation: pc-fuera", regla.group(1))
+        self.assertIn("quitarPantallaCarga();", self.js)
 
 
 class PruebasControlesEsenciales(unittest.TestCase):
@@ -582,17 +647,16 @@ class PruebasTemaPastillero(unittest.TestCase):
         self.assertIsNotNone(m, "La cabeza ya no aplica el tema")
         return m.group(1)
 
-    def test_sin_nada_guardado_arranca_en_OSCURO(self):
-        """El tema por defecto es el oscuro, se pidio asi.
-
-        Antes se seguia al sistema operativo: en un movil o un portatil en
-        modo claro -que es como vienen de fabrica- la pastillera abria en
-        blanco, que es justo lo que no se queria."""
+    def test_sin_nada_guardado_arranca_en_CLARO(self):
+        """El tema por defecto es el claro, se pidio asi (antes era el oscuro).
+        No se sigue al sistema operativo: arranca en claro se entre desde
+        donde se entre, y solo cambia si se pulsa el boton."""
         cabeza = self._script_de_la_cabeza()
         self.assertNotIn("prefers-color-scheme", cabeza,
-                         "El tema del sistema ya no decide: manda el oscuro.")
-        self.assertIn("= 'dark'", cabeza,
-                      "Sin tema guardado hay que caer en 'dark'.")
+                         "El tema del sistema no decide: manda el claro.")
+        self.assertIn("= 'light'", cabeza,
+                      "Sin tema guardado hay que caer en 'light'.")
+        self.assertIn("TEMA_POR_DEFECTO = 'light'", self.html)
 
     def test_un_valor_raro_guardado_no_deja_la_pagina_sin_tema(self):
         """localStorage es texto libre: lo puede dejar sucio una version
@@ -603,13 +667,13 @@ class PruebasTemaPastillero(unittest.TestCase):
         self.assertIn("t !== 'light'", cabeza)
         self.assertIn("t !== 'dark'", cabeza)
 
-    def test_el_boton_arranca_ofreciendo_el_modo_CLARO(self):
-        """El boton dice lo que HACE. Si arranca en oscuro y el boton pone
-        'Modo Oscuro', parece que el tema esta al reves."""
+    def test_el_boton_arranca_ofreciendo_el_modo_OSCURO(self):
+        """El boton dice lo que HACE. Si arranca en claro y el boton pone
+        'Modo Claro', parece que el tema esta al reves."""
         m = re.search(r'<button[^>]*id="themeToggle"[^>]*>(.*?)</button>',
                       self.html, re.S)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1).strip(), "Modo Claro")
+        self.assertEqual(m.group(1).strip(), "Modo Oscuro")
 
     def test_los_controles_del_sistema_siguen_al_tema(self):
         """El reloj del <input type=time> y las casillas de los dias los pinta

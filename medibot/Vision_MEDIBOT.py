@@ -206,17 +206,18 @@ PERFIL_WEB = medibot_vision.PerfilWeb.desde_entorno()
 #  pidio). Se rellena en initialize_cameras() y se publica en /api/all.
 info_camaras = {0: None, 1: None}
 
-#  Detectores caros que se pueden apagar sin editar codigo. Por defecto ambos
-#  quedan como estaban (encendidos), asi el comportamiento no cambia salvo que
-#  se pida expresamente.
-#    MEDIBOT_DETECT_ROJO=0  -> ahorra ~1,3 ms/frame (cvtColor HSV + morfologia)
+#  Detectores caros que se pueden encender o apagar sin editar codigo.
+#    MEDIBOT_DETECT_ROJO=1  -> arranca CON la deteccion de objetos rojos. Por
+#                              defecto va APAGADA: cuesta ~1,3 ms/frame
+#                              (cvtColor HSV + morfologia) y este montaje no
+#                              sigue objetos de color.
 #    MEDIBOT_OVERLAY=0      -> ahorra los textos dibujados sobre el video
 #  DETECCION_ROJO se puede cambiar EN CALIENTE desde la web (boton "Color
 #  rojo" y ruta /toggle_deteccion_rojo). La variable de entorno solo fija con
 #  que valor arranca. Antes solo se podia apagar reiniciando el programa con
 #  MEDIBOT_DETECT_ROJO=0, que en una Raspberry a la que se entra por SSH es
 #  bastante incomodo cuando lo que quieres es ver el efecto al momento.
-DETECCION_ROJO = medibot_vision.leer_booleano("MEDIBOT_DETECT_ROJO", True)
+DETECCION_ROJO = medibot_vision.leer_booleano("MEDIBOT_DETECT_ROJO", False)
 OVERLAYS_ACTIVOS = medibot_vision.leer_booleano("MEDIBOT_OVERLAY", True)
 # ================================================
 
@@ -1111,9 +1112,9 @@ def process_camera(camera_index):
 
             # ---- Objetos rojos -------------------------------------------
             # Se dibuja sobre el propio frame (antes se hacia frame.copy()).
-            # Configurable: con MEDIBOT_DETECT_ROJO=0 se ahorran ~1,3 ms por
-            # fotograma (cvtColor a HSV + dos morfologias + findContours) en
-            # los montajes que no siguen objetos de color.
+            # Apagada por defecto (MEDIBOT_DETECT_ROJO=1 la enciende al
+            # arrancar, y el boton "Color rojo" en caliente): ahorra ~1,3 ms
+            # por fotograma (cvtColor a HSV + dos morfologias + findContours).
             processed_frame = frame
             if DETECCION_ROJO:
                 red_objects = _red_detector.detectar(processed_frame,
@@ -1390,36 +1391,52 @@ HTML_TEMPLATE = r"""
     <title>Medibot</title>
     <!-- Icono en linea (SVG como data URI). Sin esto el navegador pide
          /favicon.ico, Flask responde 404 y queda un error en la consola en
-         cada carga. Al ir incrustado no se pide nada al servidor. -->
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cstyle%3E.a%7Bfill:%2301baef%7D@media (prefers-color-scheme:dark)%7B.a%7Bfill:%237fe9ed%7D%7D%3C/style%3E%3Ccircle class='a' cx='16' cy='16' r='14'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230a3d5c'/%3E%3C/svg%3E">
+         cada carga. Al ir incrustado no se pide nada al servidor.
+         Es el favicon de la web: la rueda, cian intenso sobre la barra clara
+         y cian suave sobre la oscura (sigue al tema del sistema). -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cstyle%3Epath%7Bfill:%2301baef%7D@media (prefers-color-scheme:dark)%7Bpath%7Bfill:%237fe9ed%7D%7D%3C/style%3E%3Cpath d='M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z'/%3E%3Cpath d='M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z'/%3E%3Cpath d='M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z'/%3E%3Cpath d='M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z'/%3E%3Cpath d='M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z'/%3E%3Cpath d='M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z'/%3E%3Cpath d='M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z'/%3E%3Cpath d='M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z'/%3E%3C/svg%3E">
+    <script>
+        /*  El tema se aplica AQUI, antes de pintar nada. Si se hiciera al final
+            del <body>, quien eligio el oscuro veria primero la pagina (y la
+            pantalla de carga) en claro y luego el salto.
+            El de arranque es el CLARO: solo cambia si se pulsa el boton, y esa
+            eleccion se recuerda en el navegador. */
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem('medibot-theme'); } catch (e) {}
+            if (t !== 'light' && t !== 'dark') { t = 'light'; }
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
     <style>
         /* ===== Colores =====
            Los de la web de MEDIBOT (rama web, src/index.css): mismos nombres
-           y mismos valores, en oscuro y en claro. Todas las reglas de abajo
-           usan estos tokens, asi que el tema claro solo los redefine; antes
+           y mismos valores, en claro y en oscuro. Todas las reglas de abajo
+           usan estos tokens, asi que el tema oscuro solo los redefine; antes
            cada pieza llevaba su color escrito a mano dos veces.
+           El claro va en :root porque es el de arranque: si el JavaScript no
+           llegara a ejecutarse, la pagina sale igualmente en claro.
            El numero del final es la transparencia, como en Tailwind:
            --c-ink-60 es text-ink/60 y --c-ink-10 es border-ink/10. */
         :root {
-            color-scheme: dark;
-            --c-ink: #dbeaf3;
-            --c-surface: #06161f;
-            --c-card: #0e2733;
-            --c-brand: #22c9f5;
+            color-scheme: light;
+            --c-ink: #0a3d5c;
+            --c-surface: #f4fafb;
+            --c-card: #ffffff;
+            --c-brand: #01baef;
             --c-deep: #0b4f6c;
-            --c-brandsoft: #7fe9ed;
+            --c-brandsoft: #5ee1e6;
             --c-mint: #34d399;
-            --c-shade: #05121a;
-            --c-ink-5: rgba(219, 234, 243, 0.05);
-            --c-ink-10: rgba(219, 234, 243, 0.1);
-            --c-ink-15: rgba(219, 234, 243, 0.15);
-            --c-ink-60: rgba(219, 234, 243, 0.6);
-            --c-ink-70: rgba(219, 234, 243, 0.7);
-            --c-brand-5: rgba(34, 201, 245, 0.05);
-            --c-brand-10: rgba(34, 201, 245, 0.1);
-            --c-brand-30: rgba(34, 201, 245, 0.3);
-            --c-brand-40: rgba(34, 201, 245, 0.4);
-            --c-brandsoft-45: rgba(127, 233, 237, 0.45);
+            --c-shade: #0a3d5c;
+            --c-ink-5: rgba(10, 61, 92, 0.05);
+            --c-ink-10: rgba(10, 61, 92, 0.1);
+            --c-ink-15: rgba(10, 61, 92, 0.15);
+            --c-ink-60: rgba(10, 61, 92, 0.6);
+            --c-ink-70: rgba(10, 61, 92, 0.7);
+            --c-brand-5: rgba(1, 186, 239, 0.05);
+            --c-brand-10: rgba(1, 186, 239, 0.1);
+            --c-brand-30: rgba(1, 186, 239, 0.3);
+            --c-brand-40: rgba(1, 186, 239, 0.4);
 
             /* Iguales en los dos temas: el blanco de los textos sobre el
                degradado y los botones que van ENCIMA del video, que no cambia
@@ -1443,35 +1460,34 @@ HTML_TEMPLATE = r"""
             --c-rojo-claro: #ffa2a2;                 /* red-300 */
             --c-rojo-fuerte: #e7000b;                /* red-600 */
             --c-rojo-grave: #c10007;                 /* red-700 */
-            --c-rojo-texto: #ff6467;                 /* dark:text-red-400 */
-            --c-rojo-pastilla: #ffa2a2;              /* dark:text-red-300 */
-            --c-ambar-texto: #ffd230;                /* dark:text-amber-300 */
-            --c-exito-texto: #5ee9b5;                /* dark:text-emerald-300 */
-        }
-        html[data-theme="light"] {
-            color-scheme: light;
-            --c-ink: #0a3d5c;
-            --c-surface: #f4fafb;
-            --c-card: #ffffff;
-            --c-brand: #01baef;
-            --c-deep: #0b4f6c;
-            --c-brandsoft: #5ee1e6;
-            --c-mint: #34d399;
-            --c-shade: #0a3d5c;
-            --c-ink-5: rgba(10, 61, 92, 0.05);
-            --c-ink-10: rgba(10, 61, 92, 0.1);
-            --c-ink-15: rgba(10, 61, 92, 0.15);
-            --c-ink-60: rgba(10, 61, 92, 0.6);
-            --c-ink-70: rgba(10, 61, 92, 0.7);
-            --c-brand-5: rgba(1, 186, 239, 0.05);
-            --c-brand-10: rgba(1, 186, 239, 0.1);
-            --c-brand-30: rgba(1, 186, 239, 0.3);
-            --c-brand-40: rgba(1, 186, 239, 0.4);
-            --c-brandsoft-45: rgba(94, 225, 230, 0.45);
             --c-rojo-texto: #e7000b;                 /* text-red-600 */
             --c-rojo-pastilla: #c10007;              /* text-red-700 */
             --c-ambar-texto: #bb4d00;                /* text-amber-700 */
             --c-exito-texto: #007a55;                /* text-emerald-700 */
+        }
+        html[data-theme="dark"] {
+            color-scheme: dark;
+            --c-ink: #dbeaf3;
+            --c-surface: #06161f;
+            --c-card: #0e2733;
+            --c-brand: #22c9f5;
+            --c-deep: #0b4f6c;
+            --c-brandsoft: #7fe9ed;
+            --c-mint: #34d399;
+            --c-shade: #05121a;
+            --c-ink-5: rgba(219, 234, 243, 0.05);
+            --c-ink-10: rgba(219, 234, 243, 0.1);
+            --c-ink-15: rgba(219, 234, 243, 0.15);
+            --c-ink-60: rgba(219, 234, 243, 0.6);
+            --c-ink-70: rgba(219, 234, 243, 0.7);
+            --c-brand-5: rgba(34, 201, 245, 0.05);
+            --c-brand-10: rgba(34, 201, 245, 0.1);
+            --c-brand-30: rgba(34, 201, 245, 0.3);
+            --c-brand-40: rgba(34, 201, 245, 0.4);
+            --c-rojo-texto: #ff6467;                 /* dark:text-red-400 */
+            --c-rojo-pastilla: #ffa2a2;              /* dark:text-red-300 */
+            --c-ambar-texto: #ffd230;                /* dark:text-amber-300 */
+            --c-exito-texto: #5ee9b5;                /* dark:text-emerald-300 */
         }
         @supports (color: oklch(0% 0 0)) {
             :root {
@@ -1484,19 +1500,54 @@ HTML_TEMPLATE = r"""
                 --c-rojo-claro: oklch(80.8% 0.114 19.571);
                 --c-rojo-fuerte: oklch(57.7% 0.245 27.325);
                 --c-rojo-grave: oklch(50.5% 0.213 27.518);
-                --c-rojo-texto: oklch(70.4% 0.191 22.216);
-                --c-rojo-pastilla: oklch(80.8% 0.114 19.571);
-                --c-ambar-texto: oklch(87.9% 0.169 91.605);
-                --c-exito-texto: oklch(84.5% 0.143 164.978);
-            }
-            html[data-theme="light"] {
                 --c-rojo-texto: oklch(57.7% 0.245 27.325);
                 --c-rojo-pastilla: oklch(50.5% 0.213 27.518);
                 --c-ambar-texto: oklch(55.5% 0.163 48.998);
                 --c-exito-texto: oklch(50.8% 0.118 165.612);
             }
+            html[data-theme="dark"] {
+                --c-rojo-texto: oklch(70.4% 0.191 22.216);
+                --c-rojo-pastilla: oklch(80.8% 0.114 19.571);
+                --c-ambar-texto: oklch(87.9% 0.169 91.605);
+                --c-exito-texto: oklch(84.5% 0.143 164.978);
+            }
         }
-        .brand-logo .logo-disco { fill: var(--c-brandsoft); }
+
+        /* ===== La rueda de MEDIBOT =====
+           La marca de la web (MedibotLogo.tsx, rama web): ocho sectores de una
+           corona, en brandsoft. Va en la cabecera, en la pantalla de carga y
+           como bola del joystick. Gira como en la web, una vuelta cada 14 s,
+           salvo en el joystick: es un mando y no debe moverse solo. */
+        .rueda path { fill: var(--c-brandsoft); }
+        @keyframes girar-ruleta { to { transform: rotate(360deg); } }
+        .ruleta-marca {
+            animation: girar-ruleta 14s linear infinite;
+            transform-origin: 50% 50%;
+            will-change: transform;
+        }
+
+        /* ===== Pantalla de carga =====
+           La rueda mientras llega la pagina. La quita quitarPantallaCarga() en
+           cuanto la interfaz esta lista, con un minimo de medio segundo para
+           que no sea un parpadeo. Si el JavaScript fallara, esta animacion la
+           quita igual a los 4 s: nunca se queda tapando los mandos. */
+        .pantalla-carga {
+            position: fixed; inset: 0; z-index: 20000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 16px; padding: 20px;
+            background: var(--c-surface);
+            transition: opacity .35s ease, visibility .35s ease;
+            animation: pc-fuera .35s ease 4s forwards;
+        }
+        .pantalla-carga.fuera { opacity: 0; visibility: hidden; pointer-events: none; }
+        @keyframes pc-fuera { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+        .pantalla-carga .rueda { width: 96px; height: 96px; }
+        .pantalla-carga .ruleta-marca { animation-duration: 1.6s; }
+        .pc-marca { font-weight: 800; font-size: 2em; letter-spacing: 1px; line-height: 1; }
+        .pc-tag { font-size: 0.8em; letter-spacing: 3px; color: var(--c-ink-60); }
+        @media (prefers-reduced-motion: reduce) {
+            .ruleta-marca { animation: none; }
+        }
 
         * {
             margin: 0;
@@ -1944,7 +1995,6 @@ HTML_TEMPLATE = r"""
         }
         .brand-logo {
             flex: 0 0 auto;
-            filter: drop-shadow(0 0 8px var(--c-brandsoft-45));
         }
         .wordmark {
             font-weight: 800;
@@ -2004,6 +2054,22 @@ HTML_TEMPLATE = r"""
         .mov-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
         .mov-vel { margin-top: 8px; font-size: .78em; color: var(--c-ink-70); }
         .mov-vel label { display: block; margin-bottom: 2px; }
+        .vel-fila {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 6px 10px; flex-wrap: wrap; margin-bottom: 4px;
+        }
+        .vel-fila label { margin-bottom: 0; }
+        .vel-control {
+            background: var(--c-card); color: var(--c-ink-70); border: 1px solid var(--c-ink-15);
+            border-radius: 999px; padding: 4px 12px; font-size: 1em; cursor: pointer;
+            transition: border-color .15s ease, color .15s ease;
+        }
+        .vel-control:hover { border-color: var(--c-brand-30); color: var(--c-ink); }
+        .vel-control.active {
+            background: linear-gradient(to right, var(--c-brand), var(--c-deep));
+            color: var(--c-blanco); border-color: transparent;
+        }
+        .mov-vel input[type=range]:disabled { opacity: 0.45; cursor: not-allowed; }
         .mov-vel input[type=range] { width: 100%; accent-color: var(--c-brand); }
         .mov-btn {
             background: var(--c-card); color: var(--c-ink-70); border: 1px solid var(--c-ink-15);
@@ -2026,8 +2092,13 @@ HTML_TEMPLATE = r"""
         }
         .joystick-stick {
             position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px;
-            border-radius: 50%; background: linear-gradient(to bottom right, var(--c-brand), var(--c-deep)); box-shadow: 0 0 12px var(--c-brand-40);
+            border-radius: 50%;
             transition: transform 0.05s linear; pointer-events: none;
+        }
+        /*  La bola del joystick es la rueda de MEDIBOT (quieta: es un mando). */
+        .joystick-stick .rueda {
+            display: block; width: 100%; height: 100%;
+            filter: drop-shadow(0 0 6px var(--c-brand-40));
         }
         .dpad { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 20px 0; }
         .dpad-row { display: flex; gap: 10px; }
@@ -2181,22 +2252,20 @@ HTML_TEMPLATE = r"""
     </style>
 </head>
 <body>
+    <!--  Pantalla de carga: la rueda de MEDIBOT mientras llega la pagina. -->
+    <div class="pantalla-carga" id="pantallaCarga" aria-hidden="true">
+        <svg class="rueda" viewBox="0 0 100 100"><g class="ruleta-marca"><path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/><path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/><path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/><path d="M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z"/><path d="M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z"/><path d="M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z"/><path d="M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z"/><path d="M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z"/></g></svg>
+        <div class="pc-marca"><span class="wm-medi">MEDI</span><span class="wm-bot">BOT</span></div>
+        <div class="pc-tag">VISIÓN ARTIFICIAL</div>
+    </div>
     <!-- Barra de avisos: los fallos de API y los errores de JavaScript se ven
          AQUI, no solo en la consola del navegador. -->
     <div class="aviso-barra" id="avisoBarra" role="status" aria-live="polite"></div>
     <div class="container">
         <div class="brand-bar">
             <div class="brand">
-                <svg class="brand-logo" viewBox="0 0 100 100" width="52" height="52" aria-label="Logo MEDIBOT">
-                    <circle class="logo-disco" cx="50" cy="50" r="40"/>
-                    <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
-                        <line x1="50" y1="10" x2="50" y2="90"/>
-                        <line x1="10" y1="50" x2="90" y2="50"/>
-                        <line x1="21.7" y1="21.7" x2="78.3" y2="78.3"/>
-                        <line x1="78.3" y1="21.7" x2="21.7" y2="78.3"/>
-                    </g>
-                    <circle cx="50" cy="50" r="15" fill="#ffffff"/>
-                </svg>
+                <!--  La rueda de la web, girando como alli. -->
+                <svg class="brand-logo rueda" viewBox="0 0 100 100" width="52" height="52" role="img" aria-label="Logo MEDIBOT"><g class="ruleta-marca"><path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/><path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/><path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/><path d="M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z"/><path d="M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z"/><path d="M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z"/><path d="M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z"/><path d="M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z"/></g></svg>
                 <div>
                     <span class="wordmark"><span class="wm-medi">MEDI</span><span class="wm-bot">BOT</span></span>
                     <span class="brand-tag">VISIÓN ARTIFICIAL</span>
@@ -2210,7 +2279,7 @@ HTML_TEMPLATE = r"""
                       Sin emoji: los botones de esta barra son solo texto. -->
                 <a class="theme-toggle" id="linkPastillero" href="#" rel="noopener"
                    title="Ir a la interfaz del pastillero">Pastillero</a>
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Oscuro</button>
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Claro</button>
             </div>
         </div>
         <!-- Sin <h1>MEDIBOT</h1>: la barra de marca de arriba ya lleva el
@@ -2282,7 +2351,7 @@ HTML_TEMPLATE = r"""
                         </div>
                         <div class="cam-joystick">
                             <div class="joystick-base" id="joyBase">
-                                <div class="joystick-stick" id="joyStick"></div>
+                                <div class="joystick-stick" id="joyStick"><svg class="rueda" viewBox="0 0 100 100" aria-hidden="true"><path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/><path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/><path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/><path d="M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z"/><path d="M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z"/><path d="M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z"/><path d="M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z"/><path d="M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z"/></svg></div>
                             </div>
                             <div class="cam-joy-dirs">Dir: <span id="move-dirs">—</span></div>
                         </div>
@@ -2301,8 +2370,17 @@ HTML_TEMPLATE = r"""
                     <div class="mov-panel">
                         <div class="mov-grid" id="mov-grid"></div>
                         <div class="mov-vel">
-                            <label for="velRange">Velocidad <span id="velVal">200</span></label>
-                            <input type="range" id="velRange" min="200" max="255" value="200"
+                            <!--  La barra arranca BLOQUEADA: se ve la velocidad real,
+                                  pero no se mueve hasta pulsar el boton. Asi no se
+                                  cambia sin querer al manejar el joystick o al
+                                  desplazar la pagina en el movil. -->
+                            <div class="vel-fila">
+                                <label for="velRange">Velocidad <span id="velVal">200</span></label>
+                                <button type="button" class="vel-control" id="velToggle"
+                                        onclick="alternarControlVelocidad()" aria-pressed="false"
+                                        title="Permite cambiar la velocidad del robot">Control de velocidad: OFF</button>
+                            </div>
+                            <input type="range" id="velRange" min="200" max="255" value="200" disabled
                                    oninput="document.getElementById('velVal').textContent=this.value"
                                    onchange="fijarVelocidad(this.value)">
                             <div class="vel-aviso" id="velAviso"></div>
@@ -2367,11 +2445,11 @@ HTML_TEMPLATE = r"""
             <button class="control-button" onclick="toggleRecognition()" id="recognitionBtn">
                 Reconocimiento: OFF
             </button>
-            <!--  Apagar la busqueda de objetos rojos ahorra ~1,3 ms por
-                  fotograma y por camara. Antes solo se podia con
-                  MEDIBOT_DETECT_ROJO=0 y reiniciando el programa. -->
+            <!--  La busqueda de objetos rojos arranca APAGADA (cuesta ~1,3 ms
+                  por fotograma y por camara); este boton la enciende sin
+                  reiniciar. El texto lo repinta /api/all con el estado real. -->
             <button class="control-button" onclick="alternarDeteccionRojo()" id="rojoBtn">
-                Color rojo: ON
+                Color rojo: OFF
             </button>
             <button class="control-button" onclick="showTab('videos')">
                 Ver Videos Grabados
@@ -3388,6 +3466,21 @@ HTML_TEMPLATE = r"""
                 });
         }
 
+        // ===== Control de velocidad =====
+        //  La barra arranca bloqueada (disabled en el HTML) y este boton la
+        //  habilita o la vuelve a bloquear. No se recuerda entre visitas: cada
+        //  vez que se abre la pagina vuelve a estar bloqueada.
+        function alternarControlVelocidad(activo) {
+            var rango = document.getElementById('velRange');
+            var b = document.getElementById('velToggle');
+            if (!rango || !b) { return; }
+            var on = (typeof activo === 'boolean') ? activo : rango.disabled;
+            rango.disabled = !on;
+            b.textContent = on ? 'Control de velocidad: ON' : 'Control de velocidad: OFF';
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
         // Se quitó lanzarTruco(): los cuatro botones de trucos ya no están en
         // la web. La ruta /truco sigue existiendo y el mando PS2 los conserva.
 
@@ -3530,15 +3623,32 @@ HTML_TEMPLATE = r"""
             setTheme(current === 'light' ? 'dark' : 'light');
         }
 
-        // Aplicar el tema guardado al cargar (por defecto: oscuro)
+        // Aplicar el tema guardado al cargar (por defecto: CLARO). La cabeza
+        // ya puso data-theme antes de pintar; aqui se valida lo guardado y se
+        // pone bien el texto del boton.
         (function applyStoredTheme() {
-            let theme = 'dark';
-            try { theme = localStorage.getItem('medibot-theme') || 'dark'; } catch (e) {}
+            let theme = 'light';
+            try { theme = localStorage.getItem('medibot-theme') || 'light'; } catch (e) {}
+            if (theme !== 'light' && theme !== 'dark') { theme = 'light'; }
             setTheme(theme);
         })();
 
+        // ===== Pantalla de carga =====
+        //  Se quita en cuanto la interfaz esta lista, pero no antes de medio
+        //  segundo desde que empezo a cargar: en la red de casa seria un
+        //  parpadeo. performance.now() cuenta desde el inicio de la carga.
+        function quitarPantallaCarga() {
+            var p = document.getElementById('pantallaCarga');
+            if (!p) { return; }
+            setTimeout(function () { p.classList.add('fuera'); },
+                       Math.max(0, 500 - performance.now()));
+        }
+
         // Start updates when page loads
         document.addEventListener('DOMContentLoaded', function() {
+            //  Lo primero: si algo de lo de abajo fallara, el aviso tiene que
+            //  verse y no quedarse debajo de la pantalla de carga.
+            quitarPantallaCarga();
             startUpdates();
             // Leer del servidor el rango y la velocidad REALES en vez de
             // fiarse del 200/255 escrito a mano en el HTML.

@@ -471,14 +471,14 @@ HTML_PAGE = """<!DOCTYPE html>
         final del <body>, la pagina se dibujaria primero en claro y luego
         saltaria a oscuro: el fogonazo blanco que molesta de noche.
 
-        El PREDETERMINADO es OSCURO: quien no haya elegido nunca -y quien
-        entre desde un movil o un ordenador configurado en claro- ve la
-        pastillera en oscuro. Solo se respeta lo que el usuario haya elegido
-        a mano con el boton, que es lo unico que se guarda. */
+        El PREDETERMINADO es CLARO: quien no haya elegido nunca ve la
+        pastillera en claro, entre desde donde entre (no se sigue al tema del
+        sistema). Solo se respeta lo que el usuario haya elegido a mano con
+        el boton, que es lo unico que se guarda. */
     (function () {
       var t = null;
       try { t = localStorage.getItem('pillbox-theme'); } catch (e) {}
-      if (t !== 'light' && t !== 'dark') { t = 'dark'; }
+      if (t !== 'light' && t !== 'dark') { t = 'light'; }
       document.documentElement.setAttribute('data-theme', t);
     })();
   </script>
@@ -513,6 +513,7 @@ HTML_PAGE = """<!DOCTYPE html>
       --acento: #01baef;                       /* brand */
       --acento-fin: #0b4f6c;                   /* deep: final del degradado */
       --acento-suave: rgba(1, 186, 239, 0.1);  /* brand/10 */
+      --marca-suave: #5ee1e6;                  /* brandsoft: la rueda y "MEDI" */
       --sobre-acento: #ffffff;                 /* white */
       --exito: #34d399;                        /* mint */
       --exito-suave: rgba(52, 211, 153, 0.15); /* mint/15 */
@@ -551,6 +552,7 @@ HTML_PAGE = """<!DOCTYPE html>
       --acento: #22c9f5;                       /* brand */
       --acento-fin: #0b4f6c;                   /* deep */
       --acento-suave: rgba(34, 201, 245, 0.1); /* brand/10 */
+      --marca-suave: #7fe9ed;                  /* brandsoft */
       --sobre-acento: #ffffff;                 /* white */
       --exito: #34d399;                        /* mint */
       --exito-suave: rgba(52, 211, 153, 0.15); /* mint/15 */
@@ -670,6 +672,21 @@ HTML_PAGE = """<!DOCTYPE html>
     .hist-row .tipo.MANUAL { color: var(--acento); }
     .hist-row .res { color: var(--texto-tenue); }
     .aviso { font-size: 13px; color: var(--texto-tenue); margin-top: 6px; }
+    /*  PANTALLA DE CARGA: la rueda de MEDIBOT (la de la web, MedibotLogo.tsx)
+        mientras llega la pagina. La quita quitarPantallaCarga() al arrancar,
+        con un minimo de medio segundo para que no sea un parpadeo. Si el
+        JavaScript fallara, la animacion pc-fuera la quita igual a los 4 s. */
+    .rueda path { fill: var(--marca-suave); }
+    @keyframes girar-ruleta { to { transform: rotate(360deg); } }
+    .ruleta-marca { animation: girar-ruleta 1.6s linear infinite; transform-origin: 50% 50%; will-change: transform; }
+    .pantalla-carga { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; background: var(--fondo); transition: opacity .35s ease, visibility .35s ease; animation: pc-fuera .35s ease 4s forwards; }
+    .pantalla-carga.fuera { opacity: 0; visibility: hidden; pointer-events: none; }
+    @keyframes pc-fuera { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+    .pantalla-carga .rueda { width: 96px; height: 96px; }
+    .pc-marca { font-size: 30px; font-weight: 800; letter-spacing: -.3px; line-height: 1; color: var(--texto-titulo); }
+    .pc-marca .medi { color: var(--marca-suave); }
+    .pc-tag { font-size: 12px; font-weight: 600; letter-spacing: 3px; color: var(--texto-tenue); }
+    @media (prefers-reduced-motion: reduce) { .ruleta-marca { animation: none; } }
     @media (max-width: 700px) {
       .app { padding: 20px 18px; }
       .compartments-grid { grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 14px; }
@@ -678,6 +695,13 @@ HTML_PAGE = """<!DOCTYPE html>
   </style>
 </head>
 <body>
+<!--  Pantalla de carga: la rueda de MEDIBOT, la de la web, mientras llega la
+      pagina. -->
+<div class="pantalla-carga" id="pantallaCarga" aria-hidden="true">
+  <svg class="rueda" viewBox="0 0 100 100"><g class="ruleta-marca"><path d="M 53.209 4.112 A 46 46 0 0 1 80.179 15.283 L 63.121 34.906 A 20 20 0 0 0 51.395 30.049 Z"/><path d="M 84.717 19.821 A 46 46 0 0 1 95.888 46.791 L 69.951 48.605 A 20 20 0 0 0 65.094 36.879 Z"/><path d="M 95.888 53.209 A 46 46 0 0 1 84.717 80.179 L 65.094 63.121 A 20 20 0 0 0 69.951 51.395 Z"/><path d="M 80.179 84.717 A 46 46 0 0 1 53.209 95.888 L 51.395 69.951 A 20 20 0 0 0 63.121 65.094 Z"/><path d="M 46.791 95.888 A 46 46 0 0 1 19.821 84.717 L 36.879 65.094 A 20 20 0 0 0 48.605 69.951 Z"/><path d="M 15.283 80.179 A 46 46 0 0 1 4.112 53.209 L 30.049 51.395 A 20 20 0 0 0 34.906 63.121 Z"/><path d="M 4.112 46.791 A 46 46 0 0 1 15.283 19.821 L 34.906 36.879 A 20 20 0 0 0 30.049 48.605 Z"/><path d="M 19.821 15.283 A 46 46 0 0 1 46.791 4.112 L 48.605 30.049 A 20 20 0 0 0 36.879 34.906 Z"/></g></svg>
+  <div class="pc-marca"><span class="medi">MEDI</span>BOT</div>
+  <div class="pc-tag">PASTILLERO</div>
+</div>
 <div class="app" id="app">
   <div class="header">
     <h1>Pillbox <span id="globalBadge">8</span></h1>
@@ -702,10 +726,10 @@ HTML_PAGE = """<!DOCTYPE html>
       <a class="btn-back" id="linkMedibot" href="#" rel="noopener"
          title="Ir a la interfaz de camaras y movimiento de Medibot">MEDIBOT</a>
       <!--  El texto es la ACCION del boton, no el tema puesto: con el tema
-            oscuro (el de arranque) pone "Modo Claro", que es lo que pasa al
+            claro (el de arranque) pone "Modo Oscuro", que es lo que pasa al
             pulsarlo. Lo repinta pintarBotonTema() al cargar. -->
       <button class="btn-back" id="themeToggle" onclick="alternarTema()"
-              title="Cambiar tema claro/oscuro">Modo Claro</button>
+              title="Cambiar tema claro/oscuro">Modo Oscuro</button>
     </div>
   </div>
 
@@ -1092,7 +1116,18 @@ HTML_PAGE = """<!DOCTYPE html>
       });
     }
 
+    // ---------- Pantalla de carga ----------
+    //  Se quita en cuanto arranca la interfaz, pero no antes de medio segundo
+    //  desde que empezo a cargar: en la red de casa seria un parpadeo.
+    function quitarPantallaCarga() {
+      const p = document.getElementById('pantallaCarga');
+      if (!p) return;
+      setTimeout(() => p.classList.add('fuera'), Math.max(0, 500 - performance.now()));
+    }
+
     function init() {
+      //  Lo primero: si algo de lo de abajo fallara, que no se quede tapado.
+      quitarPantallaCarga();
       document.getElementById('detailView').style.display = 'none';
       document.getElementById('detailView').classList.remove('active');
       document.getElementById('btnBackMain').classList.add('hidden');
@@ -1111,12 +1146,12 @@ HTML_PAGE = """<!DOCTYPE html>
       }, 20000);
     }
 
-    // ===== Tema claro / oscuro (arranca en OSCURO) =====
+    // ===== Tema claro / oscuro (arranca en CLARO) =====
     //  Se aplica ANTES de nada (ver el <script> del <head>) para que no haya
     //  un fogonazo blanco al cargar con el tema oscuro puesto. Aqui solo queda
     //  el cambio manual y poner bien el texto del boton.
     const CLAVE_TEMA = 'pillbox-theme';
-    const TEMA_POR_DEFECTO = 'dark';
+    const TEMA_POR_DEFECTO = 'light';
 
     function temaActual() {
       return document.documentElement.getAttribute('data-theme') ||

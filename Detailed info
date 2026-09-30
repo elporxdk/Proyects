@@ -170,11 +170,13 @@ Las **dos** interfaces tienen su boton. Se recuerda en el navegador
 (`localStorage`) y se aplica **antes** de pintar la pagina, asi que no hay
 fogonazo blanco al cargar de noche.
 
-En el **Pastillero el tema por defecto es el OSCURO**: entres desde donde
-entres, y aunque el movil o el ordenador esten configurados en claro, abre en
-oscuro. Solo cambia si se pulsa el boton, y entonces esa eleccion se recuerda
-para las siguientes visitas. El boton dice lo que **hace**, no el tema que hay
-puesto: con el oscuro pone *Modo Claro*.
+**Las dos arrancan en el tema CLARO**: entres desde donde entres, y aunque el
+movil o el ordenador esten configurados en oscuro, abren en claro. Solo cambia
+si se pulsa el boton, y entonces esa eleccion se recuerda para las siguientes
+visitas. Las dos lo aplican en la cabeza de la pagina, antes de pintar: quien
+eligio el oscuro no ve la pagina en claro un instante al cargar. En el
+Pastillero el boton dice lo que **hace**, no el tema que hay puesto: con el
+claro pone *Modo Oscuro*.
 
 El tema tambien alcanza a los controles que dibuja el sistema y no el CSS (el
 reloj del horario, las casillas de los dias, la barra de desplazamiento):
@@ -189,6 +191,15 @@ como `--c-ink`, `--c-brand`...; el Pastillero conserva sus nombres
 (`--texto-tenue`, `--peligro-texto`...) con esos valores. Si la web cambia su
 paleta, hay que cambiarla en los dos ficheros. La lista completa, con donde va
 cada color, esta en `paleta/`.
+
+El logo es la **rueda de la web**: los ocho sectores de `MedibotLogo.tsx`, con
+la misma geometria. Esta en la cabecera de Medibot (girando como en la web,
+una vuelta cada 14 s), en el icono de la pestana, en la **pantalla de carga**
+de las dos paginas y como bola del **joystick** (ahi quieta: es un mando).
+
+La pantalla de carga se quita en cuanto la pagina esta lista, con un minimo de
+medio segundo para que no sea un parpadeo. Si el JavaScript fallara, se quita
+sola a los 4 segundos: nunca se queda tapando los mandos del robot.
 
 ### He actualizado el codigo y la interfaz sale IGUAL que antes
 
@@ -231,15 +242,16 @@ curl -sI http://<ip>:5000/ | grep -i build  # X-Medibot-Build: ...
 Si la huella que enseña el navegador (F12 > Red > la peticion de la pagina) no
 es la que imprime el servidor al arrancar, se esta viendo una copia vieja.
 
-### Apagar la deteccion de objetos rojos
+### Deteccion de objetos rojos
 
-Boton **Color rojo** entre los controles de Medibot. Apagarla ahorra ~1,3 ms
-por fotograma y por camara: se salta la conversion a HSV, dos morfologias y un
-`findContours` que en un montaje que no sigue objetos de color son trabajo
-tirado. En una Raspberry esos milisegundos se notan.
+**Viene APAGADA.** Se enciende (y se vuelve a apagar) con el boton **Color
+rojo** entre los controles de Medibot. Apagada ahorra ~1,3 ms por fotograma y
+por camara: se salta la conversion a HSV, dos morfologias y un `findContours`
+que en un montaje que no sigue objetos de color son trabajo tirado. En una
+Raspberry esos milisegundos se notan.
 
-El cambio es **inmediato**, sin reiniciar. `MEDIBOT_DETECT_ROJO=0` sigue
-valiendo para arrancar ya con la deteccion apagada.
+El cambio es **inmediato**, sin reiniciar. Para arrancar ya con la deteccion
+encendida: `MEDIBOT_DETECT_ROJO=1`.
 
 Tambien por API, util para automatizarlo:
 
@@ -248,6 +260,18 @@ curl -X POST http://<ip>:5000/toggle_deteccion_rojo                       # alte
 curl -X POST -H 'Content-Type: application/json' \
      -d '{"activo": false}' http://<ip>:5000/toggle_deteccion_rojo        # apagar
 ```
+
+### Control de velocidad
+
+La barra de velocidad de Medibot arranca **bloqueada**: se ve la velocidad
+real, pero no se puede mover. El boton **Control de velocidad** que tiene al
+lado la habilita (pasa a *ON*) y, pulsado otra vez, la vuelve a bloquear.
+
+No se recuerda entre visitas: cada vez que se abre la pagina vuelve a estar
+bloqueada. Es a proposito: asi no se cambia la velocidad sin querer al manejar
+el joystick o al desplazar la pagina con el dedo en el movil. Va junto a la
+barra, dentro de la zona que pasa a pantalla completa, asi que tambien se
+puede usar ahi.
 
 ### Escuchar el microfono de la camara
 
@@ -618,7 +642,7 @@ banda; y la columna `manda` señala la etapa que limita.
 | `MEDIBOT_WEB_QUALITY` | `70` | calidad JPEG (1..100) |
 | `MEDIBOT_WEB_FPS` | `15` | tope de FPS enviados al navegador |
 | `MEDIBOT_GUI_W` / `MEDIBOT_GUI_H` | `400` / `300` | panel de la ventana Tkinter |
-| `MEDIBOT_DETECT_ROJO` | `1` | estado inicial; se cambia en caliente con el boton **Color rojo** |
+| `MEDIBOT_DETECT_ROJO` | `0` (apagada) | `1` arranca con la deteccion de rojo encendida; se cambia en caliente con el boton **Color rojo** |
 | `MEDIBOT_OVERLAY` | `1` | `0` quita los textos dibujados sobre el video |
 | `MEDIBOT_LBPH_UMBRAL` | `80` | umbral del reconocimiento facial (ver abajo) |
 
@@ -732,7 +756,7 @@ Como leerlo:
   luz (muchas webcams alargan la exposicion automaticamente y bajan los FPS a
   la mitad en interiores; `MEDIBOT_CAM_AUTOEXP=0` lo evita).
 - **`manda: proceso`** — el limite es nuestro; ahi si tiene sentido afinar
-  detectores (`MEDIBOT_DETECT_ROJO=0`, `MEDIBOT_OVERLAY=0`).
+  detectores (dejar **Color rojo** apagado, `MEDIBOT_OVERLAY=0`).
 
 **Antes de nada, comprueba que la camara acepta lo que le pides.** Al arrancar,
 Medibot imprime lo que el driver devolvio DE VERDAD y avisa si no coincide:
