@@ -31,6 +31,17 @@ IDEAS DE RENDIMIENTO QUE APLICA ESTE MODULO
   4. No reservar memoria en el bucle: los kernels y buffers se crean una vez.
   5. Nadie sondea: los clientes del streaming ESPERAN en una condicion y se
      les despierta cuando hay fotograma nuevo (ver FrameHub.esperar_nuevo).
+  6. La deteccion NUNCA frena al video: corre en su propio hilo
+     (AnalizadorAsincrono, el equivalente a un Web Worker) sobre el ultimo
+     fotograma, y el bucle de captura solo pinta el ultimo resultado. El
+     video va al ritmo de la camara tarde lo que tarde el detector.
+  7. Modo reposo: si no se detecta nada en unos segundos, se analizan solo
+     2 fotogramas por segundo; en cuanto aparece algo, ritmo completo
+     (RitmoAnalisis).
+  8. Memoria: los buffers grandes (captura, entrada del analizador, gris,
+     HSV, mascaras) se reservan una vez y se reutilizan con dst=/np.copyto,
+     y al arrancar se saca del GC todo lo que vive para siempre
+     (congelar_gc), para que sus pasadas no congelen el video.
 
 Nada de esto cambia lo que ve el usuario: los mismos recuadros, las mismas
 etiquetas y las mismas APIs; solo cuesta mucho menos CPU.
@@ -52,7 +63,14 @@ Captura (lo que se pide al driver V4L2):
 Stream web (independiente de la captura):
     MEDIBOT_WEB_W / MEDIBOT_WEB_H   resolucion enviada (por defecto = captura)
     MEDIBOT_WEB_QUALITY=70          calidad JPEG 1..100
-    MEDIBOT_WEB_FPS=15              tope de fotogramas por segundo enviados
+    MEDIBOT_WEB_FPS=                tope de FPS enviados (por defecto, los de
+                                    la camara: MEDIBOT_CAM_FPS)
+
+Analisis (deteccion de caras / rojos), independiente del video:
+    MEDIBOT_ANALISIS_FPS=0    tope en modo ACTIVO (0 = todo lo que de el detector)
+    MEDIBOT_REPOSO_SEG=3      segundos sin detectar nada antes de pasar a REPOSO
+    MEDIBOT_REPOSO_FPS=2      analisis por segundo en REPOSO
+    MEDIBOT_GC_FREEZE=1       0 = no congelar el GC al arrancar (ver congelar_gc)
 
 Panel de la GUI Tkinter:
     MEDIBOT_GUI_W=400 / MEDIBOT_GUI_H=300
@@ -62,6 +80,7 @@ Se puede analizar a 640x480 y emitir a 480x360 con calidad 55 para una red
 lenta, sin tocar el reconocimiento facial ni la grabacion.
 """
 
+import gc
 import json
 import os
 import platform
@@ -86,6 +105,18 @@ def _entero(nombre, defecto):
         return int(bruto)
     except ValueError:
         print(f"[vision] {nombre}={bruto!r} no es un entero; uso {defecto}")
+        return defecto
+
+
+def _decimal(nombre, defecto):
+    """Como _entero, pero admite decimales (p.ej. MEDIBOT_REPOSO_FPS=0.5)."""
+    bruto = os.environ.get(nombre, "").strip()
+    if not bruto:
+        return defecto
+    try:
+        return float(bruto)
+    except ValueError:
+        print(f"[vision] {nombre}={bruto!r} no es un numero; uso {defecto}")
         return defecto
 
 
@@ -185,13 +216,16 @@ class PerfilWeb:
     """Lo que se envia al navegador. INDEPENDIENTE de la captura: permite
     analizar a 640x480 y emitir a 480x360 q55 cuando la red o la CPU aprietan.
 
-    fps_max evita el efecto 'la web se come la Raspberry': aunque la camara
-    entregue 30 FPS, al navegador se le mandan como mucho fps_max, y cada
-    fotograma no enviado es una codificacion JPEG que NO se paga."""
+    fps_max es el tope de fotogramas por segundo que se mandan al navegador.
+    Por defecto SIGUE A LA CAMARA (MEDIBOT_CAM_FPS, 30): antes venia fijado
+    en 15, asi que la web nunca podia pasar de 15 FPS aunque la camara diera
+    30. Si en una Raspberry concreta la codificacion JPEG no da abasto, se
+    baja sin tocar codigo con MEDIBOT_WEB_FPS=15: cada fotograma no enviado es
+    una codificacion que NO se paga."""
 
     __slots__ = ("ancho", "alto", "calidad", "fps_max")
 
-    def __init__(self, ancho=None, alto=None, calidad=70, fps_max=15):
+    def __init__(self, ancho=None, alto=None, calidad=70, fps_max=30):
         self.ancho = ancho
         self.alto = alto
         self.calidad = max(1, min(100, calidad))
@@ -203,7 +237,7 @@ class PerfilWeb:
             ancho=_entero("MEDIBOT_WEB_W", 0) or None,
             alto=_entero("MEDIBOT_WEB_H", 0) or None,
             calidad=_entero("MEDIBOT_WEB_QUALITY", 70),
-            fps_max=_entero("MEDIBOT_WEB_FPS", 15),
+            fps_max=_entero("MEDIBOT_WEB_FPS", _entero("MEDIBOT_CAM_FPS", 30)),
         )
 
     def tamano_para(self, ancho_origen, alto_origen):
@@ -704,7 +738,9 @@ class CamaraSintetica:
             return 1.0
         return 0.0
 
-    def read(self):
+    def read(self, image=None):
+        """Mismo contrato que VideoCapture.read([image]): si 'image' tiene el
+        tamano correcto se escribe ENCIMA y se devuelve ese mismo array."""
         if not self._abierta:
             return False, None
         # Respetar el ritmo pedido: read() bloquea como lo haria un sensor.
@@ -719,7 +755,11 @@ class CamaraSintetica:
         if (self._base.shape[0], self._base.shape[1]) != (self._alto, self._ancho):
             self._base = cv2.resize(self._base, (self._ancho, self._alto))
 
-        frame = self._base.copy()
+        if image is not None and image.shape == self._base.shape and image.dtype == self._base.dtype:
+            np.copyto(image, self._base)
+            frame = image
+        else:
+            frame = self._base.copy()
         self._n += 1
         # Cuadrado rojo que recorre la imagen (entrada para RedDetector).
         lado = max(20, self._ancho // 10)
@@ -1037,7 +1077,13 @@ class RedDetector:
 
     Ahorros: los rangos HSV y el kernel morfologico se crean UNA vez (antes se
     reservaban tres arrays de numpy en cada fotograma), y se puede detectar
-    sobre una version reducida del frame, dibujando siempre a tamano real."""
+    sobre una version reducida del frame, dibujando siempre a tamano real.
+
+    MEMORIA: la imagen HSV, las dos mascaras y la copia reducida se reservan
+    en la primera llamada y se REUTILIZAN (dst=) en las siguientes. Antes eran
+    ~1,5 MB nuevos por fotograma a 640x480 que el asignador tenia que pedir y
+    devolver sin parar. Por eso cada camara/hilo necesita SU instancia: dos
+    hilos con el mismo detector se pisarian los buffers."""
 
     def __init__(self, area_minima=300, escala_deteccion=1.0):
         self.area_minima = area_minima
@@ -1048,6 +1094,13 @@ class RedDetector:
         self._bajo2 = np.array([170, 120, 70], dtype=np.uint8)
         self._alto2 = np.array([180, 255, 255], dtype=np.uint8)
         self._kernel = np.ones((5, 5), np.uint8)
+        # Buffers reutilizados. OpenCV escribe en ellos si el tamano encaja y,
+        # si no (otra resolucion), devuelve uno nuevo: por eso se guarda
+        # SIEMPRE lo que devuelve la llamada.
+        self._pequeno = None
+        self._hsv = None
+        self._mascara = None
+        self._mascara2 = None
 
     def detectar(self, frame, dibujar=True):
         """Devuelve la lista de objetos rojos y, si 'dibujar', los marca sobre
@@ -1055,12 +1108,16 @@ class RedDetector:
         origen = frame
         escala = self.escala_deteccion
         if escala != 1.0:
-            origen = cv2.resize(frame, None, fx=escala, fy=escala,
-                                interpolation=cv2.INTER_AREA)
+            tamano = (max(1, int(round(frame.shape[1] * escala))),
+                      max(1, int(round(frame.shape[0] * escala))))
+            origen = self._pequeno = cv2.resize(frame, tamano, dst=self._pequeno,
+                                                interpolation=cv2.INTER_AREA)
 
-        hsv = cv2.cvtColor(origen, cv2.COLOR_BGR2HSV)
-        mascara = cv2.inRange(hsv, self._bajo1, self._alto1)
-        mascara2 = cv2.inRange(hsv, self._bajo2, self._alto2)
+        hsv = self._hsv = cv2.cvtColor(origen, cv2.COLOR_BGR2HSV, dst=self._hsv)
+        mascara = self._mascara = cv2.inRange(hsv, self._bajo1, self._alto1,
+                                              dst=self._mascara)
+        mascara2 = self._mascara2 = cv2.inRange(hsv, self._bajo2, self._alto2,
+                                                dst=self._mascara2)
         cv2.bitwise_or(mascara, mascara2, dst=mascara)   # sin array nuevo
         cv2.morphologyEx(mascara, cv2.MORPH_OPEN, self._kernel, dst=mascara)
         cv2.morphologyEx(mascara, cv2.MORPH_CLOSE, self._kernel, dst=mascara)
@@ -1082,16 +1139,25 @@ class RedDetector:
                 area = area * inv * inv
             cx, cy = x + w // 2, y + h // 2
 
-            if dibujar:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                cv2.circle(frame, (cx, cy), 5, (255, 255, 255), -1)
-                cv2.putText(frame, f"ROJO {int(area)}", (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
             objetos.append({"x": x, "y": y, "width": w, "height": h,
                             "area": int(area), "color": "rojo",
                             "center_x": cx, "center_y": cy})
+        if dibujar:
+            self.dibujar(frame, objetos)
         return objetos
+
+    @staticmethod
+    def dibujar(frame, objetos):
+        """Marca los objetos sobre 'frame'. Separado de detectar() para que el
+        bucle de captura pueda pintar el resultado que calculo OTRO hilo (el
+        analizador) sobre el fotograma actual, sin volver a detectar."""
+        for o in objetos:
+            x, y, w, h = o["x"], o["y"], o["width"], o["height"]
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            cv2.circle(frame, (o["center_x"], o["center_y"]), 5, (255, 255, 255), -1)
+            cv2.putText(frame, f"ROJO {o['area']}", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        return frame
 
 
 class FaceDetector:
@@ -1105,7 +1171,13 @@ class FaceDetector:
     el reconocedor siga trabajando con el recorte nitido de siempre.
 
     El gating (no llamar aqui cuando no hace falta) lo decide quien llama:
-    este objeto no adivina para que se le usa."""
+    este objeto no adivina para que se le usa.
+
+    MEMORIA: el gris y la copia reducida se reutilizan entre llamadas (dst=).
+    Consecuencia que hay que respetar: el gris devuelto SOLO vale hasta la
+    siguiente llamada a detectar(), y una instancia no se comparte entre
+    hilos. Quien lo usa (el analizador) recorta, reconoce y guarda en la misma
+    vuelta, asi que no le afecta."""
 
     def __init__(self, cascade, escala=0.5, scale_factor=1.1, min_neighbors=5,
                  min_size=(30, 30)):
@@ -1114,18 +1186,23 @@ class FaceDetector:
         self.scale_factor = scale_factor
         self.min_neighbors = min_neighbors
         self.min_size = min_size
+        self._gris = None
+        self._pequeno = None
 
     def detectar(self, frame_bgr):
         """Devuelve (caras_en_tamano_real, gris_resolucion_completa).
         Sin cascade cargado devuelve ([], gris) sin gastar nada."""
-        gris = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        gris = self._gris = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY,
+                                         dst=self._gris)
         if self.cascade is None:
             return [], gris
 
         escala = self.escala
         if escala != 1.0:
-            pequeno = cv2.resize(gris, None, fx=escala, fy=escala,
-                                 interpolation=cv2.INTER_AREA)
+            tamano = (max(1, int(round(gris.shape[1] * escala))),
+                      max(1, int(round(gris.shape[0] * escala))))
+            pequeno = self._pequeno = cv2.resize(gris, tamano, dst=self._pequeno,
+                                                 interpolation=cv2.INTER_AREA)
             min_size = (max(1, int(self.min_size[0] * escala)),
                         max(1, int(self.min_size[1] * escala)))
         else:
@@ -1140,6 +1217,384 @@ class FaceDetector:
             caras = [(int(x * inv), int(y * inv), int(w * inv), int(h * inv))
                      for (x, y, w, h) in caras]
         return list(caras), gris
+
+
+# =============================================================================
+# Analisis asincrono: la deteccion NUNCA frena al video
+# =============================================================================
+#  EL PROBLEMA QUE RESUELVE
+#  ------------------------
+#  El bucle de cada camara hacia EN SERIE, por cada fotograma:
+#
+#      leer camara -> Haar + LBPH (+ rojos) -> dibujar -> publicar
+#
+#  asi que el video iba exactamente al ritmo del detector. En la Raspberry el
+#  Haar cuesta decenas de milisegundos: con el reconocimiento encendido el
+#  video caia a 10-15 FPS AUNQUE NO HUBIERA NADIE delante, porque se buscaban
+#  caras en todos los fotogramas igual.
+#
+#  AHORA (el mismo patron que un Web Worker en el navegador):
+#
+#      hilo de captura:    leer -> ofrecer (no espera) -> pintar el ULTIMO
+#                          resultado -> publicar          (ritmo de camara)
+#      hilo analizador:    coger el fotograma MAS RECIENTE -> detectar ->
+#                          guardar el resultado           (ritmo del detector)
+#
+#  * La captura nunca espera al detector: si esta ocupado, ese fotograma no se
+#    analiza (se salta para el ANALISIS, no para el video).
+#  * No hay cola: el analizador siempre trabaja sobre el ultimo fotograma, asi
+#    que nunca acumula retraso. Una cola de fotogramas viejos es justo lo que
+#    hace que los recuadros vayan segundos por detras de la imagen.
+#  * Es un hilo y no un proceso porque OpenCV SUELTA EL GIL dentro de
+#    detectMultiScale, predict, cvtColor...: el detector corre de verdad en
+#    paralelo con la captura, en otro nucleo, sin copiar ~900 KB por
+#    fotograma entre procesos.
+#  * MODO REPOSO (RitmoAnalisis): sin detecciones durante unos segundos, se
+#    analiza solo unas pocas veces por segundo; en cuanto aparece algo,
+#    vuelve al ritmo completo.
+#  * MEMORIA: el fotograma de entrada se copia en un buffer PREASIGNADO que se
+#    reutiliza siempre (np.copyto), y solo cuando el analizador lo va a usar:
+#    en reposo no se copia nada en los fotogramas que no toca analizar.
+class RitmoAnalisis:
+    """Cada cuanto se analiza: ACTIVO (todo lo que de el detector) o REPOSO
+    (pocas veces por segundo), segun haya habido detecciones recientes.
+
+    Es pura logica, sin hilos ni reloj propio: recibe 'ahora' en cada llamada.
+    Asi se prueba sin esperar segundos de verdad, y quien la usa (el
+    AnalizadorAsincrono) la protege con su propio lock."""
+
+    ACTIVO = "activo"
+    REPOSO = "reposo"
+
+    def __init__(self, fps_activo=0.0, fps_reposo=2.0, segundos_reposo=3.0):
+        #  fps_activo = 0 -> sin tope: se analiza cada fotograma que el
+        #  detector alcance a coger (nunca mas que los que da la camara).
+        self.fps_activo = max(0.0, float(fps_activo))
+        self.fps_reposo = max(0.1, float(fps_reposo))
+        self.segundos_reposo = max(0.0, float(segundos_reposo))
+        #  Para cuando no se puede bajar el ritmo aunque no haya nada: p.ej.
+        #  capturando las 500 fotos de una persona nueva.
+        self.forzar_activo = False
+        self._ultima_deteccion = None
+
+    @classmethod
+    def desde_entorno(cls):
+        return cls(fps_activo=_decimal("MEDIBOT_ANALISIS_FPS", 0.0),
+                   fps_reposo=_decimal("MEDIBOT_REPOSO_FPS", 2.0),
+                   segundos_reposo=_decimal("MEDIBOT_REPOSO_SEG", 3.0))
+
+    def reiniciar(self, ahora):
+        """Se arranca en ACTIVO: los primeros segundos se busca a ritmo
+        completo, y si no aparece nada se baja a reposo."""
+        self._ultima_deteccion = ahora
+
+    def anotar(self, hubo_deteccion, ahora):
+        if hubo_deteccion or self._ultima_deteccion is None:
+            self._ultima_deteccion = ahora
+
+    def modo(self, ahora):
+        if self.forzar_activo or self._ultima_deteccion is None:
+            return self.ACTIVO
+        if ahora - self._ultima_deteccion < self.segundos_reposo:
+            return self.ACTIVO
+        return self.REPOSO
+
+    def intervalo(self, ahora):
+        """Segundos minimos entre el INICIO de dos analisis (0 = sin espera)."""
+        if self.modo(ahora) == self.REPOSO:
+            return 1.0 / self.fps_reposo
+        return (1.0 / self.fps_activo) if self.fps_activo else 0.0
+
+    def sin_detectar(self, ahora):
+        """Segundos desde la ultima deteccion (0 si aun no hay referencia)."""
+        if self._ultima_deteccion is None:
+            return 0.0
+        return max(0.0, ahora - self._ultima_deteccion)
+
+
+class Marca:
+    """Un recuadro con sus textos, listo para pintar sobre CUALQUIER fotograma.
+
+    El analizador no dibuja: describe lo que hay que dibujar. Asi el bucle de
+    captura puede pintar el ultimo resultado sobre cada fotograma nuevo
+    (aunque el analisis sea de hace unas decenas de ms) sin tocar el buffer
+    del analizador."""
+
+    __slots__ = ("x", "y", "w", "h", "color", "grosor", "textos")
+
+    def __init__(self, x, y, w, h, color, grosor=3, textos=()):
+        self.x, self.y, self.w, self.h = int(x), int(y), int(w), int(h)
+        self.color = color
+        self.grosor = grosor
+        self.textos = tuple(textos)     # ((texto, pixeles_por_encima), ...)
+
+
+class ResultadoAnalisis:
+    """Lo que devuelve un analisis: recuadros de caras, objetos rojos y si
+    hubo ALGO (que es lo que decide entre modo activo y reposo)."""
+
+    __slots__ = ("marcas", "rojos", "hubo_deteccion")
+
+    def __init__(self, marcas=(), rojos=(), hubo_deteccion=None):
+        self.marcas = list(marcas)
+        self.rojos = list(rojos)
+        if hubo_deteccion is None:
+            hubo_deteccion = bool(self.marcas or self.rojos)
+        self.hubo_deteccion = bool(hubo_deteccion)
+
+
+def dibujar_resultado(frame, resultado, marcas=True, rojos=True):
+    """Pinta un ResultadoAnalisis sobre 'frame' (in situ). Cuesta unos
+    microsegundos: son rectangulos y textos, no deteccion."""
+    if resultado is None:
+        return frame
+    if rojos and resultado.rojos:
+        RedDetector.dibujar(frame, resultado.rojos)
+    if marcas:
+        for m in resultado.marcas:
+            cv2.rectangle(frame, (m.x, m.y), (m.x + m.w, m.y + m.h),
+                          m.color, m.grosor)
+            for texto, encima in m.textos:
+                cv2.putText(frame, texto, (m.x, m.y - encima),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, m.color, 2)
+    return frame
+
+
+class AnalizadorAsincrono:
+    """El 'Web Worker' de Medibot: un hilo que analiza fotogramas sin frenar
+    nunca el video.
+
+    Uso desde el bucle de captura:
+
+        analizador.iniciar()
+        ...
+        analizador.ofrecer(frame, marca_tiempo)    # NUNCA bloquea
+        dibujar_resultado(frame, analizador.resultado())
+        ...
+        analizador.detener()
+
+    CONTRATO de  funcion(frame, marca_tiempo) -> ResultadoAnalisis :
+      * se ejecuta en el hilo del analizador, nunca en el de captura;
+      * el frame que recibe es el buffer interno: no puede guardarse ni
+        devolverse un trozo de el, porque se sobrescribe con el siguiente;
+      * si lanza una excepcion se cuenta y se informa, y el hilo sigue vivo
+        (un fallo puntual de deteccion no puede dejar el robot ciego).
+    """
+
+    def __init__(self, funcion, nombre="analisis", ritmo=None,
+                 reloj=time.monotonic, log=print):
+        self.funcion = funcion
+        self.nombre = nombre
+        self.ritmo = ritmo or RitmoAnalisis()
+        self.log = log
+        self._reloj = reloj
+        self._cond = threading.Condition()
+        self._hilo = None
+        #  Sube en cada iniciar()/detener(). Un hilo de una sesion anterior
+        #  que aun estuviera terminando su ultimo analisis lo ve cambiado y se
+        #  va sin tocar nada de la sesion nueva.
+        self._generacion = 0
+        self._vivo = False
+        self._buffer = None          # entrada PREASIGNADA, reutilizada
+        self._marca = None
+        self._pendiente = False      # hay un fotograma en el buffer sin analizar
+        self._ocupado = False        # el hilo esta leyendo el buffer AHORA
+        self._proximo = 0.0          # no aceptar fotogramas antes de este instante
+        self._resultado = None
+        self._t_resultado = 0.0
+        self._medidor = Medidor()
+        self._perf = Perfilador()
+        self.ofrecidos = 0
+        self.analizados = 0
+        self.errores = 0
+        self.ultimo_error = None
+
+    # ---- Ciclo de vida ----------------------------------------------------
+    def iniciar(self):
+        """Arranca el hilo (idempotente). Devuelve True si lo arranco."""
+        with self._cond:
+            if self._vivo and self._hilo is not None and self._hilo.is_alive():
+                return False
+            self._generacion += 1
+            generacion = self._generacion
+            self._vivo = True
+            self._pendiente = False
+            self._ocupado = False
+            self._buffer = None      # nunca compartir buffer con un hilo viejo
+            self._resultado = None
+            self._proximo = 0.0
+            self.ritmo.reiniciar(self._reloj())
+            self._medidor.reset()
+            self._perf.reiniciar()
+            hilo = self._hilo = threading.Thread(
+                target=self._bucle, args=(generacion,),
+                name=f"medibot-{self.nombre}", daemon=True)
+        hilo.start()
+        return True
+
+    def detener(self, espera=1.0):
+        """Para el hilo y SUELTA la memoria del buffer y del ultimo resultado:
+        con el sistema parado no se retiene ni un fotograma."""
+        with self._cond:
+            self._vivo = False
+            self._generacion += 1
+            self._pendiente = False
+            self._buffer = None
+            self._resultado = None
+            hilo, self._hilo = self._hilo, None
+            self._cond.notify_all()
+        if hilo is not None and hilo is not threading.current_thread():
+            hilo.join(espera)
+
+    @property
+    def activo(self):
+        with self._cond:
+            return self._vivo
+
+    # ---- Productor (hilo de captura) -----------------------------------
+    def ofrecer(self, frame, marca=None):
+        """Entrega un fotograma SIN esperar. Devuelve True si se va a analizar.
+
+        Solo se copia (en el buffer reutilizado) cuando el analizador lo va a
+        usar: si esta ocupado, o en reposo y aun no toca, se devuelve False al
+        instante y no se gasta ni memoria ni CPU."""
+        if frame is None:
+            return False
+        with self._cond:
+            self.ofrecidos += 1
+            if not self._vivo or self._ocupado or self._pendiente:
+                return False
+            if self._reloj() < self._proximo:
+                return False
+            buf = self._buffer
+            if buf is None or buf.shape != frame.shape or buf.dtype != frame.dtype:
+                buf = self._buffer = np.empty_like(frame)
+            #  Copiar es imprescindible: el hilo de captura va a pintar encima
+            #  de 'frame' y a reutilizarlo para el siguiente read().
+            np.copyto(buf, frame)
+            self._marca = marca
+            self._pendiente = True
+            self._cond.notify_all()
+            return True
+
+    def mantener_activo(self, valor):
+        """Fuerza (o libera) el ritmo completo aunque no se detecte nada."""
+        valor = bool(valor)
+        with self._cond:
+            if valor and not self.ritmo.forzar_activo:
+                self._proximo = 0.0          # no esperar al siguiente turno de reposo
+            self.ritmo.forzar_activo = valor
+
+    def resultado(self, max_edad=None):
+        """Ultimo resultado si es reciente; si no, None. Asi un analizador
+        atascado no deja recuadros 'fantasma' pegados al video."""
+        limite = self.ttl() if max_edad is None else max_edad
+        with self._cond:
+            res = self._resultado
+            if res is None or self._reloj() - self._t_resultado > limite:
+                return None
+            return res
+
+    def ttl(self):
+        """Edad maxima de un resultado para seguir pintandolo. Tiene que
+        cubrir el intervalo de reposo, o los recuadros parpadearian."""
+        return max(1.0, 2.5 / self.ritmo.fps_reposo)
+
+    # ---- Telemetria -----------------------------------------------------
+    def estado(self):
+        with self._cond:
+            ahora = self._reloj()
+            vivo = self._vivo
+            reciente = vivo and (ahora - self._t_resultado) <= max(2.0, self.ttl())
+            return {
+                "modo": self.ritmo.modo(ahora) if vivo else "parado",
+                "fps_analisis": self._medidor.fps if reciente else 0,
+                "ms_analisis": round(self._perf.medias().get("analisis", 0.0), 1),
+                "sin_detectar_s": round(self.ritmo.sin_detectar(ahora), 1) if vivo else 0.0,
+                "fps_reposo": self.ritmo.fps_reposo,
+                "segundos_reposo": self.ritmo.segundos_reposo,
+                "ofrecidos": self.ofrecidos,
+                "analizados": self.analizados,
+                "errores": self.errores,
+                "ultimo_error": self.ultimo_error,
+            }
+
+    def resumen(self):
+        e = self.estado()
+        return (f"analisis {e['modo']} {e['fps_analisis']} FPS "
+                f"({e['ms_analisis']:.1f} ms)")
+
+    # ---- Hilo del analizador ----------------------------------------------
+    def _bucle(self, generacion):
+        while True:
+            with self._cond:
+                while (self._vivo and generacion == self._generacion
+                       and not self._pendiente):
+                    self._cond.wait()
+                if not self._vivo or generacion != self._generacion:
+                    return
+                frame = self._buffer
+                marca = self._marca
+                self._pendiente = False
+                self._ocupado = True
+                t_inicio = self._reloj()
+
+            t0 = time.perf_counter()
+            resultado, error = None, None
+            try:
+                resultado = self.funcion(frame, marca)
+            except Exception as e:      # el hilo no puede morir por esto
+                error = e
+            ms = (time.perf_counter() - t0) * 1000.0
+            frame = None                # no retener el buffer fuera del turno
+
+            with self._cond:
+                if generacion != self._generacion:
+                    return              # detenido mientras analizaba
+                self._ocupado = False
+                ahora = self._reloj()
+                self._perf.anotar("analisis", ms)
+                if error is None:
+                    self.analizados += 1
+                    self._resultado = resultado
+                    self._t_resultado = ahora
+                    self._medidor.tick(ahora)
+                    self.ritmo.anotar(bool(getattr(resultado, "hubo_deteccion", False)),
+                                      ahora)
+                else:
+                    texto = f"{type(error).__name__}: {error}"
+                    self.errores += 1
+                    if texto != self.ultimo_error:     # no inundar la consola
+                        self.log(f"[{self.nombre}] fallo analizando: {texto}")
+                    self.ultimo_error = texto
+                #  Se cuenta desde el INICIO del analisis: en reposo a 2 FPS,
+                #  un analisis de 100 ms no convierte el periodo en 600 ms.
+                self._proximo = t_inicio + self.ritmo.intervalo(ahora)
+
+
+def congelar_gc(log=print):
+    """Saca del recolector de basura todo lo que existe ahora (gc.freeze).
+
+    POR QUE: las pausas del GC de Python son proporcionales a cuantos objetos
+    contenedores vigila. Tras arrancar, Medibot tiene decenas de miles que
+    viven para siempre (Tk, Flask, modulos, la interfaz). Cada pasada
+    completa los recorre todos con el GIL cogido, y en ese rato ningun hilo
+    avanza: ni la captura, ni el streaming. Es un tiron de video cada cierto
+    tiempo sin ninguna causa visible.
+
+    gc.freeze() los aparta a una generacion permanente que el GC ya no
+    recorre. No desactiva el GC: lo nuevo se sigue recogiendo igual. Se llama
+    UNA vez, al final del arranque. MEDIBOT_GC_FREEZE=0 lo desactiva.
+    """
+    if not _booleano("MEDIBOT_GC_FREEZE", True):
+        return False
+    if not hasattr(gc, "freeze"):               # Python < 3.7
+        return False
+    gc.collect()
+    gc.freeze()
+    log(f"[vision] GC: {gc.get_freeze_count()} objetos del arranque fuera de "
+        f"las pasadas del recolector")
+    return True
 
 
 # =============================================================================

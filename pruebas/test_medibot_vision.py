@@ -26,6 +26,7 @@ QUE CUBRE Y POR QUE (cada prueba fija una regresion concreta):
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -814,6 +815,431 @@ class PruebasBucleCompletoSinHardware(unittest.TestCase):
         cam.release()
         self.assertTrue(np.array_equal(publicado, antes),
                         "el fotograma publicado se modificó después de publicarlo")
+
+
+# =============================================================================
+class RelojFalso:
+    """Reloj que solo avanza cuando la prueba lo dice: permite probar el modo
+    reposo (segundos sin detectar nada) sin esperar segundos de verdad."""
+
+    def __init__(self, t=1000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def esperar(condicion, limite=2.0):
+    """Espera (poco) a que otro hilo haga algo. Falla la prueba si no llega."""
+    fin = time.monotonic() + limite
+    while time.monotonic() < fin:
+        if condicion():
+            return True
+        time.sleep(0.002)
+    return False
+
+
+class PruebasRitmoAnalisis(unittest.TestCase):
+    """Modo reposo: sin detecciones se analiza poco; con algo, a tope."""
+
+    def test_arranca_activo_y_sin_tope(self):
+        r = mv.RitmoAnalisis(fps_activo=0, fps_reposo=2, segundos_reposo=3)
+        r.reiniciar(100.0)
+        self.assertEqual(r.modo(100.0), r.ACTIVO)
+        self.assertEqual(r.intervalo(100.0), 0.0)
+
+    def test_sin_detectar_pasa_a_reposo_a_2_fps(self):
+        r = mv.RitmoAnalisis(fps_activo=0, fps_reposo=2, segundos_reposo=3)
+        r.reiniciar(100.0)
+        r.anotar(False, 101.0)
+        r.anotar(False, 102.9)
+        self.assertEqual(r.modo(102.9), r.ACTIVO)
+        r.anotar(False, 103.1)
+        self.assertEqual(r.modo(103.1), r.REPOSO)
+        self.assertAlmostEqual(r.intervalo(103.1), 0.5)
+
+    def test_una_deteccion_devuelve_el_ritmo_completo_al_instante(self):
+        r = mv.RitmoAnalisis(fps_reposo=2, segundos_reposo=3)
+        r.reiniciar(100.0)
+        self.assertEqual(r.modo(110.0), r.REPOSO)
+        r.anotar(True, 110.0)
+        self.assertEqual(r.modo(110.0), r.ACTIVO)
+        self.assertEqual(r.intervalo(110.0), 0.0)
+
+    def test_forzar_activo_ignora_el_reposo(self):
+        """Registrando a una persona hacen falta todas las caras posibles."""
+        r = mv.RitmoAnalisis(segundos_reposo=1)
+        r.reiniciar(0.0)
+        r.forzar_activo = True
+        self.assertEqual(r.modo(50.0), r.ACTIVO)
+
+    def test_tope_en_modo_activo(self):
+        r = mv.RitmoAnalisis(fps_activo=10)
+        r.reiniciar(0.0)
+        self.assertAlmostEqual(r.intervalo(0.0), 0.1)
+
+    def test_desde_entorno(self):
+        entorno = {"MEDIBOT_ANALISIS_FPS": "12", "MEDIBOT_REPOSO_FPS": "0.5",
+                   "MEDIBOT_REPOSO_SEG": "7"}
+        previo = {k: os.environ.get(k) for k in entorno}
+        os.environ.update(entorno)
+        try:
+            r = mv.RitmoAnalisis.desde_entorno()
+            self.assertEqual((r.fps_activo, r.fps_reposo, r.segundos_reposo),
+                             (12.0, 0.5, 7.0))
+        finally:
+            for k, v in previo.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
+class PruebasAnalizadorAsincrono(unittest.TestCase):
+    """El 'Web Worker' de Medibot: el video no puede esperar al detector."""
+
+    def setUp(self):
+        self.analizadores = []
+
+    def tearDown(self):
+        for a in self.analizadores:
+            a.detener()
+
+    def nuevo(self, funcion, **kw):
+        a = mv.AnalizadorAsincrono(funcion, **kw)
+        self.analizadores.append(a)
+        a.iniciar()
+        return a
+
+    def test_ofrecer_nunca_espera_al_detector(self):
+        """Con un detector de 200 ms, 30 entregas tienen que ser instantaneas:
+        antes cada fotograma esperaba al Haar y eso era lo que hundia los FPS."""
+        def lento(frame, marca):
+            time.sleep(0.2)
+            return mv.ResultadoAnalisis()
+
+        a = self.nuevo(lento)
+        frame = frame_de_prueba(160, 120)
+        t0 = time.perf_counter()
+        aceptados = sum(a.ofrecer(frame, i) for i in range(30))
+        dt = time.perf_counter() - t0
+        self.assertLess(dt, 0.1, f"ofrecer() tardo {dt * 1000:.0f} ms en total")
+        self.assertEqual(aceptados, 1, "sin cola: con el detector ocupado se salta")
+
+    def test_analiza_el_ultimo_fotograma_y_no_acumula_cola(self):
+        vistos = []
+
+        def anota(frame, marca):
+            vistos.append(marca)
+            time.sleep(0.03)
+            return mv.ResultadoAnalisis()
+
+        a = self.nuevo(anota)
+        frame = frame_de_prueba(160, 120)
+        for i in range(40):
+            a.ofrecer(frame, i)
+            time.sleep(0.005)
+        self.assertTrue(esperar(lambda: a.estado()["analizados"] == len(vistos)
+                                and not a._ocupado))
+        self.assertLess(len(vistos), 40, "se analizaron todos: hay una cola")
+        self.assertEqual(vistos, sorted(vistos), "nunca se vuelve atras")
+
+    def test_el_analizador_trabaja_sobre_una_copia(self):
+        """El bucle de captura pinta encima y reutiliza su frame: el
+        analizador tiene que ver la imagen tal y como se le entrego."""
+        visto = {}
+        listo = threading.Event()
+        seguir = threading.Event()
+
+        def mira(frame, marca):
+            listo.set()
+            seguir.wait(1.0)
+            visto["valor"] = int(frame[0, 0, 0])
+            return mv.ResultadoAnalisis()
+
+        a = self.nuevo(mira)
+        frame = np.full((10, 10, 3), 7, np.uint8)
+        self.assertTrue(a.ofrecer(frame, 0))
+        self.assertTrue(listo.wait(1.0))
+        frame[:] = 99                       # la captura sigue con lo suyo
+        seguir.set()
+        self.assertTrue(esperar(lambda: "valor" in visto))
+        self.assertEqual(visto["valor"], 7)
+
+    def test_reutiliza_el_buffer_de_entrada(self):
+        """Ni un array nuevo por fotograma analizado."""
+        ids = []
+
+        def mira(frame, marca):
+            ids.append(id(frame))
+            return mv.ResultadoAnalisis()
+
+        a = self.nuevo(mira)
+        frame = frame_de_prueba(160, 120)
+        for i in range(5):
+            self.assertTrue(esperar(lambda: a.ofrecer(frame, i)))
+            self.assertTrue(esperar(lambda: len(ids) == i + 1))
+        self.assertEqual(len(set(ids)), 1)
+
+    def test_resultado_y_caducidad(self):
+        reloj = RelojFalso()
+        a = self.nuevo(lambda f, m: mv.ResultadoAnalisis(rojos=[{"x": 1}]),
+                       reloj=reloj)
+        self.assertIsNone(a.resultado())
+        self.assertTrue(a.ofrecer(frame_de_prueba(80, 60), 0))
+        self.assertTrue(esperar(lambda: a.resultado() is not None))
+        self.assertTrue(a.resultado().hubo_deteccion)
+        reloj.t += a.ttl() + 0.1
+        self.assertIsNone(a.resultado(), "un resultado viejo no se pinta")
+
+    def test_modo_reposo_baja_a_2_analisis_por_segundo(self):
+        reloj = RelojFalso()
+        hay_algo = {"si": False}
+        a = self.nuevo(lambda f, m: mv.ResultadoAnalisis(
+            rojos=[{"x": 1}] if hay_algo["si"] else []),
+            reloj=reloj, ritmo=mv.RitmoAnalisis(fps_reposo=2, segundos_reposo=3))
+        frame = frame_de_prueba(80, 60)
+
+        def analizar_uno():
+            n = a.estado()["analizados"]
+            self.assertTrue(a.ofrecer(frame, reloj.t))
+            self.assertTrue(esperar(lambda: a.estado()["analizados"] == n + 1
+                                    and not a._ocupado))
+
+        analizar_uno()
+        self.assertEqual(a.estado()["modo"], "activo")
+        self.assertTrue(a.ofrecer(frame, reloj.t), "activo: sin espera")
+        self.assertTrue(esperar(lambda: not a._pendiente and not a._ocupado))
+
+        reloj.t += 3.5                      # nada que ver durante 3,5 s
+        analizar_uno()
+        self.assertEqual(a.estado()["modo"], "reposo")
+        reloj.t += 0.1
+        self.assertFalse(a.ofrecer(frame, reloj.t), "en reposo aun no toca")
+        reloj.t += 0.45
+        hay_algo["si"] = True
+        analizar_uno()                       # a los 0,5 s si toca, y ve algo
+        self.assertEqual(a.estado()["modo"], "activo")
+        self.assertTrue(a.ofrecer(frame, reloj.t), "con algo a la vista, a tope")
+
+    def test_mantener_activo_no_espera_al_turno_de_reposo(self):
+        reloj = RelojFalso()
+        a = self.nuevo(lambda f, m: mv.ResultadoAnalisis(), reloj=reloj,
+                       ritmo=mv.RitmoAnalisis(fps_reposo=2, segundos_reposo=1))
+        frame = frame_de_prueba(80, 60)
+        reloj.t += 5
+        self.assertTrue(a.ofrecer(frame, 0))
+        self.assertTrue(esperar(lambda: a.estado()["analizados"] == 1 and not a._ocupado))
+        self.assertFalse(a.ofrecer(frame, 1))
+        a.mantener_activo(True)
+        self.assertTrue(a.ofrecer(frame, 2))
+
+    def test_un_fallo_del_detector_no_mata_el_hilo(self):
+        llamadas = []
+
+        def falla_una_vez(frame, marca):
+            llamadas.append(marca)
+            if len(llamadas) == 1:
+                raise ValueError("boom")
+            return mv.ResultadoAnalisis()
+
+        a = self.nuevo(falla_una_vez, log=lambda *_: None)
+        frame = frame_de_prueba(80, 60)
+        self.assertTrue(a.ofrecer(frame, 0))
+        self.assertTrue(esperar(lambda: a.estado()["errores"] == 1 and not a._ocupado))
+        self.assertTrue(a.ofrecer(frame, 1))
+        self.assertTrue(esperar(lambda: a.estado()["analizados"] == 1))
+        self.assertIn("boom", a.estado()["ultimo_error"])
+
+    def test_detener_suelta_la_memoria_y_se_puede_reiniciar(self):
+        a = self.nuevo(lambda f, m: mv.ResultadoAnalisis(rojos=[{"x": 1}]))
+        self.assertTrue(a.ofrecer(frame_de_prueba(80, 60), 0))
+        self.assertTrue(esperar(lambda: a.resultado() is not None))
+        a.detener()
+        self.assertIsNone(a._buffer)
+        self.assertIsNone(a.resultado())
+        self.assertEqual(a.estado()["modo"], "parado")
+        self.assertFalse(a.ofrecer(frame_de_prueba(80, 60), 1), "parado no acepta")
+        self.assertTrue(a.iniciar())
+        self.assertTrue(a.ofrecer(frame_de_prueba(80, 60), 2))
+        self.assertTrue(esperar(lambda: a.resultado() is not None))
+
+    def test_el_video_va_al_ritmo_de_la_camara_y_no_del_detector(self):
+        """Integracion: camara sintetica + detector lento (40 ms).
+
+        En serie (como antes) 30 fotogramas costarian >= 1,2 s. Con el
+        analizador aparte, el bucle de captura va al ritmo de la camara y los
+        recuadros se siguen pintando con el ultimo resultado."""
+        def lento(frame, marca):
+            time.sleep(0.04)
+            return mv.ResultadoAnalisis(
+                [mv.Marca(10, 10, 20, 20, (0, 255, 0), 2, [("CARA", 5)])])
+
+        a = self.nuevo(lento)
+        cam = mv.CamaraSintetica(0, 160, 120, fps=200)
+        hub = mv.FrameHub()
+        frame, pintados = None, 0
+        t0 = time.perf_counter()
+        for i in range(30):
+            ok, frame = cam.read(frame)
+            self.assertTrue(ok)
+            a.ofrecer(frame, i)
+            res = a.resultado()
+            if res is not None:
+                mv.dibujar_resultado(frame, res)
+                pintados += 1
+            hub.publicar(0, frame.copy())
+        dt = time.perf_counter() - t0
+        cam.release()
+        self.assertLess(dt, 0.6, f"el bucle de captura tardo {dt:.2f} s: espera al detector")
+        self.assertEqual(hub.secuencia(0), 30, "ni un fotograma de video perdido")
+        self.assertGreater(pintados, 0)
+        self.assertLess(a.estado()["analizados"], 30, "el detector va a su ritmo")
+
+
+class PruebasMemoriaBuffers(unittest.TestCase):
+    """Los buffers grandes se reservan una vez y se reutilizan."""
+
+    def test_camara_sintetica_reutiliza_el_destino(self):
+        cam = mv.CamaraSintetica(0, 160, 120, fps=500)
+        _, f1 = cam.read()
+        _, f2 = cam.read(f1)
+        self.assertIs(f2, f1)
+        cam.release()
+
+    def test_detector_de_rojo_reutiliza_sus_buffers_y_da_lo_mismo(self):
+        d = mv.RedDetector(area_minima=300)
+        primero = d.detectar(frame_de_prueba(), dibujar=False)
+        hsv = d._hsv
+        segundo = d.detectar(frame_de_prueba(), dibujar=False)
+        self.assertIs(d._hsv, hsv)
+        self.assertEqual(primero, segundo)
+
+    def test_detector_de_rojo_a_escala_reutiliza_la_copia_reducida(self):
+        d = mv.RedDetector(area_minima=300, escala_deteccion=0.5)
+        d.detectar(frame_de_prueba(), dibujar=False)
+        pequeno = d._pequeno
+        self.assertEqual(pequeno.shape[:2], (240, 320))
+        d.detectar(frame_de_prueba(), dibujar=False)
+        self.assertIs(d._pequeno, pequeno)
+
+    def test_detector_de_rojo_se_adapta_si_cambia_la_resolucion(self):
+        d = mv.RedDetector(area_minima=100)
+        d.detectar(frame_de_prueba(), dibujar=False)
+        objetos = d.detectar(frame_de_prueba(320, 240), dibujar=False)
+        self.assertEqual(len(objetos), 1)
+        self.assertEqual(d._hsv.shape[:2], (240, 320))
+
+    def test_dibujar_aparte_pinta_lo_mismo_que_detectar_dibujando(self):
+        """El bucle de captura pinta resultados de otro hilo con dibujar()."""
+        a, b = frame_de_prueba(), frame_de_prueba()
+        objetos = mv.RedDetector().detectar(a, dibujar=True)
+        mv.RedDetector.dibujar(b, objetos)
+        self.assertTrue(np.array_equal(a, b))
+
+    def test_face_detector_reutiliza_el_gris(self):
+        d = mv.FaceDetector(None)
+        _, g1 = d.detectar(frame_de_prueba())
+        _, g2 = d.detectar(frame_de_prueba())
+        self.assertIs(g1, g2)
+
+    def test_dibujar_resultado_pinta_las_marcas(self):
+        f = np.zeros((120, 160, 3), np.uint8)
+        res = mv.ResultadoAnalisis([mv.Marca(20, 40, 30, 30, (0, 255, 0), 2,
+                                             [("HOLA", 10)])])
+        self.assertTrue(res.hubo_deteccion)
+        mv.dibujar_resultado(f, res)
+        self.assertTrue(f[40, 20:50, 1].all(), "falta el recuadro")
+        g = np.zeros_like(f)
+        mv.dibujar_resultado(g, res, marcas=False)
+        self.assertFalse(g.any(), "marcas=False no debe pintar caras")
+
+    def test_congelar_gc_se_puede_desactivar(self):
+        import gc
+        previo = os.environ.get("MEDIBOT_GC_FREEZE")
+        os.environ["MEDIBOT_GC_FREEZE"] = "0"
+        try:
+            self.assertFalse(mv.congelar_gc(log=lambda *_: None))
+            os.environ["MEDIBOT_GC_FREEZE"] = "1"
+            self.assertTrue(mv.congelar_gc(log=lambda *_: None))
+            self.assertGreater(gc.get_freeze_count(), 0)
+        finally:
+            gc.unfreeze()
+            if previo is None:
+                os.environ.pop("MEDIBOT_GC_FREEZE", None)
+            else:
+                os.environ["MEDIBOT_GC_FREEZE"] = previo
+
+
+class PruebasWebSigueALaCamara(unittest.TestCase):
+    """El tope de la web venia fijado en 15 FPS: con una camara de 30, la web
+    no podia pasar de 15 hiciera lo que hiciera el resto del codigo."""
+
+    def _con_entorno(self, entorno):
+        claves = ("MEDIBOT_WEB_FPS", "MEDIBOT_CAM_FPS")
+        previo = {k: os.environ.get(k) for k in claves}
+        for k in claves:
+            os.environ.pop(k, None)
+        os.environ.update(entorno)
+        try:
+            return mv.PerfilWeb.desde_entorno().fps_max
+        finally:
+            for k, v in previo.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_por_defecto_30(self):
+        self.assertEqual(self._con_entorno({}), 30)
+
+    def test_sigue_a_los_fps_de_la_camara(self):
+        self.assertEqual(self._con_entorno({"MEDIBOT_CAM_FPS": "60"}), 60)
+
+    def test_se_puede_bajar_a_mano(self):
+        self.assertEqual(self._con_entorno({"MEDIBOT_CAM_FPS": "60",
+                                            "MEDIBOT_WEB_FPS": "15"}), 15)
+
+
+class PruebasBucleDeCapturaDesacoplado(unittest.TestCase):
+    """Guarda contra la regresion: el bucle de captura de Vision_MEDIBOT.py
+    no puede volver a llamar a un detector. Si lo hace, el video vuelve a ir
+    al ritmo del Haar (10-15 FPS). Se lee el codigo, no se importa (importarlo
+    abriria Tk y Flask)."""
+
+    @classmethod
+    def setUpClass(cls):
+        ruta = os.path.join(_RAIZ, "medibot", "Vision_MEDIBOT.py")
+        with open(ruta, encoding="utf-8") as f:
+            src = f.read()
+        m = re.search(r"\ndef process_camera\(.*?\n(?=def )", src, re.S)
+        cls.bucle = m.group(0) if m else ""
+        m = re.search(r"\ndef analizar_fotograma\(.*?\n(?=\S)", src, re.S)
+        cls.analisis = m.group(0) if m else ""
+
+    def test_existen_las_dos_mitades(self):
+        self.assertTrue(self.bucle)
+        self.assertTrue(self.analisis)
+
+    def test_la_captura_no_detecta(self):
+        for prohibido in (".detectar(", "detectMultiScale", ".predict(", "imwrite("):
+            self.assertNotIn(prohibido, self.bucle,
+                             f"process_camera vuelve a llamar a {prohibido}")
+
+    def test_la_captura_ofrece_y_pinta(self):
+        self.assertIn(".ofrecer(", self.bucle)
+        self.assertIn(".resultado()", self.bucle)
+        self.assertIn("dibujar_resultado(", self.bucle)
+
+    def test_se_ofrece_antes_de_pintar(self):
+        """El detector de rojo veria como objeto rojo nuestros recuadros."""
+        self.assertLess(self.bucle.index(".ofrecer("),
+                        self.bucle.index("dibujar_resultado("))
+
+    def test_la_deteccion_esta_en_el_analizador(self):
+        self.assertIn("_face_detector.detectar(", self.analisis)
+        self.assertIn("recognizer.predict(", self.analisis)
+        self.assertIn("hubo_deteccion", self.analisis)
 
 
 if __name__ == "__main__":

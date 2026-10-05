@@ -1,4 +1,5 @@
 import cv2
+import functools
 import hashlib
 import os
 import shutil
@@ -558,6 +559,12 @@ class ObjectTracker:
         self.object_history = {}
         self.max_history = max_history
         self.tracking_enabled = True
+        #  Desde que la deteccion corre en el hilo del analizador, el historial
+        #  lo escriben los analizadores (uno por camara), lo pinta el bucle de
+        #  captura y lo lee Flask para la API. Sin lock, recorrer el dict
+        #  mientras otro hilo lo cambia acaba en "dictionary changed size
+        #  during iteration". Quien lo vacia desde fuera tambien lo coge.
+        self.lock = threading.RLock()
 
     @classmethod
     def _id_objeto(cls, obj):
@@ -566,6 +573,10 @@ class ObjectTracker:
 
     def update_tracking(self, objects, frame_time):
         """Actualiza el historial de seguimiento de objetos"""
+        with self.lock:
+            self._update_tracking(objects, frame_time)
+
+    def _update_tracking(self, objects, frame_time):
         for obj in objects:
             obj_id = self._id_objeto(obj)
 
@@ -618,6 +629,10 @@ class ObjectTracker:
     
     def get_tracking_data(self):
         """Obtiene datos de seguimiento para la API usando json"""
+        with self.lock:
+            return self._get_tracking_data()
+
+    def _get_tracking_data(self):
         return [
             {
                 'id': data['id'],
@@ -635,7 +650,10 @@ class ObjectTracker:
         """Dibuja las trayectorias de seguimiento poniendo cuadritos"""
         if not self.tracking_enabled:
             return frame
-            
+        with self.lock:
+            return self._draw_tracking(frame, objects)
+
+    def _draw_tracking(self, frame, objects):
         for obj in objects:
             obj_id = self._id_objeto(obj)
 
@@ -754,7 +772,12 @@ def get_video_files():
 # rangos HSV y el kernel morfologico en CADA fotograma (antes se creaban 5
 # arrays de numpy por frame) y dibuja sobre el frame recibido, sin la copia
 # extra que se hacia antes. La salida es identica (verificado).
-_red_detector = medibot_vision.RedDetector(area_minima=300)
+#  UNO POR CAMARA: el detector reutiliza sus buffers (HSV, mascaras) entre
+#  llamadas, y cada camara tiene su propio hilo analizador. Compartir uno
+#  haria que los dos hilos se pisaran los buffers.
+_red_detectors = {0: medibot_vision.RedDetector(area_minima=300),
+                  1: medibot_vision.RedDetector(area_minima=300)}
+_red_detector = medibot_vision.RedDetector(area_minima=300)   # detect_red_objects()
 
 
 def detect_red_objects(frame):
@@ -977,7 +1000,12 @@ def release_cameras():
             video_writer2.release()
             video_writer2 = None
         # Soltar los fotogramas retenidos: si no, la RAM de los ultimos frames
-        # (y sus JPEG) se queda ocupada mientras el sistema esta parado.
+        # (y sus JPEG) se queda ocupada mientras el sistema esta parado. Lo
+        # mismo con los analizadores: su buffer de entrada y su ultimo
+        # resultado (cada process_camera ya para el suyo al salir; esto cubre
+        # una camara cuyo hilo no llego a arrancar).
+        for _analizador in analizadores.values():
+            _analizador.detener()
         frame_hub.limpiar()
         time.sleep(0.5)
         print("Cámaras liberadas correctamente")
@@ -1009,17 +1037,26 @@ def get_active_camera():
 medidor_captura = {0: medibot_vision.Medidor(), 1: medibot_vision.Medidor()}
 
 
-def read_frame_from_camera(camera, camera_index):
+def read_frame_from_camera(camera, camera_index, destino=None):
     """Lee un frame de una cámara específica.
 
     Solo cuenta el fotograma si la lectura SALIÓ BIEN, para que los FPS
-    publicados sean fotogramas de verdad."""
+    publicados sean fotogramas de verdad.
+
+    'destino' es el fotograma de la vuelta anterior: read() lo REUTILIZA y
+    escribe encima en vez de reservar ~900 KB nuevos en cada fotograma (a 30
+    FPS, 27 MB/s que el asignador tenia que pedir y devolver). Si el tamano
+    no encaja, OpenCV devuelve uno nuevo, por eso se usa siempre lo que
+    devuelve."""
     global fps1, fps2
     try:
         if camera is None or not camera.isOpened():
             return False, None
 
-        ret, frame = camera.read()
+        if destino is not None:
+            ret, frame = camera.read(destino)
+        else:
+            ret, frame = camera.read()
         if not ret or frame is None:
             return False, None
 
@@ -1035,10 +1072,26 @@ def read_frame_from_camera(camera, camera_index):
         return False, None
 
 # ================= PROCESAMIENTO SIMULTÁNEO DE AMBAS CÁMARAS =======
-# Detector de caras compartido. Detecta a MITAD de escala (4x menos pixeles,
-# ~2x mas rapido: 25.5 ms -> 12.7 ms medidos) manteniendo scaleFactor y
-# minNeighbors, asi que la sensibilidad no cambia; devuelve coordenadas a
-# tamano real y el gris completo para que el reconocedor no pierda nitidez.
+#  CAPTURA Y ANALISIS VAN SEPARADOS (ver medibot_vision.AnalizadorAsincrono).
+#
+#    process_camera()       hilo de CAPTURA, uno por cámara. Lee, ofrece el
+#                           fotograma al analizador SIN esperarle, pinta el
+#                           último resultado, graba y publica. Va al ritmo de
+#                           la cámara (30 FPS), tarde lo que tarde el detector.
+#    analizar_fotograma()   hilo ANALIZADOR, uno por cámara. Caras (Haar +
+#                           LBPH), objetos rojos, servos y estado. Va al ritmo
+#                           que da el detector, y en REPOSO a 2 por segundo.
+#
+#  Antes las dos cosas iban en serie en el mismo bucle: con el reconocimiento
+#  encendido, cada fotograma esperaba al Haar y el vídeo caía a 10-15 FPS
+#  aunque no hubiera nadie delante.
+
+# Detector de caras. Detecta a MITAD de escala (4x menos pixeles, ~2x mas
+# rapido: 25.5 ms -> 12.7 ms medidos) manteniendo scaleFactor y minNeighbors,
+# asi que la sensibilidad no cambia; devuelve coordenadas a tamano real y el
+# gris completo para que el reconocedor no pierda nitidez.
+#  Solo lo usa el analizador de la cámara 1 (la única que busca caras): sus
+#  buffers se reutilizan entre llamadas y no pueden compartirse entre hilos.
 _face_detector = medibot_vision.FaceDetector(cascade, escala=0.5,
                                              scale_factor=1.1, min_neighbors=5,
                                              min_size=(30, 30))
@@ -1053,13 +1106,158 @@ def _necesita_deteccion_facial():
     return capture_mode or (recognition_enabled and recognizer is not None)
 
 
-def process_camera(camera_index):
-    """Procesa una cámara específica en un hilo separado"""
-    # Solo se declaran las globales que esta funcion ESCRIBE (online, recording
-    # y fps* unicamente se leen, asi que no necesitan declaracion).
+def _hay_que_analizar(camera_index):
+    """?Tiene esta cámara algún detector encendido? Si no, ni se despierta al
+    analizador: el bucle de captura solo lee y publica."""
+    if DETECCION_ROJO:
+        return True
+    return camera_index == 0 and cascade is not None and _necesita_deteccion_facial()
+
+
+def _zona(cx, cy):
+    """Tercio de la imagen en el que cae un punto (para los servos)."""
+    pos_x = "left" if cx < ZONE_X else ("right" if cx > ZONE_X * 2 else "center")
+    pos_y = "up" if cy < ZONE_Y else ("down" if cy > ZONE_Y * 2 else "center")
+    return pos_x, pos_y
+
+
+def analizar_fotograma(camera_index, frame, current_time):
+    """TODO lo caro de la visión, fuera del bucle de captura.
+
+    Corre en el hilo del analizador de cada cámara (nunca en el de captura),
+    sobre una COPIA del fotograma. No dibuja nada: devuelve un
+    ResultadoAnalisis con lo que hay que pintar, y el bucle de captura lo
+    pinta sobre cada fotograma hasta que llega el siguiente resultado.
+
+    La lógica es la de siempre (mismos estados, mismos textos, mismos
+    colores); lo único que cambia es en qué hilo se ejecuta."""
     global system_status, detection_count, captured_images
     global capture_mode, face_position, last_face_time, detected_red_objects
+
+    es_principal = (camera_index == 0)      # la cámara 1 manda sobre los servos
+    marcas = []
+
+    # ---- Objetos rojos -----------------------------------------------
+    # Apagada por defecto (MEDIBOT_DETECT_ROJO=1 la enciende al arrancar, y
+    # el boton "Color rojo" en caliente).
+    if DETECCION_ROJO:
+        red_objects = _red_detectors[camera_index].detectar(frame, dibujar=False)
+        object_tracker.update_tracking(red_objects, current_time)
+    else:
+        red_objects = []
+    detected_red_objects = red_objects   # publicar para las APIs web
+
+    # ---- Caras: SOLO si alguien va a usarlas --------------------------
+    # Se conserva la estructura original (incluido centrar los servos
+    # cuando no hay reconocimiento). Centrar es casi gratis: _escribir_pwm_*
+    # ignora los valores repetidos.
+    faces = []
+    if es_principal and cascade is not None and not _necesita_deteccion_facial():
+        center_pwm()
+    elif es_principal and cascade is not None:
+        faces, gray = _face_detector.detectar(frame)
+
+        if capture_mode and len(faces) > 0:
+            for (x, y, w, h) in faces:
+                roi_gray = gray[y:y+h, x:x+w]
+                person_path = os.path.join(DATA_PATH, current_capture_name)
+                cv2.imwrite(f"{person_path}/{captured_images}.jpg", roi_gray)
+                captured_images += 1
+                invalidar_cache_personas()
+
+                marcas.append(medibot_vision.Marca(
+                    x, y, w, h, (0, 255, 255), 3,
+                    [(f"CAPTURANDO: {captured_images}/{IMAGES_PER_PERSON}", 10)]))
+
+                if captured_images >= IMAGES_PER_PERSON:
+                    capture_mode = False
+                    system_status = "Captura Completada"
+                break
+
+        elif not capture_mode and recognition_enabled and recognizer is not None and len(faces) > 0:
+            last_face_time = current_time
+
+            for (x, y, w, h) in faces:
+                detection_count += 1
+                roi_gray = gray[y:y+h, x:x+w]
+
+                try:
+                    id_, conf = recognizer.predict(roi_gray)
+
+                    if conf < CONF_LIMIT:
+                        pos_x, pos_y = _zona(x + w // 2, y + h // 2)
+                        face_position = {"x": pos_x, "y": pos_y}
+                        move_servos(pos_x, pos_y)
+
+                        # El nombre sale del mapa GUARDADO AL ENTRENAR,
+                        # no del orden de os.listdir: ese orden cambia
+                        # al dar de alta o borrar a alguien y hacia que
+                        # el sistema saludara a la persona equivocada.
+                        person_name = nombre_de_etiqueta(id_)
+                        similitud = medibot_vision.similitud_desde_distancia(
+                            conf, CONF_LIMIT)
+                        _registrar_distancia_lbph(conf, person_name)
+                        # "sim" y no "%": LBPH da distancia, no
+                        # probabilidad. Ver similitud_desde_distancia.
+                        label = f"{person_name} (sim {similitud})"
+
+                        marcas.append(medibot_vision.Marca(
+                            x, y, w, h, (0, 255, 0), 3,
+                            [(label, 30), ("AUTORIZADO", 10)]))
+                        system_status = f"Rostro: {person_name}"
+                    else:
+                        _registrar_distancia_lbph(conf, None)
+                        marcas.append(medibot_vision.Marca(
+                            x, y, w, h, (0, 0, 255), 3, [("DESCONOCIDO", 10)]))
+                        system_status = "Rostro Desconocido"
+                except cv2.error as e:
+                    print(f"Error en reconocimiento facial: {e}")
+                    system_status = "Error Reconocimiento"
+                break
+        else:
+            # Detección pedida pero SIN caras en este fotograma. Solo aplica
+            # al reconocimiento (en modo captura el estado lo lleva el
+            # contador de imagenes).
+            center_pwm()
+            if (recognition_enabled and not capture_mode
+                    and system_status not in ("Rostro Desconocido",
+                                              "Error Reconocimiento")):
+                system_status = "Escaneando"
+
+    # ---- Seguimiento de objetos rojos (si no hay caras) ---------------
+    if es_principal and len(faces) == 0 and red_objects and object_tracker.tracking_enabled:
+        largest_obj = max(red_objects, key=lambda obj: obj['area'])
+        move_servos(*_zona(largest_obj['center_x'], largest_obj['center_y']))
+        system_status = f"Siguiendo objeto rojo ({largest_obj['area']}px)"
+
+    #  'hubo_deteccion' es lo que decide el modo: con una cara o un objeto
+    #  rojo a la vista se sigue a ritmo completo; sin nada durante
+    #  MEDIBOT_REPOSO_SEG segundos, el analizador baja a MEDIBOT_REPOSO_FPS.
+    return medibot_vision.ResultadoAnalisis(
+        marcas, red_objects, hubo_deteccion=bool(len(faces) or red_objects))
+
+
+#  Un analizador (hilo) por cámara, creado una vez y reutilizado en cada
+#  INICIAR/DETENER. Ver medibot_vision.AnalizadorAsincrono.
+analizadores = {
+    i: medibot_vision.AnalizadorAsincrono(
+        functools.partial(analizar_fotograma, i),
+        nombre=f"analisis-cam{i + 1}",
+        ritmo=medibot_vision.RitmoAnalisis.desde_entorno())
+    for i in (0, 1)
+}
+
+
+def process_camera(camera_index):
+    """Bucle de CAPTURA de una cámara (un hilo por cámara).
+
+    Ya NO detecta nada: lee, ofrece el fotograma al analizador sin esperarle,
+    pinta el último resultado disponible, graba y publica. Su ritmo es el de
+    la cámara; la detección vive en analizar_fotograma()."""
+    # Solo se declaran las globales que esta funcion ESCRIBE (online, recording
+    # y fps* unicamente se leen, asi que no necesitan declaracion).
     global video_writer1, video_writer2, recording_cam1, recording_cam2
+    global detected_red_objects
 
     print(f"Iniciando procesamiento de cámara {camera_index + 1}")
 
@@ -1069,9 +1267,14 @@ def process_camera(camera_index):
         return
 
     es_principal = (camera_index == 0)      # la cámara 1 manda sobre los servos
-    n_frame = 0
     perf = perfilador[camera_index]
+    analizador = analizadores[camera_index]
     ultimo_informe = time.time()
+    #  Buffer de captura: read() escribe ENCIMA del fotograma de la vuelta
+    #  anterior en vez de reservar uno nuevo cada vez. Es seguro porque al
+    #  terminar cada vuelta ya no queda nadie leyéndolo: el analizador tiene
+    #  su propia copia y el buzón recibe otra (publicar(... .copy())).
+    frame = None
 
     while online:
         try:
@@ -1082,150 +1285,60 @@ def process_camera(camera_index):
             # Python sino en la camara: hay que bajar resolucion o cambiar el
             # formato/FPS del sensor.
             with medibot_vision.Cronometro(perf, "camara"):
-                ret, frame = read_frame_from_camera(camera, camera_index)
-            if not ret or frame is None:
+                ret, leido = read_frame_from_camera(camera, camera_index, destino=frame)
+            if not ret or leido is None:
                 print(f"Error leyendo frame de cámara {camera_index + 1}, reintentando...")
                 time.sleep(0.1)
                 continue
+            frame = leido
 
-            n_frame += 1
             current_time = time.time()
 
             # Informe periodico: reparto del tiempo y quien manda de verdad.
+            #  El analisis va aparte (otro hilo): su coste ya NO suma en el
+            #  TOTAL del bucle, y por eso se informa en su propia columna.
             if current_time - ultimo_informe >= PERF_CADA_SEGUNDOS:
                 ultimo_informe = current_time
                 fps_actual = fps1 if es_principal else fps2
                 print(f"[perf cam{camera_index + 1}] captura {fps_actual} FPS | "
                       f"web {frame_hub.fps_enviados(camera_index)} FPS "
                       f"({frame_hub.clientes(camera_index)} clientes) | "
-                      f"{perf.resumen()}")
+                      f"{analizador.resumen()} | {perf.resumen()}")
 
-            # Etapa 2: todo nuestro procesamiento (detectores + dibujo). Se
-            # mide con marcas porque el bloque es largo y tiene ramas.
+            # Etapa 2: nuestro procesamiento EN ESTE HILO, que ahora es solo
+            # entregar el fotograma y pintar resultados (microsegundos).
             t_proceso = time.perf_counter()
 
-            #  Aqui se llamaba a camera_optimizer.auto_adjust(), que movia
-            #  brillo/contraste en una escala 0..1 sin llegar a enviarlos nunca
-            #  a la camara: solo servia para empeorar los valores que se
-            #  mandarian al pulsar "Optimizar camara". La exposicion automatica
-            #  de la propia webcam hace mejor ese trabajo.
-
-            # ---- Objetos rojos -------------------------------------------
-            # Se dibuja sobre el propio frame (antes se hacia frame.copy()).
-            # Apagada por defecto (MEDIBOT_DETECT_ROJO=1 la enciende al
-            # arrancar, y el boton "Color rojo" en caliente): ahorra ~1,3 ms
-            # por fotograma (cvtColor a HSV + dos morfologias + findContours).
-            processed_frame = frame
-            if DETECCION_ROJO:
-                red_objects = _red_detector.detectar(processed_frame,
-                                                     dibujar=OVERLAYS_ACTIVOS)
-                object_tracker.update_tracking(red_objects, current_time)
-                if object_tracker.tracking_enabled and OVERLAYS_ACTIVOS:
-                    processed_frame = object_tracker.draw_tracking(processed_frame, red_objects)
+            # ---- Analisis: OFRECER, nunca esperar ------------------------
+            #  Se ofrece ANTES de pintar nada encima: el detector tiene que
+            #  ver la imagen limpia (un recuadro rojo pintado por nosotros
+            #  seria, para el detector de rojos, un objeto rojo mas).
+            resultado = None
+            if _hay_que_analizar(camera_index):
+                # Capturando las fotos de alguien nuevo no hay reposo: se
+                # necesitan todas las caras que se puedan sacar.
+                analizador.mantener_activo(es_principal and capture_mode)
+                analizador.ofrecer(frame, current_time)
+                resultado = analizador.resultado()
             else:
-                red_objects = []
-            detected_red_objects = red_objects   # publicar para las APIs web
-
-            # ---- Caras: SOLO si alguien va a usarlas ----------------------
-            # Se conserva la estructura original (incluido centrar los servos
-            # cuando no hay reconocimiento); lo unico que se evita es el Haar,
-            # que es lo caro. Centrar ahora es casi gratis: _escribir_pwm_*
-            # ignora los valores repetidos.
-            faces = []
-            if es_principal and cascade is not None and not _necesita_deteccion_facial():
-                center_pwm()
-            elif es_principal and cascade is not None:
-                faces, gray = _face_detector.detectar(frame)
-
-                if capture_mode and len(faces) > 0:
-                    for (x, y, w, h) in faces:
-                        roi_gray = gray[y:y+h, x:x+w]
-                        person_path = os.path.join(DATA_PATH, current_capture_name)
-                        cv2.imwrite(f"{person_path}/{captured_images}.jpg", roi_gray)
-                        captured_images += 1
-                        invalidar_cache_personas()
-
-                        cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 255, 255), 3)
-                        cv2.putText(processed_frame, f"CAPTURANDO: {captured_images}/{IMAGES_PER_PERSON}",
-                                   (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-                        if captured_images >= IMAGES_PER_PERSON:
-                            capture_mode = False
-                            system_status = "Captura Completada"
-                        break
-
-                elif not capture_mode and recognition_enabled and recognizer is not None and len(faces) > 0:
-                    last_face_time = current_time
-
-                    for (x, y, w, h) in faces:
-                        detection_count += 1
-                        roi_gray = gray[y:y+h, x:x+w]
-
-                        try:
-                            id_, conf = recognizer.predict(roi_gray)
-
-                            if conf < CONF_LIMIT:
-                                cx, cy = x + w // 2, y + h // 2
-
-                                pos_x = "left" if cx < ZONE_X else ("right" if cx > ZONE_X * 2 else "center")
-                                pos_y = "up" if cy < ZONE_Y else ("down" if cy > ZONE_Y * 2 else "center")
-
-                                face_position = {"x": pos_x, "y": pos_y}
-                                if es_principal:
-                                    move_servos(pos_x, pos_y)
-
-                                # El nombre sale del mapa GUARDADO AL ENTRENAR,
-                                # no del orden de os.listdir: ese orden cambia
-                                # al dar de alta o borrar a alguien y hacia que
-                                # el sistema saludara a la persona equivocada.
-                                person_name = nombre_de_etiqueta(id_)
-                                similitud = medibot_vision.similitud_desde_distancia(
-                                    conf, CONF_LIMIT)
-                                _registrar_distancia_lbph(conf, person_name)
-                                # "sim" y no "%": LBPH da distancia, no
-                                # probabilidad. Ver similitud_desde_distancia.
-                                label = f"{person_name} (sim {similitud})"
-
-                                cv2.putText(processed_frame, label, (x, y - 30),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                                cv2.putText(processed_frame, "AUTORIZADO", (x, y - 10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                                cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
-                                system_status = f"Rostro: {person_name}"
-                            else:
-                                _registrar_distancia_lbph(conf, None)
-                                cv2.putText(processed_frame, "DESCONOCIDO", (x, y - 10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                                cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 0, 255), 3)
-                                system_status = "Rostro Desconocido"
-                        except cv2.error as e:
-                            print(f"Error en reconocimiento facial: {e}")
-                            system_status = "Error Reconocimiento"
-                        break
-                elif es_principal:
-                    # Detección pedida pero SIN caras en este fotograma.
-                    #  Aqui vivia una rama inalcanzable: comprobaba
-                    #  len(faces) == 0 dentro del bloque que exige
-                    #  len(faces) > 0, asi que el estado "Escaneando" no se
-                    #  ponia nunca. Ahora esta en la rama correcta, y solo
-                    #  aplica al reconocimiento (en modo captura el estado lo
-                    #  lleva el contador de imagenes).
+                if es_principal and cascade is not None:
                     center_pwm()
-                    if (recognition_enabled and not capture_mode
-                            and system_status not in ("Rostro Desconocido",
-                                                      "Error Reconocimiento")):
-                        system_status = "Escaneando"
+                if not DETECCION_ROJO and detected_red_objects:
+                    detected_red_objects = []
 
-            # ---- Seguimiento de objetos rojos (si no hay caras) -----------
-            if es_principal and len(faces) == 0 and red_objects and object_tracker.tracking_enabled:
-                largest_obj = max(red_objects, key=lambda obj: obj['area'])
-                cx, cy = largest_obj['center_x'], largest_obj['center_y']
-
-                pos_x = "left" if cx < ZONE_X else ("right" if cx > ZONE_X * 2 else "center")
-                pos_y = "up" if cy < ZONE_Y else ("down" if cy > ZONE_Y * 2 else "center")
-
-                move_servos(pos_x, pos_y)
-                system_status = f"Siguiendo objeto rojo ({largest_obj['area']}px)"
+            # ---- Pintar el ULTIMO resultado ------------------------------
+            #  Puede ser de hace unas decenas de ms (lo que tarda el
+            #  detector): los recuadros van un pelin por detras, pero el
+            #  video NO. Con el seguimiento de color se pinta ademas el rastro.
+            processed_frame = frame
+            rojos = resultado.rojos if (resultado is not None and DETECCION_ROJO) else []
+            if resultado is not None and OVERLAYS_ACTIVOS:
+                medibot_vision.dibujar_resultado(
+                    processed_frame, resultado,
+                    marcas=es_principal and _necesita_deteccion_facial(),
+                    rojos=DETECCION_ROJO)
+                if rojos and object_tracker.tracking_enabled:
+                    object_tracker.draw_tracking(processed_frame, rojos)
 
             # ---- Grabación ------------------------------------------------
             if recording:
@@ -1287,8 +1400,8 @@ def process_camera(camera_index):
                     cv2.putText(processed_frame, "● GRABANDO", (max(10, ancho_img - 120), 60),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-                if len(red_objects) > 0:
-                    cv2.putText(processed_frame, f"Objetos Rojos: {len(red_objects)}", (10, 90),
+                if len(rojos) > 0:
+                    cv2.putText(processed_frame, f"Objetos Rojos: {len(rojos)}", (10, 90),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
                 if DETECCION_ROJO and object_tracker.tracking_enabled:
@@ -1299,22 +1412,14 @@ def process_camera(camera_index):
             perf.anotar("proceso", (time.perf_counter() - t_proceso) * 1000.0)
 
             # ---- Etapa 3: publicar el fotograma ---------------------------
-            #  CAMBIO IMPORTANTE: antes se publicaba el fotograma REDUCIDO a
-            #  VIEW_W x VIEW_H (400x300), que es el tamano del panelito de
-            #  Tkinter. La web consumia ese mismo fotograma y el navegador lo
-            #  volvia a AMPLIAR para llenar su contenedor: de ahi la imagen
-            #  blanda y con los textos ilegibles. Perdiamos el 61 % de los
-            #  pixeles capturados antes de que nadie los viera.
-            #
-            #  Ahora se publica a resolucion COMPLETA y cada consumidor escala
-            #  a lo suyo: Tk a 400x300 (ya lo hacia) y la web al perfil web
-            #  (que por defecto es la resolucion nativa). El coste anadido es
-            #  una copia de 640x480 (~0,07 ms medidos; el resize que se quita
-            #  costaba ~0,28 ms), asi que ademas sale mas barato.
+            #  Se publica a resolucion COMPLETA y cada consumidor escala a lo
+            #  suyo: Tk a 400x300 y la web al perfil web (que por defecto es
+            #  la resolucion nativa).
             #
             #  La copia NO es opcional: el frame publicado lo leen a la vez el
             #  hilo de Tk y los de Flask, y este bucle sigue dibujando encima
-            #  en la siguiente vuelta. Publicar sin copiar seria una carrera.
+            #  (y read() escribe encima) en la siguiente vuelta. Publicar sin
+            #  copiar seria una carrera.
             with medibot_vision.Cronometro(perf, "publicar"):
                 frame_hub.publicar(camera_index, processed_frame.copy(),
                                    meta={"ancho": processed_frame.shape[1],
@@ -1330,6 +1435,13 @@ def process_camera(camera_index):
 
     # Limpiar al salir
     print(f"Deteniendo procesamiento de cámara {camera_index + 1}...")
+    #  Parar el analizador SUELTA su buffer de entrada y el ultimo resultado:
+    #  con el sistema detenido no se retiene ningun fotograma en memoria.
+    #  Solo si de verdad se ha parado: si en lo que este hilo salia alguien
+    #  ya volvio a INICIAR, el analizador es el de la sesion nueva.
+    if not online:
+        analizador.detener()
+    frame = None
     frame_hub.limpiar(camera_index)
     if camera_index == 0 and video_writer1 is not None:
         video_writer1.release()
@@ -1341,7 +1453,7 @@ def process_camera(camera_index):
 def start_camera_processing():
     """Inicia el procesamiento simultáneo de ambas cámaras"""
     global camera1_thread, camera2_thread, online
-    
+
     if not initialize_cameras():
         print("Error: No se pudo inicializar las cámaras")
         return False
@@ -1353,15 +1465,21 @@ def start_camera_processing():
         perfilador[i].reiniciar()
 
     online = True
-    
+
+    # Un analizador por cámara con cámara de verdad. Arrancan en modo ACTIVO
+    # y bajan a REPOSO solos si no ven nada.
+    for i, cam in ((0, camera1), (1, camera2)):
+        if cam is not None:
+            analizadores[i].iniciar()
+
     # Iniciar hilo para cámara 1
     camera1_thread = threading.Thread(target=process_camera, args=(0,), daemon=True)
     camera1_thread.start()
-    
+
     # Iniciar hilo para cámara 2
     camera2_thread = threading.Thread(target=process_camera, args=(1,), daemon=True)
     camera2_thread.start()
-    
+
     print("Ambas cámaras iniciadas simultáneamente")
     return True
 
@@ -3850,7 +3968,8 @@ def toggle_deteccion_rojo():
     if not DETECCION_ROJO:
         #  Sin esto, el ultimo objeto detectado se queda en el historial y el
         #  seguimiento sigue dibujando un rastro de algo que ya no se busca.
-        object_tracker.object_history.clear()
+        with object_tracker.lock:
+            object_tracker.object_history.clear()
     return jsonify({
         "deteccion_rojo": DETECCION_ROJO,
         "message": ("Detección de color rojo activada" if DETECCION_ROJO
@@ -4020,6 +4139,11 @@ def api_all():
                         "cam2": frame_hub.fps_enviados(1)},
             "clientes_web": {"cam1": frame_hub.clientes(0),
                              "cam2": frame_hub.clientes(1)},
+            #  La deteccion va en su propio hilo: aqui se ve a que ritmo
+            #  analiza cada camara, cuanto tarda y si esta en "activo" o en
+            #  "reposo" (sin detectar nada -> MEDIBOT_REPOSO_FPS analisis/s).
+            "analisis": {"cam1": analizadores[0].estado(),
+                         "cam2": analizadores[1].estado()},
         },
         # Lo que el driver acepto DE VERDAD (no lo que se le pidio) y el perfil
         # con el que se emite a la web. La proporcion sale de aqui para que el
@@ -4447,7 +4571,8 @@ def update_camera_setting():
 @app.route("/clear_tracking", methods=["POST"])
 def clear_tracking():
     """Limpia el historial de seguimiento"""
-    object_tracker.object_history.clear()
+    with object_tracker.lock:
+        object_tracker.object_history.clear()
     return jsonify({"message": "Historial de seguimiento limpiado"})
 
 @app.route("/switch_camera", methods=["POST"])
@@ -6012,4 +6137,10 @@ iniciar_servidor_web()
 
 # Iniciar actualización de GUI
 update_gui()
+
+# Ultimo paso del arranque: todo lo creado hasta aqui (Tk, Flask, modulos, la
+# interfaz) vive hasta que se cierra el programa. Se aparta del recolector de
+# basura para que sus pasadas no paren la captura y el streaming a tirones.
+# Ver medibot_vision.congelar_gc (MEDIBOT_GC_FREEZE=0 lo desactiva).
+medibot_vision.congelar_gc()
 root.mainloop()
