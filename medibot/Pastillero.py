@@ -9,6 +9,14 @@ Funcionamiento de la ruleta:
   - Al DISPENSAR, la ruleta lo BAJA (media vuelta) hasta la zona de dispensado
     y el servo suelta la pastilla.
 
+Interfaz web (estilo minimalista):
+  - En el centro, el pastillero MEDIBOT tal cual es el diseno. Su ruleta gira
+    como la de verdad (solo hacia delante) al elegir un compartimiento y al
+    dispensar, y al dispensar se ve caer la pastilla hacia el cajon.
+  - A los lados, los 8 botones COMPARTIMIENTO; abajo, DISPENSAR y MEDIBOT.
+  - La tuerca (arriba a la izquierda) abre la configuracion: datos medicos,
+    dosis, horarios, historial y el estado de la conexion con el Arduino.
+
 Persistencia (todo se guarda en la Pi, en pillbox_data.json junto al script):
   - Dosis/datos de paciente por compartimiento.
   - Horarios de dispensado automatico (hora + dias de la semana).
@@ -461,7 +469,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Pillbox</title>
   <!--  Icono en linea (una pastilla). Sin esto el navegador pide /favicon.ico,
         Flask no lo sirve y queda un 404 en la consola en cada carga. -->
@@ -483,18 +491,23 @@ HTML_PAGE = """<!DOCTYPE html>
     })();
   </script>
   <style>
-    /*  TEMA CLARO y TEMA OSCURO, con los colores de la web de MEDIBOT
-        (rama web, src/index.css): la misma paleta en el mismo tono.
-        Cada color tiene un nombre por lo que SIGNIFICA (--peligro-texto,
-        --texto-tenue) y el tema oscuro solo redefine esos nombres. Al lado
-        va de que color de la web sale; "ink/60" es el azul ink al 60 %,
-        igual que text-ink/60 en Tailwind. */
+    /*  PANEL DEL PASTILLERO, ESTILO MINIMALISTA
+        ========================================
+        Fondo celeste pastel, una tarjeta blanca y, en el centro, el
+        pastillero MEDIBOT tal cual es el diseno (proporciones del modelo 3D,
+        90 x 205 mm): tolva, ruleta, placa MEDIBOT y cajon. Botones planos de
+        color solido. Lo unico que se mueve del aparato es la ruleta (y la
+        pastilla que cae al dispensar).
+
+        Cada color tiene un nombre por lo que SIGNIFICA y el tema oscuro solo
+        redefine esos nombres. Los de la web de MEDIBOT (rama web,
+        src/index.css) llevan al lado de que color salen; "ink/60" es el azul
+        ink al 60 %, igual que text-ink/60 en Tailwind. */
     :root {
       /*  color-scheme se lo dice al NAVEGADOR, no al CSS: con el pone en su
           tono los trozos que dibuja el sistema y que ninguna variable
-          alcanza (el reloj del <input type=time>, las casillas de los dias,
-          la barra de desplazamiento). Sin esto, en oscuro salia un reloj
-          blanco deslumbrante en medio de la pagina. */
+          alcanza (el reloj del input de hora, las casillas, la barra de
+          desplazamiento). */
       color-scheme: light;
       --fondo: #f4fafb;                        /* surface */
       --tarjeta: #ffffff;                      /* card */
@@ -517,8 +530,7 @@ HTML_PAGE = """<!DOCTYPE html>
       --sobre-acento: #ffffff;                 /* white */
       --exito: #34d399;                        /* mint */
       --exito-suave: rgba(52, 211, 153, 0.15); /* mint/15 */
-      --sombra: rgba(10, 61, 92, 0.05);        /* shade/5 */
-      --sombra-acento: rgba(1, 186, 239, 0.05);/* brand/5 */
+      --sombra-tarjeta: rgba(10, 61, 92, 0.12);/* shade/12 */
       /*  Rojo, ambar y verde de Tailwind 4, los que usa la web. En hex;
           su valor exacto (oklch) va mas abajo, en @supports. */
       --exito-texto: #007a55;                  /* emerald-700 */
@@ -529,6 +541,54 @@ HTML_PAGE = """<!DOCTYPE html>
       --peligro-pastilla: #c10007;             /* red-700 */
       --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
       --aviso-texto: #bb4d00;                  /* amber-700 */
+      /*  La pagina y sus botones: colores planos. */
+      --cielo: #d5f1f4;                        /* celeste pastel */
+      --velo: rgba(10, 61, 92, 0.2);           /* ink/20 */
+      --pildora: #6fd6da;                      /* turquesa */
+      --pildora-hover: #5dcbd0;
+      --pildora-texto: #0a3d5c;                /* ink */
+      --pildora-activa: #0b4f6c;               /* deep */
+      --pildora-activa-texto: #ffffff;         /* white */
+      --rojo: #fb2c36;                         /* red-500 */
+      --rojo-hover: #e7000b;                   /* red-600 */
+      --boton-claro: #ffffff;                  /* white */
+      --boton-claro-texto: #0a3d5c;            /* ink */
+      --boton-claro-borde: #0a3d5c;            /* ink */
+      --tuerca-metal: #c5ccd5;
+      --tuerca-radios: #ffffff;
+      /*  EL APARATO, con los colores del diseno. Es un objeto fisico: tiene
+          los mismos colores en los dos temas (se repiten en el oscuro porque
+          cada tema define TODAS sus variables). */
+      --metal-1: #a6a6a6;
+      --metal-2: #5e5e5e;
+      --metal-3: #2a2a2a;
+      --metal-4: #121212;
+      --metal-filo: rgba(255, 255, 255, 0.16);
+      --metal-sombra: rgba(0, 0, 0, 0.45);
+      --sombra-aparato: rgba(10, 40, 50, 0.35);
+      --tolva-marco: #cacaca;
+      --tolva-linea: #6f6f6f;
+      --tolva-1: #4f4f4f;
+      --tolva-2: #8c8c8c;
+      --tolva-3: #f2f2f2;
+      --tolva-4: #a9a9a9;
+      --cromo-1: #ececf8;
+      --cromo-2: #cbcbe7;
+      --cromo-3: #a3a4cc;
+      --cromo-4: #77789f;
+      --disco-1: #4b4b4b;
+      --disco-2: #222222;
+      --radio: #d2d2d2;
+      --placa-1: #bdbdbd;
+      --placa-2: #959595;
+      --placa-borde: #3d3d3d;
+      --placa-texto: #a3a3a3;
+      --cajon-1: #a3a3a3;
+      --cajon-2: #7d7d7d;
+      --cajon-logo: #4a4a4a;
+      --tirador: #cfcfcf;
+      --pastilla-a: #ffffff;
+      --pastilla-b: #22c9f5;
     }
     /*  En oscuro la web no se limita a invertir: fondos de azul muy
         desaturado (no gris) y el texto de las pastillas en el tono claro de
@@ -556,8 +616,7 @@ HTML_PAGE = """<!DOCTYPE html>
       --sobre-acento: #ffffff;                 /* white */
       --exito: #34d399;                        /* mint */
       --exito-suave: rgba(52, 211, 153, 0.15); /* mint/15 */
-      --sombra: rgba(5, 18, 26, 0.05);         /* shade/5 */
-      --sombra-acento: rgba(34, 201, 245, 0.05); /* brand/5 */
+      --sombra-tarjeta: rgba(0, 0, 0, 0.4);
       --exito-texto: #5ee9b5;                  /* emerald-300 */
       --peligro-suave: rgba(251, 44, 54, 0.15);/* red-500/15 */
       --peligro-hover: rgba(251, 44, 54, 0.1); /* red-500/10 */
@@ -566,6 +625,50 @@ HTML_PAGE = """<!DOCTYPE html>
       --peligro-pastilla: #ffa2a2;             /* red-300 */
       --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
       --aviso-texto: #ffd230;                  /* amber-300 */
+      --cielo: #06161f;                        /* surface */
+      --velo: rgba(2, 10, 15, 0.55);
+      --pildora: #3fcad0;
+      --pildora-hover: #35b8be;
+      --pildora-texto: #032029;
+      --pildora-activa: #dbeaf3;               /* ink */
+      --pildora-activa-texto: #06161f;         /* surface */
+      --rojo: #fb2c36;                         /* red-500 */
+      --rojo-hover: #e7000b;                   /* red-600 */
+      --boton-claro: #0e2733;                  /* card */
+      --boton-claro-texto: #dbeaf3;            /* ink */
+      --boton-claro-borde: rgba(219, 234, 243, 0.5); /* ink/50 */
+      --tuerca-metal: #6e818f;
+      --tuerca-radios: #e2fafb;
+      --metal-1: #a6a6a6;
+      --metal-2: #5e5e5e;
+      --metal-3: #2a2a2a;
+      --metal-4: #121212;
+      --metal-filo: rgba(255, 255, 255, 0.16);
+      --metal-sombra: rgba(0, 0, 0, 0.45);
+      --sombra-aparato: rgba(0, 0, 0, 0.6);
+      --tolva-marco: #cacaca;
+      --tolva-linea: #6f6f6f;
+      --tolva-1: #4f4f4f;
+      --tolva-2: #8c8c8c;
+      --tolva-3: #f2f2f2;
+      --tolva-4: #a9a9a9;
+      --cromo-1: #ececf8;
+      --cromo-2: #cbcbe7;
+      --cromo-3: #a3a4cc;
+      --cromo-4: #77789f;
+      --disco-1: #4b4b4b;
+      --disco-2: #222222;
+      --radio: #d2d2d2;
+      --placa-1: #bdbdbd;
+      --placa-2: #959595;
+      --placa-borde: #3d3d3d;
+      --placa-texto: #a3a3a3;
+      --cajon-1: #a3a3a3;
+      --cajon-2: #7d7d7d;
+      --cajon-logo: #4a4a4a;
+      --tirador: #cfcfcf;
+      --pastilla-a: #ffffff;
+      --pastilla-b: #22c9f5;
     }
     @supports (color: oklch(0% 0 0)) {
       :root {
@@ -590,88 +693,335 @@ HTML_PAGE = """<!DOCTYPE html>
       }
     }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
-    body { background: var(--fondo); min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
-    .app { max-width: 1200px; width: 100%; background: var(--tarjeta); border-radius: 32px; box-shadow: 0 20px 60px var(--sombra); padding: 30px 35px 40px; transition: all .3s ease; }
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 10px; }
-    .header h1 { font-size: 26px; font-weight: 600; color: var(--texto-titulo); letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
-    .header h1 span { background: var(--acento-suave); padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: var(--acento); }
-    .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: var(--peligro-suave); color: var(--peligro-pastilla); }
+    /* ================= BASE ================= */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: 'Segoe UI', Roboto, system-ui, -apple-system, sans-serif;
+      color: var(--texto-titulo); background: var(--cielo);
+      min-height: 100vh; padding: clamp(14px, 2vw, 24px) clamp(16px, 3vw, 40px) 32px;
+    }
+    button, input { font: inherit; color: inherit; }
+    button { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--acento); outline-offset: 3px; }
+    .hidden { display: none !important; }
+
+    /* ================= CABECERA: la tuerca y el titulo ================= */
+    .cabecera {
+      max-width: 1240px; margin: 0 auto 14px;
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px;
+    }
+    .tuerca {
+      justify-self: start; width: 76px; height: 76px; border-radius: 50%; border: 0;
+      display: grid; place-items: center; cursor: pointer;
+      background: var(--tarjeta); box-shadow: 0 8px 22px -8px var(--sombra-tarjeta);
+      transition: box-shadow .25s ease;
+    }
+    .tuerca:hover { box-shadow: 0 12px 28px -8px var(--sombra-tarjeta); }
+    .tuerca svg { width: 60px; height: 60px; transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
+    .tuerca:hover svg { transform: rotate(45deg); }
+    .tuerca[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .tuerca-dientes { fill: var(--tuerca-metal); }
+    .tuerca-aro { fill: var(--tuerca-radios); }
+    .tuerca-disco { fill: var(--marca-suave); }
+    .tuerca-radios { stroke: var(--tuerca-radios); stroke-width: 2.6; stroke-linecap: round; }
+    .tuerca-centro { fill: var(--tuerca-radios); }
+    .titulo {
+      font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; line-height: 1;
+      letter-spacing: .04em; color: var(--texto-titulo); text-align: center;
+    }
+
+    /* ================= LA TARJETA ================= */
+    .tablero {
+      max-width: 1240px; margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-rows: 1fr auto;
+      grid-template-areas: "izq aparato der" "dispensar aparato medibot";
+      column-gap: clamp(1.5rem, 5vw, 5rem); row-gap: 28px;
+      padding: clamp(22px, 2.6vw, 34px) clamp(20px, 3.6vw, 56px);
+      border-radius: 40px; background: var(--tarjeta);
+      box-shadow: 0 24px 60px -28px var(--sombra-tarjeta);
+    }
+    .columna { display: flex; flex-direction: column; justify-content: space-around; gap: 16px; width: 100%; max-width: 20rem; }
+    .columna-izq { grid-area: izq; justify-self: end; }
+    .columna-der { grid-area: der; justify-self: start; }
+
+    /*  COMPARTIMIENTO: una pildora de color solido. Elegido: color profundo. */
+    .comp {
+      display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px;
+      width: 100%; min-height: 76px; padding: 12px 30px; border: 0; border-radius: 999px;
+      background: var(--pildora); color: var(--pildora-texto); text-align: left; cursor: pointer;
+      transition: background-color .2s ease, color .2s ease, transform .15s ease;
+    }
+    .comp:hover { background: var(--pildora-hover); }
+    .comp:active { transform: scale(.98); }
+    .comp[aria-pressed="true"] { background: var(--pildora-activa); color: var(--pildora-activa-texto); }
+    .comp-titulo { font-size: 15px; font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
+    .comp-med { max-width: 100%; font-size: 13px; font-weight: 600; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /*  DISPENSAR (rojo) y MEDIBOT (blanco con borde), planos. */
+    .acciones { display: contents; }
+    .accion { width: 100%; max-width: 20rem; display: flex; justify-content: center; }
+    .accion-izq { grid-area: dispensar; justify-self: end; }
+    .accion-der { grid-area: medibot; justify-self: start; }
+    .btn-dispensar, .btn-medibot {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 15rem; height: 64px; padding: 0 34px; border-radius: 999px;
+      font-size: 19px; font-weight: 800; letter-spacing: .08em; cursor: pointer;
+      transition: background-color .2s ease, transform .15s ease;
+    }
+    .btn-dispensar { border: 0; background: var(--rojo); color: var(--sobre-acento); }
+    .btn-dispensar:hover { background: var(--rojo-hover); }
+    .btn-dispensar:active, .btn-medibot:active { transform: scale(.98); }
+    .btn-dispensar:disabled { opacity: .7; cursor: progress; }
+    .btn-medibot {
+      background: var(--boton-claro); color: var(--boton-claro-texto);
+      border: 2px solid var(--boton-claro-borde); text-decoration: none;
+    }
+    .btn-medibot:hover { background: var(--suave); }
+
+    /* ================= EL PASTILLERO (tal cual el diseno) ================= */
+    /*  Se mide en em: cambiando el font-size de .aparato se escala entero.
+        20 x 45,2 em, la proporcion del modelo 3D. */
+    .aparato { grid-area: aparato; justify-self: center; align-self: center; font-size: clamp(9px, min(1.56vh, 1.38vw), 16px); }
+    .aparato-cuerpo {
+      position: relative; width: 20em; height: 45.2em; border-radius: .3em;
+      background:
+        linear-gradient(180deg, transparent 55%, var(--metal-sombra) 100%),
+        linear-gradient(100deg, var(--metal-4) 0%, var(--metal-3) 38%, var(--metal-2) 74%, var(--metal-1) 100%);
+      box-shadow: inset -.3em 0 0 var(--metal-filo), inset 0 1px 0 var(--metal-filo),
+                  .6em .9em 1.8em var(--sombra-aparato);
+    }
+    /*  Tolva (arriba). */
+    .tolva {
+      position: absolute; top: 1.1em; left: 6.5em; width: 7em; height: 6.9em;
+      padding: 1.1em .25em; background: var(--tolva-marco); border: .1em solid var(--tolva-linea);
+      box-shadow: .2em .3em .5em var(--metal-sombra);
+    }
+    .tolva-boca {
+      height: 100%; border: .1em solid var(--tolva-linea);
+      background: linear-gradient(90deg, var(--tolva-1) 0%, var(--tolva-2) 40%, var(--tolva-linea) 41%, var(--tolva-3) 46%, var(--tolva-3) 57%, var(--tolva-linea) 58%, var(--tolva-4) 60%, var(--tolva-4) 100%);
+    }
+    /*  Ruleta: bisel, aro y el disco que gira (SVG). */
+    .ruleta { position: absolute; z-index: 1; top: 11.1em; left: .25em; width: 19.5em; height: 19.5em; border-radius: 50%; }
+    .ruleta-bisel {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 200deg, var(--cromo-2), var(--cromo-1) 12%, var(--cromo-3) 30%, var(--cromo-2) 50%, var(--cromo-1) 64%, var(--cromo-3) 82%, var(--cromo-2));
+      box-shadow: 0 .25em .6em var(--metal-sombra), inset 0 0 0 .08em var(--cromo-4);
+    }
+    .ruleta-anillo {
+      position: absolute; inset: 1.45em; border-radius: 50%;
+      background: repeating-radial-gradient(circle, var(--cromo-2) 0 .3em, var(--cromo-3) .3em .36em);
+      box-shadow: 0 0 0 .1em var(--cromo-4), inset 0 .1em .3em var(--metal-sombra);
+    }
+    .ruleta-disco {
+      position: absolute; inset: 2.55em; border-radius: 50%;
+      box-shadow: 0 0 0 .1em var(--cromo-4);
+      transition-property: transform; transition-duration: 0s;
+      transition-timing-function: cubic-bezier(.45, .05, .3, 1);
+      will-change: transform;
+    }
+    .ruleta-disco svg { display: block; width: 100%; height: 100%; }
+    .st-disco1 { stop-color: var(--disco-1); }
+    .st-disco2 { stop-color: var(--disco-2); }
+    .llanta { fill: none; stroke: var(--radio); stroke-width: 2; }
+    .radios { stroke: var(--radio); stroke-width: 2.2; stroke-linecap: round; }
+    .cubo { fill: var(--disco-2); stroke: var(--radio); stroke-width: 1.6; }
+    .cubo-roseta circle { fill: none; stroke: var(--radio); stroke-width: 1; }
+    /*  La pastilla: solo se ve al dispensar, cayendo por detras de la placa. */
+    .pastilla-cae {
+      position: absolute; left: 50%; top: 14.2em; width: 1.5em; height: .72em; margin-left: -.75em;
+      border-radius: .36em; opacity: 0; pointer-events: none;
+      background: linear-gradient(90deg, var(--pastilla-a) 50%, var(--pastilla-b) 50%);
+    }
+    .pastilla-cae.cayendo { animation: caer 1.2s cubic-bezier(.5, 0, .9, .6) forwards; }
+    @keyframes caer {
+      0% { opacity: 0; transform: translateY(0) rotate(90deg) scale(.5); }
+      15% { opacity: 1; transform: translateY(0) rotate(90deg) scale(1); }
+      80% { opacity: 1; transform: translateY(7.4em) rotate(230deg); }
+      100% { opacity: 0; transform: translateY(9.4em) rotate(280deg); }
+    }
+    /*  Placa MEDIBOT y cajon. */
+    .placa {
+      position: absolute; z-index: 2; top: 31em; left: 1.9em; width: 16.2em; height: 5.5em;
+      display: grid; place-items: center;
+      background: linear-gradient(180deg, var(--placa-1), var(--placa-2));
+      border: .28em solid var(--placa-borde);
+    }
+    .placa span {
+      font-size: 3em; font-weight: 900; letter-spacing: .01em; line-height: 1;
+      color: var(--placa-texto); -webkit-text-stroke: .045em var(--placa-borde);
+      text-shadow: .03em .05em 0 var(--placa-borde);
+    }
+    .cajon {
+      position: absolute; z-index: 2; top: 36.8em; left: 2.2em; width: 15.6em; height: 8.1em;
+      background: linear-gradient(180deg, var(--cajon-1), var(--cajon-2));
+      border: .18em solid var(--placa-borde); box-shadow: inset 0 .2em 0 var(--tirador);
+    }
+    .cajon-tirador {
+      position: absolute; top: .9em; left: 50%; width: 5em; height: .55em; margin-left: -2.5em;
+      background: var(--tirador); border: .1em solid var(--placa-borde); border-radius: .3em;
+    }
+    .cajon-logo { position: absolute; top: 2em; left: 50%; width: 4.6em; height: 4.6em; margin-left: -2.3em; }
+    .cajon-logo circle, .cajon-logo path { fill: none; stroke: var(--cajon-logo); stroke-width: 4; stroke-linecap: round; }
+
+    /* ================= PANEL DE CONFIGURACION (la tuerca) ================= */
+    .velo { position: fixed; inset: 0; z-index: 900; background: var(--velo); opacity: 0; pointer-events: none; transition: opacity .35s ease; }
+    .velo.abierto { opacity: 1; pointer-events: auto; }
+    .ajustes {
+      position: fixed; z-index: 901; top: 12px; left: 12px; bottom: 12px;
+      width: min(30rem, calc(100vw - 24px)); display: flex; flex-direction: column;
+      border-radius: 28px; background: var(--tarjeta); border: 1px solid var(--borde);
+      box-shadow: 0 30px 80px -20px var(--sombra-tarjeta);
+      transform: translateX(calc(-100% - 40px)); visibility: hidden;
+      transition: transform .5s cubic-bezier(.2, .9, .25, 1), visibility 0s linear .5s;
+    }
+    .ajustes.abierto { transform: none; visibility: visible; transition: transform .5s cubic-bezier(.2, .9, .25, 1), visibility 0s; }
+    .ajustes-cabeza { display: flex; align-items: center; gap: 12px; padding: 20px 18px 14px 22px; }
+    .ajustes-cabeza h2 { font-size: 21px; font-weight: 800; }
+    .ajustes-cabeza p { font-size: 12.5px; color: var(--texto-tenue); }
+    .cerrar {
+      margin-left: auto; flex: none; width: 40px; height: 40px; border-radius: 50%;
+      border: 0; background: var(--suave); color: var(--texto-titulo);
+      display: grid; place-items: center; cursor: pointer; transition: background .2s;
+    }
+    .cerrar:hover { background: var(--suave-hover); }
+    .cerrar svg { width: 18px; height: 18px; }
+    .pestanas { display: flex; gap: 4px; margin: 0 18px 4px; padding: 4px; border-radius: 999px; background: var(--suave); }
+    .pestana {
+      flex: 1; border: 0; background: transparent; padding: 9px 8px; border-radius: 999px;
+      font-size: 13.5px; font-weight: 700; color: var(--texto); cursor: pointer; transition: background .2s, color .2s;
+    }
+    .pestana:hover { color: var(--texto-titulo); }
+    .pestana[aria-selected="true"] { background: var(--tarjeta); color: var(--texto-titulo); box-shadow: 0 1px 3px var(--sombra-tarjeta); }
+    .ajustes-cuerpo { flex: 1; overflow-y: auto; padding: 14px 18px 26px; overscroll-behavior: contain; }
+    .intro { font-size: 13px; color: var(--texto-tenue); margin: 2px 2px 12px; line-height: 1.45; }
+
+    .fila-comp {
+      width: 100%; display: flex; align-items: center; gap: 12px; padding: 11px 14px 11px 11px;
+      border-radius: 18px; border: 1px solid var(--borde); background: var(--tarjeta); color: var(--texto-titulo);
+      text-align: left; cursor: pointer; transition: border-color .2s, background .2s;
+    }
+    .fila-comp + .fila-comp { margin-top: 8px; }
+    .fila-comp:hover { border-color: var(--borde-activo); background: var(--panel); }
+    .fila-num { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--pildora); color: var(--pildora-texto); }
+    .fila-comp.vacia .fila-num { background: var(--suave); color: var(--texto-tenue); }
+    .fila-datos { flex: 1; min-width: 0; line-height: 1.3; }
+    .fila-titulo, .fila-sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fila-titulo { font-size: 14.5px; font-weight: 700; }
+    .fila-sub { font-size: 12.5px; color: var(--texto-tenue); }
+    .fila-comp.vacia .fila-titulo { color: var(--texto-debil); font-weight: 600; }
+    .badge { flex: none; font-size: 12px; font-weight: 600; padding: 3px 11px; border-radius: 999px; background: var(--acento-suave); color: var(--acento); }
+    .badge.completed { background: var(--exito-suave); color: var(--exito-texto); }
+
+    .volver { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--texto); font-size: 13.5px; font-weight: 700; cursor: pointer; padding: 6px 4px; border-radius: 10px; }
+    .volver:hover { color: var(--acento); }
+    .volver svg { width: 16px; height: 16px; }
+    .editor-cabeza { display: flex; align-items: center; gap: 12px; margin: 8px 0 4px; }
+    .editor-cabeza .fila-num { width: 46px; height: 46px; font-size: 19px; }
+    .editor-cabeza h3 { font-size: 19px; font-weight: 800; }
+    .editor-cabeza p { font-size: 12.5px; color: var(--texto-tenue); }
+    .editor-cabeza .badge { margin-left: auto; }
+
+    .bloque { background: var(--panel); border: 1px solid var(--borde); border-radius: 20px; padding: 16px 16px 18px; margin-top: 14px; }
+    .bloque h4 { font-size: 12.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--texto-tenue); margin-bottom: 12px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group.ancho { grid-column: 1 / -1; }
+    .form-group label { font-size: 12.5px; font-weight: 700; color: var(--texto); }
+    .form-group label b { color: var(--peligro-texto); font-weight: 700; }
+    .form-group input {
+      width: 100%; padding: 11px 14px; border-radius: 14px; border: 1px solid var(--borde-fuerte);
+      background: var(--tarjeta); color: var(--texto-titulo); font-size: 15px; outline: none; transition: border-color .2s;
+    }
+    .form-group input::placeholder { color: var(--texto-debil); }
+    .form-group input:focus { border-color: var(--acento); }
+    .form-group input[aria-invalid="true"] { border-color: var(--peligro-texto); }
+    .form-error { min-height: 1.2em; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--peligro-texto); }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: center; }
+    .btn { border: 0; padding: 10px 22px; border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, border-color .2s, color .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
+    .btn:disabled { opacity: .6; cursor: default; }
+    .btn-primary { background: var(--acento-fin); color: var(--sobre-acento); }
+    .btn-primary:not(:disabled):hover { background: var(--texto-titulo); color: var(--tarjeta); }
+    .btn-danger { background: transparent; border: 1px solid var(--peligro-borde); color: var(--peligro-texto); }
+    .btn-danger:hover, .btn-danger.confirmar { background: var(--peligro-hover); }
+    .btn-danger.confirmar { border-color: var(--peligro-texto); }
+    .btn-outline { background: transparent; border: 1px solid var(--borde-fuerte); color: var(--texto); }
+    .btn-outline:hover { border-color: var(--borde-hover); color: var(--texto-titulo); }
+    .btn-mini { padding: 6px 13px; font-size: 12.5px; }
+    .aviso { font-size: 12.5px; color: var(--texto-tenue); margin-top: 10px; line-height: 1.45; }
+    .vacio-txt { font-size: 13.5px; color: var(--texto-debil); }
+
+    .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 9px 0; border-bottom: 1px solid var(--borde); font-size: 13.5px; color: var(--texto); }
+    .sched-row:last-child { border-bottom: none; }
+    .sched-row .hora { font-weight: 800; font-size: 17px; color: var(--texto-titulo); min-width: 56px; font-variant-numeric: tabular-nums; }
+    .sched-row .dias { color: var(--acento); font-weight: 700; letter-spacing: .08em; }
+    .sched-row .estado { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--exito-suave); color: var(--exito-texto); }
+    .sched-row .estado.off { background: var(--suave); color: var(--texto-pastilla); }
+    .sched-acciones { margin-left: auto; display: flex; gap: 6px; }
+    .sched-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+    .sched-form input[type=time] { padding: 9px 12px; border: 1px solid var(--borde-fuerte); border-radius: 12px; font-size: 15px; background: var(--tarjeta); color: var(--texto-titulo); }
+    .dias-sel { display: flex; gap: 5px; flex-wrap: wrap; }
+    .day-check { position: relative; cursor: pointer; user-select: none; }
+    .day-check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .day-check span {
+      display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+      font-size: 13px; font-weight: 800; color: var(--texto); background: var(--tarjeta); border: 1px solid var(--borde-fuerte);
+      transition: background .2s, color .2s, border-color .2s;
+    }
+    .day-check:hover span { border-color: var(--borde-activo); color: var(--texto-titulo); }
+    .day-check input:checked + span { background: var(--pildora); color: var(--pildora-texto); border-color: transparent; }
+    .day-check input:focus-visible + span { outline: 3px solid var(--acento); outline-offset: 2px; }
+
+    .hist-row { display: flex; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--borde); }
+    .hist-row:last-child { border-bottom: none; }
+    .hist-marca { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--texto-debil); }
+    .hist-marca.AUTO { background: var(--exito); }
+    .hist-marca.MANUAL { background: var(--acento); }
+    .hist-marca.ELIMINAR { background: var(--peligro-texto); }
+    .hist-cuerpo { flex: 1; min-width: 0; font-size: 13.5px; color: var(--texto); }
+    .hist-linea { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+    .hist-row .tipo { font-weight: 800; letter-spacing: .04em; color: var(--texto-titulo); }
+    .hist-row .tipo.AUTO { color: var(--exito-texto); }
+    .hist-row .tipo.MANUAL { color: var(--acento); }
+    .hist-comp { font-weight: 600; }
+    .hist-row .res { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--texto-tenue); }
+    .hist-detalle { margin-top: 2px; word-break: break-word; }
+    .hist-row .ts { margin-top: 2px; font-size: 12px; color: var(--texto-tenue); font-variant-numeric: tabular-nums; }
+
+    /*  Estado del sistema: las pildoras de siempre (Conectado / Desconectado,
+        Sincronizado / Desincronizado), ahora dentro de la configuracion. */
+    .dato { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--borde); font-size: 13.5px; }
+    .dato:last-of-type { border-bottom: none; }
+    .dato-k { color: var(--texto-tenue); font-weight: 600; }
+    .dato-v { color: var(--texto-titulo); font-weight: 700; text-align: right; word-break: break-word; }
+    .serial-pill { font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: var(--peligro-suave); color: var(--peligro-pastilla); }
     .serial-pill.ok { background: var(--exito-suave); color: var(--exito-texto); }
     .serial-pill.sync { background: var(--exito-suave); color: var(--exito-texto); }
     .serial-pill.desync { background: var(--aviso-suave); color: var(--aviso-texto); }
     .serial-pill.neutro { background: var(--suave); color: var(--texto-pastilla); }
-    .btn-back { background: var(--suave); border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: var(--texto-titulo); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
-    .btn-back:hover { background: var(--suave-hover); }
-    .btn-back.hidden { display: none; }
-    /*  El enlace a Medibot comparte estilo con los botones, pero es un <a>:
-        hay que quitarle el subrayado, porque si no desentona en la fila. */
-    a.btn-back { text-decoration: none; }
-    .compartments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 22px; margin-top: 10px; }
-    .compartment-card { background: var(--tarjeta); border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px var(--sombra); border: 1px solid var(--borde); cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
-    .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px var(--sombra-acento); border-color: var(--borde-activo); }
-    .compartment-number { font-size: 18px; font-weight: 700; color: var(--texto-titulo); letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
-    .compartment-number .badge { font-size: 12px; font-weight: 500; background: var(--acento-suave); color: var(--acento); padding: 2px 12px; border-radius: 30px; letter-spacing: .3px; }
-    .compartment-number .badge.completed { background: var(--exito-suave); color: var(--exito-texto); }
-    .preview-data { font-size: 14px; color: var(--texto); line-height: 1.5; margin-top: 4px; flex: 1; }
-    .preview-data .label { color: var(--texto-tenue); font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
-    .preview-data .value { font-weight: 500; word-break: break-word; }
-    .preview-empty { color: var(--texto-debil); font-size: 14px; margin-top: 6px; font-style: italic; }
-    .detail-view { display: none; animation: fadeIn .25s ease; }
-    .detail-view.active { display: block; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: translateY(0);} }
-    .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
-    .detail-header h2 { font-size: 24px; font-weight: 600; color: var(--texto-titulo); }
-    .detail-header .sub { font-size: 15px; color: var(--texto-tenue); }
-    .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 18px 22px; background: var(--panel); padding: 24px 26px; border-radius: 24px; border: 1px solid var(--borde); margin-bottom: 20px; }
-    .form-group { display: flex; flex-direction: column; gap: 4px; }
-    .form-group label { font-size: 13px; font-weight: 500; color: var(--texto); }
-    .form-group input { padding: 10px 14px; border: 1px solid var(--borde-fuerte); border-radius: 14px; font-size: 15px; background: var(--tarjeta); color: var(--texto-titulo); transition: .2s; outline: none; width: 100%; }
-    .form-group input::placeholder { color: var(--texto-debil); }
-    .form-group input:focus { border-color: var(--acento); }
-    .btn-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; align-items: center; }
-    .btn { border: none; padding: 10px 28px; border-radius: 40px; font-weight: 500; font-size: 15px; cursor: pointer; transition: .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
-    .btn:disabled { opacity: .6; cursor: default; }
-    /*  Los botones son los de la web: el principal con el degradado de la
-        marca y letra blanca; los demas de contorno, y el de borrar en rojo. */
-    .btn-primary, .btn-success { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); }
-    .btn-primary:not(:disabled):hover, .btn-success:not(:disabled):hover { opacity: .9; }
-    .btn-danger { background: transparent; border: 1px solid var(--peligro-borde); color: var(--peligro-texto); }
-    .btn-danger:hover { background: var(--peligro-hover); }
-    .btn-warning { background: transparent; border: 1px solid var(--borde-fuerte); color: var(--texto); }
-    .btn-warning:hover { border-color: var(--borde-hover); color: var(--acento); }
-    .btn-outline { background: transparent; border: 1.5px solid var(--borde-fuerte); color: var(--texto); }
-    .btn-outline:hover { background: var(--suave); border-color: var(--borde-hover); color: var(--texto-titulo); }
-    .btn-mini { padding: 5px 14px; font-size: 13px; border-radius: 30px; }
-    .saved-data { background: var(--panel); padding: 24px 26px; border-radius: 24px; border: 1px solid var(--borde); margin-bottom: 20px; }
-    .saved-data .row { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 8px 0; border-bottom: 1px solid var(--borde); }
-    .saved-data .row:last-child { border-bottom: none; }
-    .saved-data .field-label { font-weight: 500; color: var(--texto); min-width: 120px; }
-    .saved-data .field-value { color: var(--texto-titulo); word-break: break-word; }
-    .status-badge { display: inline-block; padding: 4px 16px; border-radius: 30px; font-size: 13px; font-weight: 500; background: var(--exito-suave); color: var(--exito-texto); }
-    .hidden { display: none !important; }
-    .flex-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-    .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 24px; padding: 22px 26px; margin-top: 22px; }
-    .panel h3 { font-size: 17px; font-weight: 600; color: var(--texto-titulo); margin-bottom: 12px; }
-    .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--borde); font-size: 14px; color: var(--texto); }
-    .sched-row:last-child { border-bottom: none; }
-    .sched-row .hora { font-weight: 700; font-size: 16px; min-width: 60px; }
-    .sched-row .dias { color: var(--acento); font-weight: 500; min-width: 130px; }
-    .sched-row .estado { font-size: 12px; padding: 2px 12px; border-radius: 30px; background: var(--exito-suave); color: var(--exito-texto); }
-    .sched-row .estado.off { background: var(--suave); color: var(--texto-pastilla); }
-    .sched-form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
-    .sched-form input[type=time] { padding: 8px 12px; border: 1px solid var(--borde-fuerte); border-radius: 12px; font-size: 15px; background: var(--tarjeta); color: var(--texto-titulo); }
-    .day-check { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--texto); background: var(--tarjeta); border: 1px solid var(--borde-fuerte); border-radius: 10px; padding: 6px 10px; cursor: pointer; user-select: none; }
-    .day-check:hover { border-color: var(--borde-activo); color: var(--texto-titulo); }
-    .day-check input { accent-color: var(--acento); }
-    .hist-row { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 0; border-bottom: 1px solid var(--borde); font-size: 13.5px; color: var(--texto); }
-    .hist-row:last-child { border-bottom: none; }
-    .hist-row .ts { color: var(--texto-tenue); min-width: 145px; }
-    .hist-row .tipo { font-weight: 600; min-width: 78px; }
-    .hist-row .tipo.AUTO { color: var(--exito); }
-    .hist-row .tipo.MANUAL { color: var(--acento); }
-    .hist-row .res { color: var(--texto-tenue); }
-    .aviso { font-size: 13px; color: var(--texto-tenue); margin-top: 6px; }
+
+    /* ================= AVISOS ================= */
+    .avisos { position: fixed; z-index: 1100; right: 18px; top: 18px; width: min(92vw, 25rem); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .toast {
+      pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 11px 10px 11px 14px;
+      border-radius: 14px; background: var(--tarjeta); color: var(--texto-titulo);
+      border: 1px solid var(--borde); border-left: 4px solid var(--acento);
+      box-shadow: 0 14px 34px -14px var(--sombra-tarjeta); font-size: 14px; font-weight: 600;
+      animation: entrar .3s ease;
+    }
+    .toast.ok { border-left-color: var(--exito); }
+    .toast.error { border-left-color: var(--peligro-texto); }
+    .toast.aviso-t { border-left-color: var(--aviso-texto); }
+    .toast.fuera { opacity: 0; transition: opacity .3s; }
+    .toast-texto { flex: 1; line-height: 1.35; }
+    .toast-accion { flex: none; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 800; cursor: pointer; color: var(--sobre-acento); background: var(--acento-fin); }
+    .toast-cerrar { flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--texto-tenue); cursor: pointer; display: grid; place-items: center; }
+    .toast-cerrar:hover { background: var(--suave); }
+    .toast-cerrar svg { width: 14px; height: 14px; }
+    @keyframes entrar { from { opacity: 0; } }
+
     /*  PANTALLA DE CARGA: la rueda de MEDIBOT (la de la web, MedibotLogo.tsx)
         mientras llega la pagina. La quita quitarPantallaCarga() al arrancar,
         con un minimo de medio segundo para que no sea un parpadeo. Si el
@@ -679,18 +1029,41 @@ HTML_PAGE = """<!DOCTYPE html>
     .rueda path { fill: var(--marca-suave); }
     @keyframes girar-ruleta { to { transform: rotate(360deg); } }
     .ruleta-marca { animation: girar-ruleta 1.6s linear infinite; transform-origin: 50% 50%; will-change: transform; }
-    .pantalla-carga { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; background: var(--fondo); transition: opacity .35s ease, visibility .35s ease; animation: pc-fuera .35s ease 4s forwards; }
+    .pantalla-carga { position: fixed; inset: 0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; background: var(--fondo); transition: opacity .35s ease, visibility .35s ease; animation: pc-fuera .35s ease 4s forwards; }
     .pantalla-carga.fuera { opacity: 0; visibility: hidden; pointer-events: none; }
     @keyframes pc-fuera { to { opacity: 0; visibility: hidden; pointer-events: none; } }
     .pantalla-carga .rueda { width: 96px; height: 96px; }
     .pc-marca { font-size: 30px; font-weight: 800; letter-spacing: -.3px; line-height: 1; color: var(--texto-titulo); }
     .pc-marca .medi { color: var(--marca-suave); }
     .pc-tag { font-size: 12px; font-weight: 600; letter-spacing: 3px; color: var(--texto-tenue); }
-    @media (prefers-reduced-motion: reduce) { .ruleta-marca { animation: none; } }
-    @media (max-width: 700px) {
-      .app { padding: 20px 18px; }
-      .compartments-grid { grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 14px; }
-      .form-grid { grid-template-columns: 1fr; padding: 18px; }
+
+    /* ================= PANTALLAS PEQUENAS ================= */
+    @media (max-width: 900px) {
+      .cabecera { grid-template-columns: auto 1fr; }
+      .titulo { text-align: left; font-size: clamp(2.2rem, 10vw, 3.2rem); }
+      .tuerca { width: 60px; height: 60px; }
+      .tuerca svg { width: 48px; height: 48px; }
+      .tablero {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto;
+        grid-template-areas: "aparato aparato" "izq der" "dispensar medibot";
+        column-gap: 10px; row-gap: 18px; padding: 24px 14px 18px; border-radius: 28px;
+      }
+      .aparato { font-size: clamp(8px, 2.4vw, 12px); }
+      .columna { max-width: none; justify-self: stretch; gap: 10px; }
+      .comp { min-height: 60px; padding: 10px 18px; }
+      .comp-titulo { font-size: 11.5px; letter-spacing: .03em; }
+      .comp-med { font-size: 12px; }
+      .accion { max-width: none; }
+      .btn-dispensar, .btn-medibot { min-width: 0; width: 100%; height: 56px; padding: 0 12px; font-size: 16px; }
+      .avisos { top: auto; right: auto; left: 50%; bottom: 16px; translate: -50% 0; flex-direction: column-reverse; }
+    }
+    @media (max-width: 520px) {
+      .ajustes { top: 0; left: 0; bottom: 0; width: 100vw; border-radius: 0 24px 24px 0; }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ruleta-marca { animation: none; }
     }
   </style>
 </head>
@@ -702,345 +1075,705 @@ HTML_PAGE = """<!DOCTYPE html>
   <div class="pc-marca"><span class="medi">MEDI</span>BOT</div>
   <div class="pc-tag">PASTILLERO</div>
 </div>
-<div class="app" id="app">
-  <div class="header">
-    <h1>Pillbox <span id="globalBadge">8</span></h1>
-    <div class="flex-wrap">
-      <!--  Solo dice "Conectado" o "Desconectado". El puerto (/dev/ttyUSB0,
-            COM3...) y el motivo de la caida no le dicen nada a quien usa el
-            pastillero, asi que viajan en el title: siguen a un paso, pero no
-            ocupan la barra. Arranca en "Desconectado" -en rojo, como lo pinta
-            .serial-pill- porque hasta que responda /serial/status no hay
-            ningun Arduino confirmado, y dar por buena una conexion que no
-            existe es peor que esperar medio segundo. -->
-      <span class="serial-pill" id="serialPill"
-            title="Comprobando la conexion con el Arduino...">Desconectado</span>
-      <span class="serial-pill hidden" id="posPill" title="Posicion de la ruleta">Posicion: -</span>
-      <button class="btn-back hidden" id="btnVerificar" onclick="verificarSync()">Verificar</button>
-      <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
-      <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
+
+<header class="cabecera" id="cabecera">
+  <!--  LA TUERCA: abre la configuracion (datos medicos, dosis, horarios,
+        historial y estado del sistema). -->
+  <button class="tuerca" id="btnAjustes" type="button" aria-label="Abrir la configuración"
+          aria-controls="panelAjustes" aria-expanded="false" title="Configuración">
+    <svg viewBox="-50 -50 100 100" aria-hidden="true">
+      <path class="tuerca-dientes" d="M-7.3 -37.8L-5.3 -46.7A47 47 0 0 1 5.3 -46.7L7.3 -37.8A38.5 38.5 0 0 1 21.5 -31.9L29.3 -36.8A47 47 0 0 1 36.8 -29.3L31.9 -21.5A38.5 38.5 0 0 1 37.8 -7.3L46.7 -5.3A47 47 0 0 1 46.7 5.3L37.8 7.3A38.5 38.5 0 0 1 31.9 21.5L36.8 29.3A47 47 0 0 1 29.3 36.8L21.5 31.9A38.5 38.5 0 0 1 7.3 37.8L5.3 46.7A47 47 0 0 1 -5.3 46.7L-7.3 37.8A38.5 38.5 0 0 1 -21.5 31.9L-29.3 36.8A47 47 0 0 1 -36.8 29.3L-31.9 21.5A38.5 38.5 0 0 1 -37.8 7.3L-46.7 5.3A47 47 0 0 1 -46.7 -5.3L-37.8 -7.3A38.5 38.5 0 0 1 -31.9 -21.5L-36.8 -29.3A47 47 0 0 1 -29.3 -36.8L-21.5 -31.9A38.5 38.5 0 0 1 -7.3 -37.8Z"/>
+      <circle class="tuerca-aro" r="31"/>
+      <circle class="tuerca-disco" r="27.5"/>
+      <path class="tuerca-radios" d="M0 -26L0 26M-26 0L26 0M-18.4 -18.4L18.4 18.4M18.4 -18.4L-18.4 18.4"/>
+      <circle class="tuerca-centro" r="3.6"/>
+    </svg>
+  </button>
+  <h1 class="titulo">PILLBOX</h1>
+</header>
+
+<main class="tablero" id="app">
+  <div class="columna columna-izq" id="colIzq" role="group" aria-label="Compartimientos 1 a 4"></div>
+
+  <!--  EL PASTILLERO, tal cual el diseno. Solo gira la ruleta. -->
+  <section class="aparato" aria-label="Pastillero MEDIBOT">
+    <div class="aparato-cuerpo">
+      <div class="tolva" aria-hidden="true"><div class="tolva-boca"></div></div>
+      <div class="ruleta" id="ruleta">
+        <div class="ruleta-bisel"></div>
+        <div class="ruleta-anillo"></div>
+        <div class="ruleta-disco" id="ruletaDisco">
+          <svg viewBox="-100 -100 200 200" role="img" aria-label="Ruleta interna de 8 compartimientos">
+            <defs>
+              <radialGradient id="gDisco" cx="42%" cy="38%" r="70%">
+                <stop offset="0" class="st-disco1"/>
+                <stop offset="1" class="st-disco2"/>
+              </radialGradient>
+            </defs>
+            <circle r="100" fill="url(#gDisco)"/>
+            <circle class="llanta" r="90"/>
+            <path class="radios" d="M4.97 -12.01L34.44 -83.15M12.01 -4.97L83.15 -34.44M12.01 4.97L83.15 34.44M4.97 12.01L34.44 83.15M-4.97 12.01L-34.44 83.15M-12.01 4.97L-83.15 34.44M-12.01 -4.97L-83.15 -34.44M-4.97 -12.01L-34.44 -83.15"/>
+            <circle class="cubo" r="13"/>
+            <g class="cubo-roseta"><circle cx="0.00" cy="-7.00" r="2"/><circle cx="4.95" cy="-4.95" r="2"/><circle cx="7.00" cy="0.00" r="2"/><circle cx="4.95" cy="4.95" r="2"/><circle cx="0.00" cy="7.00" r="2"/><circle cx="-4.95" cy="4.95" r="2"/><circle cx="-7.00" cy="0.00" r="2"/><circle cx="-4.95" cy="-4.95" r="2"/><circle r="2.2"/></g>
+          </svg>
+        </div>
+        <span class="pastilla-cae" id="pastillaCae" aria-hidden="true"></span>
+      </div>
+      <div class="placa" aria-hidden="true"><span>MEDIBOT</span></div>
+      <div class="cajon" aria-hidden="true">
+        <span class="cajon-tirador"></span>
+        <svg class="cajon-logo" viewBox="-50 -50 100 100">
+          <circle r="44"/>
+          <circle r="16"/>
+          <path d="M0.00 -16.00L0.00 -44.00M11.31 -11.31L31.11 -31.11M16.00 0.00L44.00 0.00M11.31 11.31L31.11 31.11M0.00 16.00L0.00 44.00M-11.31 11.31L-31.11 31.11M-16.00 0.00L-44.00 0.00M-11.31 -11.31L-31.11 -31.11"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <div class="columna columna-der" id="colDer" role="group" aria-label="Compartimientos 5 a 8"></div>
+
+  <div class="acciones">
+    <div class="accion accion-izq">
+      <button class="btn-dispensar" id="btnDispensar" type="button">DISPENSAR</button>
+    </div>
+    <div class="accion accion-der">
       <!--  MEDIBOT. Es un <a> y no un boton con window.location: asi se
             puede abrir en otra pestaña con el boton central o con una
-            pulsacion larga en el movil, que es lo que espera cualquiera.
-            Sin emoji: los botones de esta barra son solo texto. -->
-      <a class="btn-back" id="linkMedibot" href="#" rel="noopener"
+            pulsacion larga en el movil. Sin emoji: solo texto. -->
+      <a class="btn-medibot" id="linkMedibot" href="#" rel="noopener"
          title="Ir a la interfaz de camaras y movimiento de Medibot">MEDIBOT</a>
-      <!--  El texto es la ACCION del boton, no el tema puesto: con el tema
-            claro (el de arranque) pone "Modo Oscuro", que es lo que pasa al
-            pulsarlo. Lo repinta pintarBotonTema() al cargar. -->
-      <button class="btn-back" id="themeToggle" onclick="alternarTema()"
-              title="Cambiar tema claro/oscuro">Modo Oscuro</button>
     </div>
   </div>
+</main>
 
-  <div id="mainMenu">
-    <div class="compartments-grid" id="compGrid"></div>
-    <div class="panel">
-      <h3>Historial de acciones</h3>
-      <div id="histList" class="aviso">Cargando...</div>
+<div class="avisos" id="avisos" aria-live="polite"></div>
+
+<!--  PANEL DE CONFIGURACION. Se desliza desde la tuerca. Aqui vive toda la
+      informacion del sistema: datos de cada compartimiento, dosis,
+      horarios, historial y el estado de la conexion. -->
+<div class="velo" id="velo"></div>
+<aside class="ajustes" id="panelAjustes" role="dialog" aria-modal="true" aria-labelledby="ajustesTitulo" aria-hidden="true" inert>
+  <div class="ajustes-cabeza">
+    <div>
+      <h2 id="ajustesTitulo">Configuración</h2>
+      <p>Datos médicos, dosis, horarios, historial y estado</p>
     </div>
+    <button class="cerrar" id="btnCerrarAjustes" type="button" aria-label="Cerrar la configuración">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
   </div>
-
-  <div id="detailView" class="detail-view">
-    <div class="detail-header">
-      <div>
-        <h2 id="detailTitle">Compartimiento <span id="detailNumber">1</span></h2>
-        <span class="sub" id="detailSub">Configura el medicamento</span>
+  <div class="pestanas" role="tablist" aria-label="Secciones de la configuración">
+    <button class="pestana" role="tab" type="button" id="tabComp" data-pestana="comp" aria-controls="pestanaComp" aria-selected="true">Compartimientos</button>
+    <button class="pestana" role="tab" type="button" id="tabHist" data-pestana="hist" aria-controls="pestanaHist" aria-selected="false" tabindex="-1">Historial</button>
+    <button class="pestana" role="tab" type="button" id="tabSis" data-pestana="sis" aria-controls="pestanaSis" aria-selected="false" tabindex="-1">Sistema</button>
+  </div>
+  <div class="ajustes-cuerpo">
+    <section id="pestanaComp" role="tabpanel" aria-labelledby="tabComp">
+      <div id="listaComp">
+        <p class="intro">Elige un compartimiento para registrar su medicamento, la dosis y los horarios de dispensado automático.</p>
+        <div id="listaFilas"></div>
       </div>
-      <div class="flex-wrap">
-        <span id="detailStatusBadge" class="status-badge hidden">Completado</span>
-      </div>
-    </div>
-
-    <div id="formContainer">
-      <div class="form-grid" id="formGrid">
-        <div class="form-group"><label>Medicamento</label><input type="text" id="fMedicamento" placeholder="Ej: Losartan 50 mg"></div>
-        <div class="form-group"><label>Dosis</label><input type="text" id="fDosis" placeholder="Ej: 1 tableta"></div>
-        <div class="form-group"><label>Paciente (opcional)</label><input type="text" id="fNombre" placeholder="Nombre del paciente"></div>
-        <div class="form-group"><label>Notas (opcional)</label><input type="text" id="fNotas" placeholder="Indicaciones, habitacion..."></div>
-      </div>
-      <div class="btn-group">
-        <button class="btn btn-success" id="btnCompletar">Completado</button>
-        <button class="btn btn-outline" id="btnCancelarEdicion" onclick="cancelEdit()">Cancelar</button>
-      </div>
-      <div class="aviso" id="formHelper">Medicamento y dosis son obligatorios; el resto es opcional.</div>
-    </div>
-
-    <div id="savedContainer" class="hidden">
-      <div class="saved-data" id="savedDataDisplay"></div>
-      <div class="btn-group">
-        <button class="btn btn-warning" id="btnEditar">Editar</button>
-        <button class="btn btn-danger" id="btnEliminar">Eliminar</button>
-        <button class="btn btn-primary" id="btnDispensar">Dispensar</button>
-      </div>
-
-      <div class="panel">
-        <h3>Horarios de dispensado automatico</h3>
-        <div id="schedList" class="aviso">Sin horarios programados.</div>
-        <div class="sched-form">
-          <input type="time" id="schedHora">
-          <span id="schedDias"></span>
-          <button class="btn btn-primary btn-mini" id="btnAddHorario">Agregar horario</button>
+      <div id="editorComp" class="hidden">
+        <button class="volver" id="btnVolverLista" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+          Todos los compartimientos
+        </button>
+        <div class="editor-cabeza">
+          <span class="fila-num" id="editorNum">1</span>
+          <div>
+            <h3>Compartimiento <span id="editorNumTxt">1</span></h3>
+            <p id="editorSub">La ruleta lo sube a la zona de carga para llenarlo.</p>
+          </div>
+          <span class="badge" id="editorBadge">Pendiente</span>
         </div>
-        <div class="aviso">Elige la hora y los dias; se dispensara automaticamente en ese momento.</div>
+        <form class="bloque" id="formComp" novalidate>
+          <h4>Datos médicos</h4>
+          <div class="form-grid">
+            <div class="form-group ancho"><label for="fMedicamento">Medicamento <b>*</b></label><input type="text" id="fMedicamento" placeholder="Ej: Losartán 50 mg" autocomplete="off"></div>
+            <div class="form-group"><label for="fDosis">Dosis <b>*</b></label><input type="text" id="fDosis" placeholder="Ej: 1 tableta" autocomplete="off"></div>
+            <div class="form-group"><label for="fNombre">Paciente</label><input type="text" id="fNombre" placeholder="Nombre del paciente" autocomplete="off"></div>
+            <div class="form-group ancho"><label for="fNotas">Notas</label><input type="text" id="fNotas" placeholder="Indicaciones, habitación…" autocomplete="off"></div>
+          </div>
+          <div class="form-error" id="formError" role="alert"></div>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btnGuardar" type="submit">Guardar</button>
+            <button class="btn btn-danger hidden" id="btnEliminar" type="button">Eliminar</button>
+          </div>
+        </form>
+        <div class="bloque">
+          <h4>Horarios de dispensado automático</h4>
+          <div id="schedBloqueo" class="vacio-txt hidden">Guarda primero el medicamento para poder programar horarios.</div>
+          <div id="schedBloque">
+            <div id="schedList"></div>
+            <div class="sched-form">
+              <input type="time" id="schedHora" aria-label="Hora del dispensado">
+              <div class="dias-sel" id="schedDias" role="group" aria-label="Días de la semana"></div>
+              <button class="btn btn-primary btn-mini" id="btnAddHorario" type="button">Agregar horario</button>
+            </div>
+            <p class="aviso">Elige la hora y los días: el pastillero dispensará solo en ese momento y quedará anotado en el historial.</p>
+          </div>
+        </div>
       </div>
-    </div>
-
-    <div style="margin-top:24px;">
-      <button class="btn btn-back" onclick="goToMain()">Volver al menu</button>
-    </div>
+    </section>
+    <section id="pestanaHist" role="tabpanel" aria-labelledby="tabHist" class="hidden">
+      <p class="intro">Últimas acciones: guardados, horarios y dispensados manuales (MANUAL) y automáticos (AUTO).</p>
+      <div class="bloque"><div id="histList" class="vacio-txt">Cargando…</div></div>
+    </section>
+    <section id="pestanaSis" role="tabpanel" aria-labelledby="tabSis" class="hidden">
+      <div class="bloque">
+        <h4>Estado</h4>
+        <!--  La pildora solo dice "Conectado" o "Desconectado". El puerto y
+              el motivo de la caida viajan en el title. Arranca en
+              "Desconectado" -en rojo, como lo pinta .serial-pill- porque
+              hasta que responda /serial/status no hay ningun Arduino
+              confirmado. -->
+        <div class="dato"><span class="dato-k">Arduino</span>
+          <span class="serial-pill" id="serialPill"
+                title="Comprobando la conexion con el Arduino...">Desconectado</span></div>
+        <div class="dato"><span class="dato-k">Ruleta</span>
+          <span class="dato-v"><span class="serial-pill hidden" id="posPill" title="Posicion de la ruleta">Posición: -</span><span id="sisPosicion">-</span></span></div>
+        <div class="dato"><span class="dato-k">Puerto</span><span class="dato-v" id="sisPuerto">-</span></div>
+        <div class="dato"><span class="dato-k">Compartimientos configurados</span><span class="dato-v" id="globalBadge">0 / 8</span></div>
+        <div class="btn-group" style="margin-top:12px">
+          <button class="btn btn-outline btn-mini hidden" id="btnVerificar" type="button" onclick="verificarSync()">Verificar</button>
+          <button class="btn btn-outline btn-mini hidden" id="btnReconectar" type="button" onclick="reconectarArduino()">Reconectar</button>
+          <button class="btn btn-outline btn-mini" id="btnSisInicio" type="button">Ruleta al inicio</button>
+        </div>
+      </div>
+      <div class="bloque">
+        <h4>Apariencia</h4>
+        <!--  El texto es la ACCION del boton, no el tema puesto: con el tema
+              claro (el de arranque) pone "Modo Oscuro", que es lo que pasa al
+              pulsarlo. Lo repinta pintarBotonTema() al cargar. -->
+        <button class="btn btn-outline" id="themeToggle" type="button" onclick="alternarTema()"
+                title="Cambiar tema claro/oscuro">Modo Oscuro</button>
+      </div>
+      <div class="bloque">
+        <h4>Cómo funciona la ruleta</h4>
+        <p class="aviso" style="margin-top:0">Al elegir un compartimiento, la ruleta lo sube arriba, bajo la tolva: es la zona de carga. Al dispensar, parte del inicio (compartimiento 1 arriba), lo baja media vuelta hasta la salida y la pastilla cae al cajón; después completa la vuelta hasta el inicio. La ruleta solo gira hacia delante.</p>
+      </div>
+    </section>
   </div>
-</div>
+</aside>
 
 <script>
   (function() {
     const TOTAL_COMPARTMENTS = 8;
+    const MITAD = TOTAL_COMPARTMENTS / 2;
+    const GRADOS = 360 / TOTAL_COMPARTMENTS;
     const DIAS = ['L','M','X','J','V','S','D'];
-    let currentCompartment = 1;
-    let isEditing = false;
+    const DIAS_LARGOS = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
+    const CAMPOS = ['medicamento','dosis','nombre','notas'];
+    const REDUCIR = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    //  Segundos de animacion por compartimiento. El motor de verdad
+    //  (28BYJ-48, 256 pasos por compartimiento) tarda algo mas; aqui se
+    //  acorta para que la animacion no aburra, sin perder el sentido del giro.
+    const SEG_POR_COMP = REDUCIR ? 0.08 : 0.5;
+
     let dataStore = {};   // compartimientos (desde el servidor)
     let horarios = [];    // horarios (desde el servidor)
     let historial = [];   // historial (desde el servidor)
+    let seleccionado = null;  // compartimiento elegido (el que se sube a la carga)
+    let arriba = 1;           // compartimiento que la ruleta DIBUJADA tiene arriba
+    let pasos = 0;            // giro acumulado en compartimientos: solo crece
+    let posConocida = false;  // ya se coloco la ruleta donde dice el Arduino
+    let enMarcha = 0;         // movimientos de la ruleta en curso o en cola
+    let dispensando = false;
+    let cola = Promise.resolve();
+    let editando = null;      // compartimiento abierto en el panel
+    let claveHistorial = null;
+    let ultimoFoco = null;
+    let confirmarEliminar = 0;
 
-    // ---------- Estado persistente (guardado en la Pi via backend) ----------
-    function cargarTodo(cb) {
-      fetch('/data').then(r => r.json()).then(d => {
+    function el(id) { return document.getElementById(id); }
+    function esperar(ms) { return new Promise(res => setTimeout(res, ms)); }
+    function mayus(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
+
+    function esc(texto) {
+      if (texto === null || texto === undefined) { return ''; }
+      const mapa = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
+      return String(texto).replace(/[&<>"']/g, m => mapa[m]);
+    }
+
+    // ---------- Datos (guardados en la Pi, via backend) ----------
+    function cargarTodo() {
+      return fetch('/data').then(r => r.json()).then(d => {
         dataStore = d.compartimientos || {};
         horarios = d.horarios || [];
         historial = d.historial || [];
-        if (cb) cb();
-      }).catch(() => { if (cb) cb(); });
+        return d;
+      });
     }
-    function getCompData(num) { return dataStore[String(num)] || null; }
+    function datosDe(num) {
+      const d = dataStore[String(num)];
+      return (d && d.completado === true) ? d : null;
+    }
+    function pedir(url, metodo, cuerpo) {
+      const opciones = { method: metodo || 'GET' };
+      if (cuerpo !== undefined) {
+        opciones.headers = { 'Content-Type': 'application/json' };
+        opciones.body = JSON.stringify(cuerpo);
+      }
+      return fetch(url, opciones).then(r => r.json());
+    }
 
-    function renderMainMenu() {
-      const grid = document.getElementById('compGrid');
-      grid.innerHTML = '';
+    //  Proxima toma programada de un compartimiento, en texto, o ''.
+    function proximaToma(num) {
+      const ahora = new Date();
+      const hoy = (ahora.getDay() + 6) % 7;   // lunes = 0, como weekday() en Python
+      const minAhora = ahora.getHours() * 60 + ahora.getMinutes();
+      let mejor = null;
+      horarios.forEach(h => {
+        if (h.comp !== num || !h.activo) { return; }
+        const partes = String(h.hora).split(':');
+        const m = parseInt(partes[0], 10) * 60 + parseInt(partes[1], 10);
+        (h.dias || []).forEach(d => {
+          let dias = (d - hoy + 7) % 7;
+          if (dias === 0 && m <= minAhora) { dias = 7; }
+          const falta = dias * 1440 + m - minAhora;
+          if (!mejor || falta < mejor.falta) { mejor = { falta: falta, dias: dias, dia: d, hora: h.hora }; }
+        });
+      });
+      if (!mejor) { return ''; }
+      if (mejor.dias === 0) { return 'hoy ' + mejor.hora; }
+      if (mejor.dias === 1) { return 'mañana ' + mejor.hora; }
+      return DIAS_LARGOS[mejor.dia] + ' ' + mejor.hora;
+    }
+
+    // ---------- Avisos ----------
+    function avisar(texto, tipo, accion) {
+      const caja = el('avisos');
+      const t = document.createElement('div');
+      t.className = 'toast ' + (tipo === 'aviso' ? 'aviso-t' : (tipo || 'info'));
+      if (tipo === 'error') { t.setAttribute('role', 'alert'); }
+      const span = document.createElement('span');
+      span.className = 'toast-texto';
+      span.textContent = texto;
+      t.appendChild(span);
+      let quitado = false;
+      const quitar = () => {
+        if (quitado) { return; }
+        quitado = true;
+        t.classList.add('fuera');
+        setTimeout(() => t.remove(), 320);
+      };
+      if (accion) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'toast-accion';
+        b.textContent = accion.texto;
+        b.addEventListener('click', () => { quitar(); accion.fn(); });
+        t.appendChild(b);
+      }
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'toast-cerrar';
+      x.setAttribute('aria-label', 'Cerrar aviso');
+      x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+      x.addEventListener('click', quitar);
+      t.appendChild(x);
+      caja.appendChild(t);
+      while (caja.children.length > 3) { caja.removeChild(caja.firstChild); }
+      setTimeout(quitar, accion ? 8000 : (tipo === 'error' ? 7000 : 4500));
+    }
+
+    // ---------- LA RULETA ----------
+    //  El compartimiento i esta a (i-1)*45 grados del de arriba, en el
+    //  sentido del reloj. Avanzar un compartimiento gira el disco 45 grados
+    //  en sentido contrario: sube el siguiente a la zona de carga. Como el
+    //  firmware, SOLO avanza: para "volver" completa la vuelta.
+    function aplicarGiro(segundos) {
+      const disco = el('ruletaDisco');
+      disco.style.transitionDuration = segundos + 's';
+      disco.style.transform = 'rotate(' + (-pasos * GRADOS) + 'deg)';
+    }
+    function colocarSinAnimar(n) {
+      pasos = ((n - 1) % TOTAL_COMPARTMENTS + TOTAL_COMPARTMENTS) % TOTAL_COMPARTMENTS;
+      arriba = n;
+      aplicarGiro(0);
+    }
+    function avanzar(k) {
+      k = ((k % TOTAL_COMPARTMENTS) + TOTAL_COMPARTMENTS) % TOTAL_COMPARTMENTS;
+      if (!k) { return Promise.resolve(); }
+      pasos += k;
+      arriba = ((arriba - 1 + k) % TOTAL_COMPARTMENTS) + 1;
+      const seg = Math.max(REDUCIR ? 0.05 : 0.4, k * SEG_POR_COMP);
+      aplicarGiro(seg);
+      return esperar(seg * 1000 + 80);
+    }
+    function irA(n) { return avanzar(n - arriba); }
+
+    //  Los movimientos van EN FILA: si se pulsan tres compartimientos
+    //  seguidos, la ruleta hace los tres giros uno detras de otro.
+    function encolar(op) {
+      enMarcha++;
+      const p = cola.then(op);
+      const fin = () => { enMarcha--; };
+      cola = p.then(fin, fin);
+      return p;
+    }
+
+    //  Tras la respuesta del servidor: si hay Arduino y su posicion no es la
+    //  dibujada, la ruleta dibujada le sigue (hacia delante).
+    function reconciliar(r) {
+      if (r && r.pos) { updatePos(r.pos); }
+      if (r && r.pos && r.pos.conectado && r.pos.real && r.pos.real !== arriba) {
+        return irA(r.pos.real);
+      }
+      return null;
+    }
+
+    // ---------- Elegir un compartimiento: GOTO (sube a la zona de carga) ----------
+    function seleccionar(n) {
+      if (dispensando) { avisar('Espera a que termine el dispensado.', 'aviso'); return; }
+      if (seleccionado === n) { volverAInicio(); return; }
+      seleccionado = n;
+      pintarBotones();
+      const peticion = pedir('/goto', 'POST', { compartimiento: n }).catch(e => ({ error: String(e) }));
+      encolar(() => Promise.all([irA(n), peticion]).then(res => {
+        const r = res[1];
+        if (r && r.error) { avisar('Sin respuesta del servidor: ' + r.error, 'error'); return null; }
+        return reconciliar(r);
+      })).catch(e => avisar('No se pudo mover la ruleta: ' + e, 'error'));
+    }
+
+    // ---------- HOME: compartimiento 1 arriba ----------
+    function volverAInicio() {
+      if (dispensando) { return; }
+      seleccionado = null;
+      pintarBotones();
+      const peticion = pedir('/home', 'POST', {}).catch(e => ({ error: String(e) }));
+      encolar(() => Promise.all([irA(1), peticion]).then(res => {
+        const r = res[1];
+        if (r && r.error) { avisar('Sin respuesta del servidor: ' + r.error, 'error'); return null; }
+        return reconciliar(r);
+      })).catch(e => avisar('No se pudo mover la ruleta: ' + e, 'error'));
+    }
+
+    // ---------- DISPENSAR ----------
+    //  Igual que el firmware: parte del inicio, avanza 'rot' compartimientos
+    //  hasta dejar el elegido ABAJO (salida), la pastilla cae al cajon y
+    //  luego completa la vuelta hasta el inicio.
+    function soltarPastilla() {
+      const p = el('pastillaCae');
+      p.classList.remove('cayendo');
+      void p.offsetWidth;
+      p.classList.add('cayendo');
+      return esperar(REDUCIR ? 300 : 1200);
+    }
+    function secuenciaDispensar(n) {
+      const rot = (n - 1 + MITAD) % TOTAL_COMPARTMENTS;
+      return irA(1)
+        .then(() => avanzar(rot))
+        .then(soltarPastilla)
+        .then(() => avanzar(TOTAL_COMPARTMENTS - rot));
+    }
+    function pintarBotonDispensar() {
+      const b = el('btnDispensar');
+      b.disabled = dispensando;
+      b.textContent = dispensando ? 'DISPENSANDO…' : 'DISPENSAR';
+    }
+    function dispensar() {
+      const n = seleccionado;
+      if (dispensando) { return; }
+      if (!n) { avisar('Elige primero el compartimiento que quieres dispensar.', 'aviso'); return; }
+      const data = datosDe(n);
+      if (!data) {
+        avisar('El compartimiento ' + n + ' no tiene medicamento configurado.', 'aviso',
+               { texto: 'Configurar', fn: () => abrirAjustes('comp', n) });
+        return;
+      }
+      dispensando = true;
+      pintarBotonDispensar();
+      const peticion = pedir('/dispense', 'POST', {
+        compartimiento: n,
+        medicamento: data.medicamento || '',
+        nombre: data.nombre || '',
+        dosis: data.dosis || ''
+      }).catch(e => ({ error: String(e) }));
+      encolar(() => Promise.all([secuenciaDispensar(n), peticion]))
+        .then(res => {
+          const r = res[1];
+          if (r.error) { avisar('Error de conexión con el servidor: ' + r.error, 'error'); }
+          else {
+            const conectado = !!(r.pos && r.pos.conectado);
+            avisar(r.message || 'Listo.', r.ok ? 'ok' : (conectado ? 'error' : 'info'));
+            if (r.pos) { updatePos(r.pos); }
+          }
+          seleccionado = null;
+          dispensando = false;
+          pintarBotones();
+          return refreshData();
+        })
+        .catch(e => avisar('No se pudo dispensar: ' + e, 'error'))
+        .finally(() => { dispensando = false; pintarBotonDispensar(); });
+    }
+
+    // ---------- Botones de los compartimientos ----------
+    function crearBotones() {
+      for (let i = 1; i <= TOTAL_COMPARTMENTS; i++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'comp';
+        b.id = 'comp' + i;
+        b.setAttribute('aria-pressed', 'false');
+        b.innerHTML = '<span class="comp-titulo">COMPARTIMIENTO ' + i + '</span>' +
+          '<span class="comp-med" id="compMed' + i + '">Vacío</span>';
+        b.addEventListener('click', () => seleccionar(i));
+        el(i <= MITAD ? 'colIzq' : 'colDer').appendChild(b);
+      }
+    }
+    function pintarBotones() {
       let completos = 0;
       for (let i = 1; i <= TOTAL_COMPARTMENTS; i++) {
-        const data = getCompData(i);
-        const card = document.createElement('div');
-        card.className = 'compartment-card';
-        let badgeClass = 'badge', badgeText = 'Pendiente';
-        if (data && data.completado === true) { badgeClass += ' completed'; badgeText = 'Completado'; completos++; }
-        const schedTxt = horarios.filter(h => h.comp === i && h.activo)
-                                 .map(h => h.hora).join(', ');
-        let previewHtml;
-        if (data && data.completado === true) {
-          previewHtml = '<div class="preview-data">' +
-            '<div><span class="label">Medicamento</span> <span class="value">' + escapeHtml(data.medicamento) + '</span></div>' +
-            '<div><span class="label">Dosis</span> <span class="value">' + escapeHtml(data.dosis) + '</span></div>' +
-            '<div><span class="label">Horarios</span> <span class="value">' + (schedTxt ? escapeHtml(schedTxt) : 'Sin programar') + '</span></div>' +
-            '</div>';
-        } else {
-          previewHtml = '<div class="preview-empty">Sin datos</div>';
-        }
-        card.innerHTML = '<div class="compartment-number">COMPARTIMIENTO ' + i +
-          ' <span class="' + badgeClass + '">' + badgeText + '</span></div>' + previewHtml;
-        card.addEventListener('click', () => openCompartment(i));
-        grid.appendChild(card);
+        const d = datosDe(i);
+        const b = el('comp' + i);
+        if (d) { completos++; }
+        b.setAttribute('aria-pressed', seleccionado === i ? 'true' : 'false');
+        el('compMed' + i).textContent = d ? d.medicamento : 'Vacío';
+        b.title = 'Compartimiento ' + i + ': ' + (d ? d.medicamento + ', ' + d.dosis : 'sin medicamento') +
+          (seleccionado === i ? ' (pulsa otra vez para devolver la ruleta al inicio)' : '');
       }
-      document.getElementById('globalBadge').textContent = completos + ' / ' + TOTAL_COMPARTMENTS;
-      renderHistorial();
+      el('globalBadge').textContent = completos + ' / ' + TOTAL_COMPARTMENTS;
+    }
+    function pintarTodo() {
+      pintarBotones();
+      pintarListaAjustes();
+      pintarHistorial();
+      if (editando) { pintarEditor(); }
     }
 
-    function renderHistorial() {
-      const el = document.getElementById('histList');
-      if (!historial.length) { el.textContent = 'Sin acciones registradas.'; return; }
-      el.innerHTML = historial.slice(0, 20).map(h =>
-        '<div class="hist-row"><span class="ts">' + escapeHtml(h.ts) + '</span>' +
-        '<span class="tipo ' + escapeHtml(h.tipo) + '">' + escapeHtml(h.tipo) + '</span>' +
-        '<span>Comp ' + h.comp + (h.detalle ? ' - ' + escapeHtml(h.detalle) : '') + '</span>' +
-        '<span class="res">' + escapeHtml(h.resultado || '') + '</span></div>').join('');
-    }
-
-    // Al abrir un compartimiento, la ruleta lo coloca ARRIBA de la zona de
-    // dispensacion (posicion de espera); al dispensar, baja.
-    function openCompartment(num) {
-      currentCompartment = num;
-      isEditing = false;
-      document.getElementById('mainMenu').style.display = 'none';
-      const dv = document.getElementById('detailView');
-      dv.classList.add('active'); dv.style.display = 'block';
-      document.getElementById('detailNumber').textContent = num;
-      document.getElementById('btnBackMain').classList.remove('hidden');
-      const data = getCompData(num);
-      if (data && data.completado === true) showSavedData(num, data);
-      else showForm(num, data || null);
-      document.getElementById('detailSub').textContent =
-        'Moviendo la ruleta al compartimiento ' + num + '...';
-      fetch('/goto', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ compartimiento: num })
-      }).then(r => r.json()).then(res => {
-        if (res.pos) updatePos(res.pos);
-        document.getElementById('detailSub').textContent = res.ok
-          ? 'Compartimiento ' + num + ' arriba, en posicion de espera'
-          : 'Sin conexion con el Arduino (posicion no confirmada)';
-      }).catch(() => {});
-    }
-
-    function showForm(num, existingData) {
-      document.getElementById('formContainer').classList.remove('hidden');
-      document.getElementById('savedContainer').classList.add('hidden');
-      document.getElementById('detailStatusBadge').classList.add('hidden');
-      const fields = ['medicamento','dosis','nombre','notas'];
-      if (existingData) {
-        fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); if (el) el.value = existingData[f] || ''; });
-        document.getElementById('detailSub').textContent = 'Editando medicamento';
-        document.getElementById('btnCancelarEdicion').classList.remove('hidden');
-        isEditing = true;
-      } else {
-        fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); if (el) el.value = ''; });
-        document.getElementById('detailSub').textContent = 'Configura el medicamento';
-        document.getElementById('btnCancelarEdicion').classList.add('hidden');
-        isEditing = false;
+    // ---------- Panel de configuracion (la tuerca) ----------
+    function abrirAjustes(pestana, comp) {
+      const panel = el('panelAjustes');
+      if (!panel.classList.contains('abierto')) {
+        ultimoFoco = document.activeElement;
+        panel.classList.add('abierto');
+        panel.removeAttribute('inert');
+        panel.setAttribute('aria-hidden', 'false');
+        el('velo').classList.add('abierto');
+        el('app').setAttribute('inert', '');
+        el('cabecera').setAttribute('inert', '');
+        el('btnAjustes').setAttribute('aria-expanded', 'true');
       }
-      document.getElementById('btnCompletar').textContent = isEditing ? 'Guardar cambios' : 'Completado';
-      document.getElementById('btnCompletar').onclick = function() { handleComplete(num); };
+      cambiarPestana(pestana || 'comp');
+      if (comp) { abrirEditor(comp); }
+      else if ((pestana || 'comp') === 'comp') { cerrarEditor(); }
+      setTimeout(() => {
+        const destino = comp ? el('fMedicamento') : el('btnCerrarAjustes');
+        if (destino) { destino.focus({ preventScroll: true }); }
+      }, 80);
     }
-
-    function showSavedData(num, data) {
-      document.getElementById('formContainer').classList.add('hidden');
-      document.getElementById('savedContainer').classList.remove('hidden');
-      const badge = document.getElementById('detailStatusBadge');
-      badge.classList.remove('hidden'); badge.textContent = 'Completado';
-      document.getElementById('detailSub').textContent = 'Medicamento configurado';
-      const fields = [
-        {label:'Medicamento',key:'medicamento'},{label:'Dosis',key:'dosis'},
-        {label:'Paciente',key:'nombre'},{label:'Notas',key:'notas'}
-      ];
+    function cerrarAjustes() {
+      const panel = el('panelAjustes');
+      if (!panel.classList.contains('abierto')) { return; }
+      panel.classList.remove('abierto');
+      panel.setAttribute('inert', '');
+      panel.setAttribute('aria-hidden', 'true');
+      el('velo').classList.remove('abierto');
+      el('app').removeAttribute('inert');
+      el('cabecera').removeAttribute('inert');
+      el('btnAjustes').setAttribute('aria-expanded', 'false');
+      cerrarEditor();
+      const volver = (ultimoFoco && document.body.contains(ultimoFoco)) ? ultimoFoco : el('btnAjustes');
+      volver.focus({ preventScroll: true });
+    }
+    function cambiarPestana(nombre) {
+      [['comp', 'tabComp', 'pestanaComp'], ['hist', 'tabHist', 'pestanaHist'], ['sis', 'tabSis', 'pestanaSis']].forEach(t => {
+        const activa = t[0] === nombre;
+        el(t[1]).setAttribute('aria-selected', activa ? 'true' : 'false');
+        el(t[1]).tabIndex = activa ? 0 : -1;
+        el(t[2]).classList.toggle('hidden', !activa);
+      });
+    }
+    function pintarListaAjustes() {
       let html = '';
-      fields.forEach(f => { html += '<div class="row"><span class="field-label">' + f.label + '</span><span class="field-value">' + escapeHtml(data[f.key]) + '</span></div>'; });
-      document.getElementById('savedDataDisplay').innerHTML = html;
-
-      document.getElementById('btnEditar').onclick = function() { showForm(num, getCompData(num) || null); };
-      document.getElementById('btnEliminar').onclick = function() {
-        if (!confirm('Eliminar todos los datos y horarios del COMPARTIMIENTO ' + num + '?')) return;
-        fetch('/compartimiento/' + num, { method: 'DELETE' })
-          .then(r => r.json()).then(() => cargarTodo(goToMain))
-          .catch(e => alert('Error: ' + e));
-      };
-      document.getElementById('btnDispensar').onclick = function() { dispensar(num, data); };
-      renderHorarios(num);
+      for (let i = 1; i <= TOTAL_COMPARTMENTS; i++) {
+        const d = datosDe(i);
+        const prox = d ? proximaToma(i) : '';
+        html += '<button type="button" class="fila-comp' + (d ? '' : ' vacia') + '" data-comp="' + i + '">' +
+          '<span class="fila-num">' + i + '</span>' +
+          '<span class="fila-datos"><span class="fila-titulo">' + (d ? esc(d.medicamento) : 'Sin datos') + '</span>' +
+          '<span class="fila-sub">' + (d ? 'Dosis ' + esc(d.dosis) + ' · ' + (prox ? 'próxima ' + prox : 'sin horarios') : 'Compartimiento ' + i) + '</span></span>' +
+          '<span class="badge' + (d ? ' completed' : '') + '">' + (d ? 'Completado' : 'Pendiente') + '</span>' +
+          '</button>';
+      }
+      el('listaFilas').innerHTML = html;
+    }
+    //  Abrir un compartimiento en el panel lo sube a la zona de carga, como
+    //  antes: es donde se rellena.
+    function abrirEditor(num) {
+      editando = num;
+      el('listaComp').classList.add('hidden');
+      el('editorComp').classList.remove('hidden');
+      const d = dataStore[String(num)] || null;
+      CAMPOS.forEach(f => {
+        const inp = el('f' + mayus(f));
+        inp.value = d && d[f] ? d[f] : '';
+        inp.removeAttribute('aria-invalid');
+      });
+      el('formError').textContent = '';
+      restaurarEliminar();
+      pintarEditor();
+      if (seleccionado !== num && !dispensando) { seleccionar(num); }
+    }
+    function cerrarEditor() {
+      editando = null;
+      el('editorComp').classList.add('hidden');
+      el('listaComp').classList.remove('hidden');
+    }
+    function pintarEditor() {
+      const num = editando;
+      if (!num) { return; }
+      const d = datosDe(num);
+      el('editorNum').textContent = num;
+      el('editorNumTxt').textContent = num;
+      el('editorBadge').textContent = d ? 'Completado' : 'Pendiente';
+      el('editorBadge').classList.toggle('completed', !!d);
+      el('btnGuardar').textContent = d ? 'Guardar cambios' : 'Guardar';
+      el('btnEliminar').classList.toggle('hidden', !d);
+      el('schedBloqueo').classList.toggle('hidden', !!d);
+      el('schedBloque').classList.toggle('hidden', !d);
+      pintarHorarios();
+    }
+    function guardarComp(e) {
+      if (e) { e.preventDefault(); }
+      const num = editando;
+      if (!num) { return; }
+      const reg = {};
+      CAMPOS.forEach(f => { reg[f] = el('f' + mayus(f)).value.trim(); });
+      let primero = null;
+      ['medicamento', 'dosis'].forEach(f => {
+        const inp = el('f' + mayus(f));
+        if (!reg[f]) { inp.setAttribute('aria-invalid', 'true'); primero = primero || inp; }
+        else { inp.removeAttribute('aria-invalid'); }
+      });
+      if (primero) {
+        el('formError').textContent = 'Medicamento y dosis son obligatorios.';
+        primero.focus();
+        return;
+      }
+      el('formError').textContent = '';
+      const b = el('btnGuardar');
+      b.disabled = true;
+      pedir('/compartimiento/' + num, 'POST', reg).then(res => {
+        if (!res.ok) { el('formError').textContent = res.message || 'No se pudo guardar.'; return null; }
+        avisar('Compartimiento ' + num + ' guardado: ' + reg.medicamento + ' (' + reg.dosis + ').', 'ok');
+        return refreshData();
+      }).catch(err => { el('formError').textContent = 'Error de conexión: ' + err; })
+        .finally(() => { b.disabled = false; });
+    }
+    function restaurarEliminar() {
+      confirmarEliminar = 0;
+      const b = el('btnEliminar');
+      b.textContent = 'Eliminar';
+      b.classList.remove('confirmar');
+    }
+    function eliminarComp() {
+      const num = editando;
+      const b = el('btnEliminar');
+      if (!num) { return; }
+      //  Dos pulsaciones: la primera pide confirmacion durante 4 segundos.
+      if (Date.now() - confirmarEliminar > 4000) {
+        confirmarEliminar = Date.now();
+        b.textContent = '¿Seguro? Pulsa otra vez';
+        b.classList.add('confirmar');
+        setTimeout(() => { if (confirmarEliminar && Date.now() - confirmarEliminar >= 4000) { restaurarEliminar(); } }, 4100);
+        return;
+      }
+      restaurarEliminar();
+      pedir('/compartimiento/' + num, 'DELETE').then(res => {
+        if (res && res.ok === false) { avisar(res.message || 'No se pudo eliminar.', 'error'); return null; }
+        CAMPOS.forEach(f => { el('f' + mayus(f)).value = ''; });
+        avisar('Compartimiento ' + num + ' vaciado: datos y horarios borrados.', 'info');
+        return refreshData();
+      }).catch(err => avisar('Error: ' + err, 'error'));
     }
 
     // ---------- Horarios de dispensado automatico ----------
-    function renderHorarios(num) {
-      const list = document.getElementById('schedList');
+    function crearDias() {
+      el('schedDias').innerHTML = DIAS.map((d, i) =>
+        '<label class="day-check" title="' + mayus(DIAS_LARGOS[i]) + '"><input type="checkbox" value="' + i + '"><span>' + d + '</span></label>').join('');
+    }
+    function pintarHorarios() {
+      const num = editando;
+      const lista = el('schedList');
+      if (!num) { return; }
       const propios = horarios.filter(h => h.comp === num);
-      if (!propios.length) { list.textContent = 'Sin horarios programados.'; }
-      else {
-        list.innerHTML = propios.map(h =>
-          '<div class="sched-row">' +
-          '<span class="hora">' + escapeHtml(h.hora) + '</span>' +
-          '<span class="dias">' + h.dias.map(d => DIAS[d]).join(' ') + '</span>' +
-          '<span class="estado' + (h.activo ? '' : ' off') + '">' + (h.activo ? 'Activo' : 'Pausado') + '</span>' +
-          '<button class="btn btn-outline btn-mini" onclick="toggleHorario(' + h.id + ')">' + (h.activo ? 'Pausar' : 'Activar') + '</button>' +
-          '<button class="btn btn-danger btn-mini" onclick="delHorario(' + h.id + ')">Quitar</button>' +
-          '</div>').join('');
+      if (!propios.length) { lista.innerHTML = '<p class="vacio-txt">Sin horarios programados.</p>'; return; }
+      lista.innerHTML = propios.map(h =>
+        '<div class="sched-row">' +
+        '<span class="hora">' + esc(h.hora) + '</span>' +
+        '<span class="dias">' + (h.dias || []).map(d => DIAS[d]).join(' ') + '</span>' +
+        '<span class="estado' + (h.activo ? '' : ' off') + '">' + (h.activo ? 'Activo' : 'Pausado') + '</span>' +
+        '<span class="sched-acciones">' +
+        '<button type="button" class="btn btn-outline btn-mini" data-accion="pausar" data-id="' + h.id + '">' + (h.activo ? 'Pausar' : 'Activar') + '</button>' +
+        '<button type="button" class="btn btn-danger btn-mini" data-accion="quitar" data-id="' + h.id + '">Quitar</button>' +
+        '</span></div>').join('');
+    }
+    function addHorario() {
+      const num = editando;
+      const hora = el('schedHora').value;
+      const dias = Array.from(document.querySelectorAll('#schedDias input:checked')).map(c => parseInt(c.value, 10));
+      if (!hora) { avisar('Elige una hora.', 'aviso'); el('schedHora').focus(); return; }
+      if (!dias.length) { avisar('Elige al menos un día.', 'aviso'); return; }
+      pedir('/horarios', 'POST', { comp: num, hora: hora, dias: dias }).then(res => {
+        if (!res.ok) { avisar(res.message || 'No se pudo guardar el horario.', 'error'); return null; }
+        avisar('Horario programado: ' + hora + ' (' + dias.map(d => DIAS[d]).join(' ') + ').', 'ok');
+        document.querySelectorAll('#schedDias input:checked').forEach(c => { c.checked = false; });
+        return refreshData();
+      }).catch(e => avisar('Error: ' + e, 'error'));
+    }
+    function accionHorario(e) {
+      const b = e.target.closest('button[data-accion]');
+      if (!b) { return; }
+      const id = b.getAttribute('data-id');
+      const quitar = b.getAttribute('data-accion') === 'quitar';
+      pedir('/horarios/' + id, quitar ? 'DELETE' : 'PATCH').then(res => {
+        if (res && res.ok === false) { avisar(res.message || 'No se pudo cambiar el horario.', 'error'); return null; }
+        return refreshData();
+      }).catch(err => avisar('Error: ' + err, 'error'));
+    }
+
+    // ---------- Historial ----------
+    function pintarHistorial() {
+      const caja = el('histList');
+      if (!historial.length) { caja.className = 'vacio-txt'; caja.textContent = 'Sin acciones registradas.'; return; }
+      caja.className = '';
+      caja.innerHTML = historial.slice(0, 50).map(h =>
+        '<div class="hist-row"><span class="hist-marca ' + esc(h.tipo) + '"></span>' +
+        '<div class="hist-cuerpo"><div class="hist-linea">' +
+        '<span class="tipo ' + esc(h.tipo) + '">' + esc(h.tipo) + '</span>' +
+        '<span class="hist-comp">Comp ' + esc(h.comp) + '</span>' +
+        '<span class="res">' + esc(h.resultado || '') + '</span></div>' +
+        (h.detalle ? '<div class="hist-detalle">' + esc(h.detalle) + '</div>' : '') +
+        '<div class="ts">' + esc(h.ts) + '</div></div></div>').join('');
+    }
+    function claveDe(h) { return h ? [h.ts, h.tipo, h.comp, h.detalle].join('|') : ''; }
+    //  Entradas que han aparecido desde la ultima lectura (lo nuevo va primero).
+    function entradasNuevas() {
+      if (claveHistorial === null) { claveHistorial = claveDe(historial[0]); return []; }
+      const nuevas = [];
+      for (const h of historial) {
+        if (claveDe(h) === claveHistorial) { break; }
+        nuevas.push(h);
       }
-      const diasBox = document.getElementById('schedDias');
-      if (!diasBox.childElementCount) {
-        diasBox.innerHTML = DIAS.map((d, i) =>
-          '<label class="day-check"><input type="checkbox" value="' + i + '">' + d + '</label>').join(' ');
-      }
-      document.getElementById('btnAddHorario').onclick = function() { addHorario(num); };
-    }
-
-    function addHorario(num) {
-      const hora = document.getElementById('schedHora').value;
-      const dias = Array.from(document.querySelectorAll('#schedDias input:checked')).map(c => parseInt(c.value));
-      if (!hora) { alert('Elige una hora.'); return; }
-      if (!dias.length) { alert('Elige al menos un dia.'); return; }
-      fetch('/horarios', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comp: num, hora: hora, dias: dias })
-      }).then(r => r.json()).then(res => {
-        if (!res.ok) { alert(res.message || 'No se pudo guardar el horario'); return; }
-        cargarTodo(() => renderHorarios(num));
-      }).catch(e => alert('Error: ' + e));
-    }
-
-    window.toggleHorario = function(id) {
-      fetch('/horarios/' + id, { method: 'PATCH' })
-        .then(r => r.json())
-        .then(() => cargarTodo(() => renderHorarios(currentCompartment)))
-        .catch(e => alert('Error: ' + e));
-    };
-    window.delHorario = function(id) {
-      fetch('/horarios/' + id, { method: 'DELETE' })
-        .then(r => r.json())
-        .then(() => cargarTodo(() => renderHorarios(currentCompartment)))
-        .catch(e => alert('Error: ' + e));
-    };
-
-    // ---------- DISPENSAR: baja el compartimiento y suelta la pastilla ----------
-    function dispensar(num, data) {
-      const btn = document.getElementById('btnDispensar');
-      const original = btn.textContent;
-      btn.disabled = true; btn.textContent = 'Dispensando...';
-      fetch('/dispense', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          compartimiento: num,
-          medicamento: data.medicamento || '',
-          nombre: data.nombre || '',
-          dosis: data.dosis || ''
-        })
-      })
-      .then(r => r.json())
-      .then(res => { if (res.pos) updatePos(res.pos); alert(res.message); cargarTodo(renderHistorial); })
-      .catch(e => alert('Error de conexion con el servidor: ' + e))
-      .finally(() => { btn.disabled = false; btn.textContent = original; });
-    }
-
-    function handleComplete(num) {
-      const fields = ['medicamento','dosis','nombre','notas'];
-      const record = {};
-      fields.forEach(f => { const el = document.getElementById('f'+f.charAt(0).toUpperCase()+f.slice(1)); record[f] = el ? el.value.trim() : ''; });
-      if (!record.medicamento || !record.dosis) { alert('Medicamento y dosis son obligatorios.'); return; }
-      fetch('/compartimiento/' + num, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(record)
-      }).then(r => r.json()).then(res => {
-        if (!res.ok) { alert(res.message || 'No se pudo guardar'); return; }
-        cargarTodo(() => showSavedData(num, getCompData(num)));
-      }).catch(e => alert('Error: ' + e));
-    }
-
-    function cancelEdit() {
-      const num = currentCompartment; const data = getCompData(num);
-      if (data && data.completado === true) showSavedData(num, data); else showForm(num, null);
-    }
-
-    function goToMain() {
-      // Al cerrar el detalle, la ruleta vuelve a su posicion de origen.
-      fetch('/home', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-        .then(r => r.json()).then(res => { if (res.pos) updatePos(res.pos); }).catch(() => {});
-      document.getElementById('mainMenu').style.display = 'block';
-      const dv = document.getElementById('detailView');
-      dv.classList.remove('active'); dv.style.display = 'none';
-      document.getElementById('btnBackMain').classList.add('hidden');
-      renderMainMenu();
-    }
-
-    function escapeHtml(text) {
-      if (!text) return '-';
-      const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
-      return String(text).replace(/[&<>"']/g, m => map[m]);
+      claveHistorial = claveDe(historial[0]);
+      return nuevas;
     }
 
     // ---------- Estado de conexion y sincronizacion con el Arduino ----------
     function updatePos(pos) {
       const pill = document.getElementById('posPill');
       pill.classList.remove('sync', 'desync', 'neutro');
+      el('sisPosicion').textContent = pos && pos.detalle ? pos.detalle : '-';
+      el('sisPosicion').classList.toggle('hidden', !!(pos && pos.conectado));
       if (!pos || !pos.conectado) { pill.classList.add('hidden'); return; }
       pill.classList.remove('hidden');
       pill.title = pos.detalle || '';
       if (pos.real == null) {
-        pill.textContent = 'Posicion: sin verificar';
+        pill.textContent = 'Posición: sin verificar';
         pill.classList.add('neutro');
       } else if (pos.sincronizado || pos.esperado == null) {
         pill.textContent = 'Sincronizado: comp ' + pos.real;
@@ -1049,6 +1782,25 @@ HTML_PAGE = """<!DOCTYPE html>
         pill.textContent = 'Desincronizado: web ' + pos.esperado + ' / Arduino ' + pos.real;
         pill.classList.add('desync');
       }
+      seguirAlArduino(pos);
+    }
+    //  La ruleta dibujada sigue a la de verdad cuando esta quieta: al cargar
+    //  la pagina se coloca sin animar; despues, si el Arduino se movio por su
+    //  cuenta (horario automatico, reinicio...), gira hasta alli.
+    function seguirAlArduino(pos) {
+      if (!pos || !pos.conectado || !pos.real) { return; }
+      if (enMarcha > 0 || dispensando) { return; }
+      if (seleccionado && seleccionado !== pos.real) { seleccionado = null; pintarBotones(); }
+      if (!posConocida) {
+        posConocida = true;
+        colocarSinAnimar(pos.real);
+        return;
+      }
+      if (pos.real !== arriba) { encolar(() => irA(pos.real)); }
+    }
+    function pintarSistema(s) {
+      el('sisPuerto').textContent = s && s.puerto ? s.puerto + ' · ' + (s.baud || '') + ' baud' :
+        (!s ? 'Sin respuesta del servidor' : (s.hub === false ? 'Hub serial apagado' : 'Ninguno'));
     }
 
     let ultimaAutoReconexion = 0;
@@ -1059,8 +1811,7 @@ HTML_PAGE = """<!DOCTYPE html>
         const btnV = document.getElementById('btnVerificar');
         //  La pildora solo dice CONECTADO o DESCONECTADO. El detalle (que
         //  puerto es, si el hub esta apagado, si se esta reintentando) va al
-        //  title: quien lo necesite lo tiene encima al pasar el raton, y la
-        //  barra deja de cambiar de ancho a cada rato.
+        //  title: quien lo necesite lo tiene encima al pasar el raton.
         if (s.conectado) {
           pill.textContent = 'Conectado';
           pill.title = 'Arduino conectado en ' + (s.puerto || 'puerto desconocido');
@@ -1080,23 +1831,32 @@ HTML_PAGE = """<!DOCTYPE html>
             ultimaAutoReconexion = ahora;
             pill.title = 'Sin conexion con el Arduino: reintentando...';
             fetch('/serial/reconnect', { method: 'POST' })
-              .then(r => r.json()).then(() => refreshSerial()).catch(() => {});
+              .then(r => r.json()).then(() => refreshSerial())
+              .catch(e => console.warn('[pillbox] reconexion automatica', e));
           } else {
             pill.title = s.hub === false
               ? 'El hub serial esta apagado'
               : 'No se encuentra ningun Arduino en el puerto serie';
           }
         }
+        pintarSistema(s);
         updatePos(s.pos);
-      }).catch(() => {});
+      }).catch(e => {
+        const pill = document.getElementById('serialPill');
+        pill.textContent = 'Desconectado';
+        pill.classList.remove('ok');
+        pill.title = 'Sin respuesta del servidor del pastillero';
+        pintarSistema(null);
+        console.warn('[pillbox] /serial/status', e);
+      });
     }
 
     // Verifica la posicion REAL preguntando al Arduino (GETPOS) y la compara.
     window.verificarSync = function() {
       const pill = document.getElementById('posPill');
       pill.classList.remove('hidden'); pill.textContent = 'Verificando...';
-      fetch('/arduino/estado').then(r => r.json())
-        .then(pos => updatePos(pos)).catch(() => {});
+      pedir('/arduino/estado').then(pos => updatePos(pos))
+        .catch(e => avisar('No se pudo verificar la posición: ' + e, 'error'));
     };
 
     window.reconectarArduino = function() {
@@ -1109,10 +1869,49 @@ HTML_PAGE = """<!DOCTYPE html>
         .catch(() => refreshSerial());
     };
 
-    // Refresco periodico: capta los dispensados automaticos en el historial
+    // Refresco periodico: capta los dispensados automaticos y los ANIMA.
     function refreshData() {
-      cargarTodo(() => {
-        if (document.getElementById('mainMenu').style.display !== 'none') renderMainMenu();
+      return cargarTodo().then(() => {
+        const nuevas = entradasNuevas();
+        pintarTodo();
+        nuevas.filter(h => h.tipo === 'AUTO').reverse().forEach(h => {
+          const comp = Number(h.comp);
+          avisar('Dispensado automático: compartimiento ' + comp + (h.detalle ? ' · ' + h.detalle : ''), 'ok');
+          if (!dispensando && comp >= 1 && comp <= TOTAL_COMPARTMENTS) {
+            if (seleccionado) { seleccionado = null; pintarBotones(); }
+            encolar(() => secuenciaDispensar(comp));
+          }
+        });
+      }).catch(e => console.warn('[pillbox] /data', e));
+    }
+
+    function prepararEventos() {
+      el('btnAjustes').addEventListener('click', () => abrirAjustes('comp'));
+      el('btnCerrarAjustes').addEventListener('click', cerrarAjustes);
+      el('velo').addEventListener('click', cerrarAjustes);
+      el('btnDispensar').addEventListener('click', dispensar);
+      el('btnSisInicio').addEventListener('click', volverAInicio);
+      el('btnVolverLista').addEventListener('click', () => { cerrarEditor(); el('tabComp').focus(); });
+      el('listaFilas').addEventListener('click', e => {
+        const f = e.target.closest('.fila-comp');
+        if (f) { abrirEditor(Number(f.getAttribute('data-comp'))); }
+      });
+      el('formComp').addEventListener('submit', guardarComp);
+      el('btnEliminar').addEventListener('click', eliminarComp);
+      el('btnAddHorario').addEventListener('click', addHorario);
+      el('schedList').addEventListener('click', accionHorario);
+      const tabs = ['tabComp', 'tabHist', 'tabSis'];
+      tabs.forEach((id, i) => {
+        el(id).addEventListener('click', () => cambiarPestana(el(id).getAttribute('data-pestana')));
+        el(id).addEventListener('keydown', e => {
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') { return; }
+          const otro = el(tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]);
+          cambiarPestana(otro.getAttribute('data-pestana'));
+          otro.focus();
+        });
+      });
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { cerrarAjustes(); }
       });
     }
 
@@ -1128,26 +1927,29 @@ HTML_PAGE = """<!DOCTYPE html>
     function init() {
       //  Lo primero: si algo de lo de abajo fallara, que no se quede tapado.
       quitarPantallaCarga();
-      document.getElementById('detailView').style.display = 'none';
-      document.getElementById('detailView').classList.remove('active');
-      document.getElementById('btnBackMain').classList.add('hidden');
-      cargarTodo(renderMainMenu);
+      crearBotones();
+      crearDias();
+      prepararEventos();
+      colocarSinAnimar(1);
+      pintarTodo();
+      cargarTodo().then(() => { entradasNuevas(); pintarTodo(); })
+        .catch(e => avisar('No se pudieron cargar los datos del pastillero: ' + e, 'error'));
       refreshSerial();
       // Consultar la posicion real del Arduino al cargar (deja el indicador listo).
       setTimeout(function() {
-        fetch('/arduino/estado').then(r => r.json()).then(updatePos).catch(() => {});
+        pedir('/arduino/estado').then(updatePos).catch(e => console.warn('[pillbox] /arduino/estado', e));
       }, 600);
       setInterval(refreshSerial, 4000);
       setInterval(refreshData, 12000);
       // Verificacion periodica de la posicion real (detecta desincronizacion,
       // ej. tras un reinicio del Arduino o un dispensado automatico).
       setInterval(function() {
-        fetch('/arduino/estado').then(r => r.json()).then(updatePos).catch(() => {});
+        pedir('/arduino/estado').then(updatePos).catch(e => console.warn('[pillbox] /arduino/estado', e));
       }, 20000);
     }
 
     // ===== Tema claro / oscuro (arranca en CLARO) =====
-    //  Se aplica ANTES de nada (ver el <script> del <head>) para que no haya
+    //  Se aplica ANTES de nada (ver el script de la cabeza) para que no haya
     //  un fogonazo blanco al cargar con el tema oscuro puesto. Aqui solo queda
     //  el cambio manual y poner bien el texto del boton.
     const CLAVE_TEMA = 'pillbox-theme';
@@ -1184,8 +1986,6 @@ HTML_PAGE = """<!DOCTYPE html>
                (location.protocol + '//' + location.hostname + ':5000/');
     }
 
-    window.goToMain = goToMain;
-    window.cancelEdit = cancelEdit;
     window.alternarTema = alternarTema;
     pintarBotonTema();
     prepararEnlaceMedibot();

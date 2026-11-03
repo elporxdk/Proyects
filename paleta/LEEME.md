@@ -98,34 +98,48 @@ el color ink al 60 %.
 </details>
 
 <details>
-<summary>Pastillero · Pillbox: sus variables y de qué color de la web salen (34)</summary>
+<summary>Pastillero · Pillbox: sus variables y de qué color salen (76)</summary>
 
 | Variable | Para qué | De la web | Claro | Oscuro |
 |---|---|---|---|---|
 | **Superficies** | | | | |
-| `--fondo` | Detrás de todo | surface | `#F4FAFB` | `#06161F` |
-| `--tarjeta` | Recuadro principal, tarjetas de compartimiento, campos y casillas de días | card | `#FFFFFF` | `#0E2733` |
-| `--panel` | Formulario, datos guardados, historial y horarios | surface | `#F4FAFB` | `#06161F` |
-| `--suave` | Botones de arriba, «Volver al menu», horario en pausa y pastilla «sin verificar» | ink/5 | `rgba(10, 61, 92, 0.05)` | `rgba(219, 234, 243, 0.05)` |
-| `--suave-hover` | Los botones de arriba al pasar el ratón | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
+| `--cielo` | Fondo de la página: celeste pastel en claro | surface · propio | `#D5F1F4` | `#06161F` |
+| `--tarjeta` | La tarjeta central, la tuerca, el panel de configuración, filas, campos y avisos | card | `#FFFFFF` | `#0E2733` |
+| `--panel` | Bloques del panel: datos médicos, horarios, historial y estado | surface | `#F4FAFB` | `#06161F` |
+| `--fondo` | Pantalla de carga | surface | `#F4FAFB` | `#06161F` |
+| `--suave` | Pestañas, botón cerrar, horario en pausa, «sin verificar» y MEDIBOT al pasar el ratón | ink/5 | `rgba(10, 61, 92, 0.05)` | `rgba(219, 234, 243, 0.05)` |
+| `--suave-hover` | Botón cerrar al pasar el ratón | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
+| `--velo` | Velo sobre la página con la configuración abierta | propio · ink/20 | `rgba(10, 61, 92, 0.2)` | `rgba(2, 10, 15, 0.55)` |
 | **Bordes** | | | | |
-| `--borde` | Tarjetas, paneles y líneas entre filas | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
+| `--borde` | Panel, bloques, filas, líneas entre filas y avisos | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
 | `--borde-fuerte` | Campos, hora, casillas de días y botones de contorno | ink/15 | `rgba(10, 61, 92, 0.15)` | `rgba(219, 234, 243, 0.15)` |
-| `--borde-activo` | Tarjeta de compartimiento y casillas al pasar el ratón | brand/30 | `rgba(1, 186, 239, 0.3)` | `rgba(34, 201, 245, 0.3)` |
-| `--borde-hover` | Editar, Cancelar y Pausar al pasar el ratón | brand/40 | `rgba(1, 186, 239, 0.4)` | `rgba(34, 201, 245, 0.4)` |
+| `--borde-activo` | Filas y casillas de días al pasar el ratón | brand/30 | `rgba(1, 186, 239, 0.3)` | `rgba(34, 201, 245, 0.3)` |
+| `--borde-hover` | Botones de contorno al pasar el ratón | brand/40 | `rgba(1, 186, 239, 0.4)` | `rgba(34, 201, 245, 0.4)` |
 | **Texto** | | | | |
-| `--texto-titulo` | Títulos, número de compartimiento, datos guardados y letra de los botones de arriba | ink | `#0A3D5C` | `#DBEAF3` |
-| `--texto` | Texto normal, etiquetas del formulario y botones de contorno | ink/70 | `rgba(10, 61, 92, 0.7)` | `rgba(219, 234, 243, 0.7)` |
-| `--texto-tenue` | Subtítulos, etiquetas en mayúsculas, fechas y avisos | ink/60 | `rgba(10, 61, 92, 0.6)` | `rgba(219, 234, 243, 0.6)` |
+| `--texto-titulo` | Título PILLBOX, títulos y datos | ink | `#0A3D5C` | `#DBEAF3` |
+| `--texto` | Etiquetas del formulario, pestañas y botones de contorno | ink/70 | `rgba(10, 61, 92, 0.7)` | `rgba(219, 234, 243, 0.7)` |
+| `--texto-tenue` | Subtítulos, rótulos en mayúsculas, fechas y avisos | ink/60 | `rgba(10, 61, 92, 0.6)` | `rgba(219, 234, 243, 0.6)` |
 | `--texto-pastilla` | Pastillas neutras: «Pausado» y «sin verificar» | ink/50 | `rgba(10, 61, 92, 0.5)` | `rgba(219, 234, 243, 0.5)` |
-| `--texto-debil` | «Sin datos» y el texto de ejemplo de los campos | ink/40 | `rgba(10, 61, 92, 0.4)` | `rgba(219, 234, 243, 0.4)` |
+| `--texto-debil` | «Sin datos», historial vacío y texto de ejemplo de los campos | ink/40 | `rgba(10, 61, 92, 0.4)` | `rgba(219, 234, 243, 0.4)` |
 | **Marca** | | | | |
-| `--acento` | Contador, «Pendiente», días del horario, campo activo, acciones MANUAL | brand | `#01BAEF` | `#22C9F5` |
-| `--acento-fin` | Final del degradado | deep | `#0B4F6C` | `#0B4F6C` |
-| Botón principal | Dispensar, Completado y Agregar horario | brand → deep | degradado brand → deep | degradado brand → deep |
-| `--sobre-acento` | Letra de esos botones | white | `#FFFFFF` | `#FFFFFF` |
-| `--acento-suave` | Fondo del contador y de «Pendiente» | brand/10 | `rgba(1, 186, 239, 0.1)` | `rgba(34, 201, 245, 0.1)` |
-| `--marca-suave` | La rueda y «MEDI» de la pantalla de carga | brandsoft | `#5EE1E6` | `#7FE9ED` |
+| `--acento` | Foco del teclado, días del horario, «Pendiente», acciones MANUAL y avisos | brand | `#01BAEF` | `#22C9F5` |
+| `--acento-fin` | Guardar, Agregar horario y Configurar (color sólido) | deep | `#0B4F6C` | `#0B4F6C` |
+| `--sobre-acento` | Letra de esos botones y de DISPENSAR | white | `#FFFFFF` | `#FFFFFF` |
+| `--acento-suave` | Fondo de «Pendiente» | brand/10 | `rgba(1, 186, 239, 0.1)` | `rgba(34, 201, 245, 0.1)` |
+| `--marca-suave` | Disco de la tuerca y rueda de la pantalla de carga | brandsoft | `#5EE1E6` | `#7FE9ED` |
+| **Botones (planos, de color sólido)** | | | | |
+| `--pildora` | Botones COMPARTIMIENTO, número de cada fila y días elegidos | propio | `#6FD6DA` | `#3FCAD0` |
+| `--pildora-hover` | COMPARTIMIENTO al pasar el ratón | propio | `#5DCBD0` | `#35B8BE` |
+| `--pildora-texto` | Letra de los botones COMPARTIMIENTO | propio · ink | `#0A3D5C` | `#032029` |
+| `--pildora-activa` | COMPARTIMIENTO elegido: el que la ruleta tiene en la zona de carga | ink · deep | `#0B4F6C` | `#DBEAF3` |
+| `--pildora-activa-texto` | Su letra | surface · white | `#FFFFFF` | `#06161F` |
+| `--rojo` | DISPENSAR | red-500 | `#FB2C36` | `#FB2C36` |
+| `--rojo-hover` | DISPENSAR al pasar el ratón | red-600 | `#E7000B` | `#E7000B` |
+| `--boton-claro` | MEDIBOT: fondo | card · white | `#FFFFFF` | `#0E2733` |
+| `--boton-claro-texto` | MEDIBOT: letra | ink | `#0A3D5C` | `#DBEAF3` |
+| `--boton-claro-borde` | MEDIBOT: borde | ink/50 · ink | `#0A3D5C` | `rgba(219, 234, 243, 0.5)` |
+| `--tuerca-metal` | Dientes de la tuerca | propio | `#C5CCD5` | `#6E818F` |
+| `--tuerca-radios` | Aro, radios y centro de la tuerca | propio | `#FFFFFF` | `#E2FAFB` |
 | **Todo bien** | | | | |
 | `--exito` | Acciones AUTO del historial | mint | `#34D399` | `#34D399` |
 | `--exito-suave` | Fondo de «Conectado», «Sincronizado», «Completado» y horario activo | mint/15 | `rgba(52, 211, 153, 0.15)` | `rgba(52, 211, 153, 0.15)` |
@@ -134,14 +148,44 @@ el color ink al 60 %.
 | `--peligro-suave` | Fondo de «Desconectado» | red-500/15 | `rgba(251, 44, 54, 0.15)` | `rgba(251, 44, 54, 0.15)` |
 | `--peligro-pastilla` | Letra de «Desconectado» | red-300 · red-700 | `#C10007` | `#FFA2A2` |
 | `--peligro-borde` | Borde de Eliminar y Quitar | red-500/30 | `rgba(251, 44, 54, 0.3)` | `rgba(251, 44, 54, 0.3)` |
-| `--peligro-texto` | Letra de Eliminar y Quitar | red-400 · red-600 | `#E7000B` | `#FF6467` |
+| `--peligro-texto` | Letra de Eliminar y Quitar, asterisco y errores del formulario | red-400 · red-600 | `#E7000B` | `#FF6467` |
 | `--peligro-hover` | Eliminar y Quitar al pasar el ratón | red-500/10 | `rgba(251, 44, 54, 0.1)` | `rgba(251, 44, 54, 0.1)` |
 | **Aviso** | | | | |
 | `--aviso-suave` | Fondo de «Desincronizado» | amber-500/15 | `rgba(254, 154, 0, 0.15)` | `rgba(254, 154, 0, 0.15)` |
-| `--aviso-texto` | Letra de «Desincronizado» | amber-300 · amber-700 | `#BB4D00` | `#FFD230` |
+| `--aviso-texto` | Letra de «Desincronizado» y borde de los avisos de atención | amber-300 · amber-700 | `#BB4D00` | `#FFD230` |
 | **Sombras** | | | | |
-| `--sombra` | Recuadro principal y tarjetas | shade/5 | `rgba(10, 61, 92, 0.05)` | `rgba(5, 18, 26, 0.05)` |
-| `--sombra-acento` | Tarjeta de compartimiento al pasar el ratón | brand/5 | `rgba(1, 186, 239, 0.05)` | `rgba(34, 201, 245, 0.05)` |
+| `--sombra-tarjeta` | Tarjeta central, tuerca, panel y avisos | negro/40 · shade/12 | `rgba(10, 61, 92, 0.12)` | `rgba(0, 0, 0, 0.4)` |
+| **El aparato, tal cual el diseño** | | | | |
+| `--metal-1` | Cuerpo: la zona clara, arriba a la derecha | aparato | `#A6A6A6` | `#A6A6A6` |
+| `--metal-2` | Cuerpo: tono medio | aparato | `#5E5E5E` | `#5E5E5E` |
+| `--metal-3` | Cuerpo: tono oscuro | aparato | `#2A2A2A` | `#2A2A2A` |
+| `--metal-4` | Cuerpo: el borde izquierdo, casi negro | aparato | `#121212` | `#121212` |
+| `--metal-filo` | Filo de luz de los bordes derecho y superior | aparato | `rgba(255, 255, 255, 0.16)` | `rgba(255, 255, 255, 0.16)` |
+| `--metal-sombra` | Sombras de la tolva y del bisel, y el pie del cuerpo | aparato | `rgba(0, 0, 0, 0.45)` | `rgba(0, 0, 0, 0.45)` |
+| `--sombra-aparato` | Sombra del aparato sobre la tarjeta | aparato | `rgba(10, 40, 50, 0.35)` | `rgba(0, 0, 0, 0.6)` |
+| `--tolva-marco` | Tolva: marco | aparato | `#CACACA` | `#CACACA` |
+| `--tolva-linea` | Tolva: líneas | aparato | `#6F6F6F` | `#6F6F6F` |
+| `--tolva-1` | Tolva: interior oscuro | aparato | `#4F4F4F` | `#4F4F4F` |
+| `--tolva-2` | Tolva: interior medio | aparato | `#8C8C8C` | `#8C8C8C` |
+| `--tolva-3` | Tolva: la barra clara | aparato | `#F2F2F2` | `#F2F2F2` |
+| `--tolva-4` | Tolva: el lado derecho | aparato | `#A9A9A9` | `#A9A9A9` |
+| `--cromo-1` | Bisel de la ruleta: brillo | aparato | `#ECECF8` | `#ECECF8` |
+| `--cromo-2` | Bisel de la ruleta: lavanda | aparato | `#CBCBE7` | `#CBCBE7` |
+| `--cromo-3` | Bisel de la ruleta: sombra | aparato | `#A3A4CC` | `#A3A4CC` |
+| `--cromo-4` | Bisel de la ruleta: líneas | aparato | `#77789F` | `#77789F` |
+| `--disco-1` | Disco de la ruleta: centro | aparato | `#4B4B4B` | `#4B4B4B` |
+| `--disco-2` | Disco de la ruleta: borde y cubo | aparato | `#222222` | `#222222` |
+| `--radio` | Radios, llanta y roseta de la ruleta | aparato | `#D2D2D2` | `#D2D2D2` |
+| `--placa-1` | Placa MEDIBOT: arriba | aparato | `#BDBDBD` | `#BDBDBD` |
+| `--placa-2` | Placa MEDIBOT: abajo | aparato | `#959595` | `#959595` |
+| `--placa-borde` | Marcos de la placa y del cajón, y contorno de las letras | aparato | `#3D3D3D` | `#3D3D3D` |
+| `--placa-texto` | Letras MEDIBOT | aparato | `#A3A3A3` | `#A3A3A3` |
+| `--cajon-1` | Cajón: arriba | aparato | `#A3A3A3` | `#A3A3A3` |
+| `--cajon-2` | Cajón: abajo | aparato | `#7D7D7D` | `#7D7D7D` |
+| `--cajon-logo` | La rueda del cajón | aparato | `#4A4A4A` | `#4A4A4A` |
+| `--tirador` | Tirador y filo del cajón | aparato | `#CFCFCF` | `#CFCFCF` |
+| `--pastilla-a` | La pastilla que cae al dispensar: mitad blanca | aparato | `#FFFFFF` | `#FFFFFF` |
+| `--pastilla-b` | La pastilla que cae al dispensar: mitad azul | aparato | `#22C9F5` | `#22C9F5` |
 | **Icono de la pestaña** | | | | |
 | Pastilla | Sigue al tema del sistema, como el de la web | brandsoft · brand | `#01BAEF` | `#7FE9ED` |
 | Raya | La línea del centro | surface · white | `#FFFFFF` | `#06161F` |
@@ -150,7 +194,8 @@ el color ink al 60 %.
 
 El logo es la rueda de la web (los ocho sectores de `MedibotLogo.tsx`): va en
 la cabecera de la cámara, en el icono de su pestaña, en la pantalla de carga
-de las dos interfaces y como bola del joystick, siempre en `brandsoft`.
+de las dos interfaces, como bola del joystick y en el disco de la tuerca del
+pastillero, siempre en `brandsoft`.
 
 ## Si la web cambia su paleta
 
