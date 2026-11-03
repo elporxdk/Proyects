@@ -549,6 +549,10 @@ HTML_PAGE = """<!DOCTYPE html>
       --pildora-texto: #0a3d5c;                /* ink */
       --pildora-activa: #0b4f6c;               /* deep */
       --pildora-activa-texto: #ffffff;         /* white */
+      --pildora-sombra: rgba(23, 152, 168, 0.45);
+      --pildora-activa-sombra: rgba(11, 79, 108, 0.45); /* deep/45 */
+      --rojo-sombra: rgba(251, 44, 54, 0.4);   /* red-500/40 */
+      --onda: rgba(255, 255, 255, 0.45);       /* white/45 */
       --rojo: #fb2c36;                         /* red-500 */
       --rojo-hover: #e7000b;                   /* red-600 */
       --boton-claro: #ffffff;                  /* white */
@@ -632,6 +636,10 @@ HTML_PAGE = """<!DOCTYPE html>
       --pildora-texto: #032029;
       --pildora-activa: #dbeaf3;               /* ink */
       --pildora-activa-texto: #06161f;         /* surface */
+      --pildora-sombra: rgba(63, 202, 208, 0.3);
+      --pildora-activa-sombra: rgba(219, 234, 243, 0.2); /* ink/20 */
+      --rojo-sombra: rgba(251, 44, 54, 0.35);  /* red-500/35 */
+      --onda: rgba(255, 255, 255, 0.45);       /* white/45 */
       --rojo: #fb2c36;                         /* red-500 */
       --rojo-hover: #e7000b;                   /* red-600 */
       --boton-claro: #0e2733;                  /* card */
@@ -715,9 +723,10 @@ HTML_PAGE = """<!DOCTYPE html>
       justify-self: start; width: 76px; height: 76px; border-radius: 50%; border: 0;
       display: grid; place-items: center; cursor: pointer;
       background: var(--tarjeta); box-shadow: 0 8px 22px -8px var(--sombra-tarjeta);
-      transition: box-shadow .25s ease;
+      transition: box-shadow .25s ease, transform .25s cubic-bezier(.3, 1.4, .5, 1);
     }
-    .tuerca:hover { box-shadow: 0 12px 28px -8px var(--sombra-tarjeta); }
+    .tuerca:hover { box-shadow: 0 14px 30px -8px var(--sombra-tarjeta); transform: translateY(-2px); }
+    .tuerca:active { transform: translateY(1px) scale(.96); box-shadow: 0 4px 10px -6px var(--sombra-tarjeta); }
     .tuerca svg { width: 60px; height: 60px; transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
     .tuerca:hover svg { transform: rotate(45deg); }
     .tuerca[aria-expanded="true"] svg { transform: rotate(90deg); }
@@ -747,18 +756,52 @@ HTML_PAGE = """<!DOCTYPE html>
     .columna-izq { grid-area: izq; justify-self: end; }
     .columna-der { grid-area: der; justify-self: start; }
 
-    /*  COMPARTIMIENTO: una pildora de color solido. Elegido: color profundo. */
+    /*  COMPARTIMIENTO: una pildora de color solido con sombra. Al pasar el
+        raton se eleva, al pulsarla se hunde y suelta una onda. El elegido
+        se pone de color profundo y lleva un indicador a la derecha: gira
+        mientras la ruleta lo sube y late cuando ya esta en la zona de carga. */
     .comp {
+      position: relative; isolation: isolate; overflow: hidden;
       display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px;
-      width: 100%; min-height: 76px; padding: 12px 30px; border: 0; border-radius: 999px;
+      width: 100%; min-height: 76px; padding: 12px 54px 12px 30px; border: 0; border-radius: 999px;
       background: var(--pildora); color: var(--pildora-texto); text-align: left; cursor: pointer;
-      transition: background-color .2s ease, color .2s ease, transform .15s ease;
+      box-shadow: 0 8px 18px -8px var(--pildora-sombra), 0 2px 4px -2px var(--pildora-sombra);
+      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease, color .2s ease;
     }
-    .comp:hover { background: var(--pildora-hover); }
-    .comp:active { transform: scale(.98); }
-    .comp[aria-pressed="true"] { background: var(--pildora-activa); color: var(--pildora-activa-texto); }
+    .comp:active { transform: translateY(1px) scale(.985); box-shadow: 0 2px 6px -3px var(--pildora-sombra); transition-duration: .08s; }
+    .comp[aria-pressed="true"] {
+      background: var(--pildora-activa); color: var(--pildora-activa-texto);
+      box-shadow: 0 14px 28px -12px var(--pildora-activa-sombra), 0 3px 6px -3px var(--pildora-activa-sombra);
+    }
+    .comp-titulo, .comp-med { position: relative; z-index: 1; }
     .comp-titulo { font-size: 15px; font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
     .comp-med { max-width: 100%; font-size: 13px; font-weight: 600; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .comp-estado {
+      position: absolute; z-index: 1; right: 24px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+      border-radius: 50%; opacity: 0; transform: scale(.4); transition: opacity .25s ease, transform .3s cubic-bezier(.3, 1.4, .5, 1);
+    }
+    .comp[aria-pressed="true"] .comp-estado { opacity: 1; transform: none; background: var(--pildora); animation: latido 1.8s ease-out infinite; }
+    .comp.en-camino .comp-estado { background: transparent; border: 2.5px solid var(--pildora); border-right-color: transparent; animation: girar-estado .7s linear infinite; }
+    @keyframes latido { 0% { box-shadow: 0 0 0 0 var(--onda); } 100% { box-shadow: 0 0 0 12px transparent; } }
+    @keyframes girar-estado { to { transform: rotate(360deg); } }
+    .columna.llamar .comp { animation: llamar .5s ease; }
+    @keyframes llamar { 25% { translate: -6px 0; } 50% { translate: 6px 0; } 75% { translate: -3px 0; } }
+    /*  La onda que suelta un boton al pulsarlo (la pone onda() en JS). */
+    .onda { position: absolute; z-index: 0; border-radius: 50%; background: var(--onda); transform: scale(0); pointer-events: none; animation: onda .6s ease-out forwards; }
+    @keyframes onda { to { transform: scale(1); opacity: 0; } }
+    .btn-medibot .onda { background: var(--suave-hover); }
+    /*  La elevacion al pasar el raton solo donde hay raton: en un movil el
+        "hover" se queda pegado despues de tocar. */
+    @media (hover: hover) {
+      .comp:hover:not(:active) { transform: translateY(-3px); box-shadow: 0 16px 28px -12px var(--pildora-sombra), 0 4px 8px -4px var(--pildora-sombra); }
+      .comp:not([aria-pressed="true"]):hover { background: var(--pildora-hover); }
+      .comp[aria-pressed="true"]:hover:not(:active) { box-shadow: 0 18px 32px -12px var(--pildora-activa-sombra), 0 4px 8px -4px var(--pildora-activa-sombra); }
+      .btn-dispensar:not(:disabled):hover { background: var(--rojo-hover); }
+      .btn-dispensar:not(:disabled):hover:not(:active) { transform: translateY(-3px); box-shadow: 0 18px 30px -12px var(--rojo-sombra), 0 4px 8px -4px var(--rojo-sombra); }
+      .btn-medibot:hover { background: var(--suave); }
+      .btn-medibot:hover:not(:active) { transform: translateY(-3px); box-shadow: 0 16px 28px -14px var(--sombra-tarjeta); }
+      .btn-medibot:hover::after { width: 1em; margin-left: .45em; opacity: 1; }
+    }
 
     /*  DISPENSAR (rojo) y MEDIBOT (blanco con borde), planos. */
     .acciones { display: contents; }
@@ -766,20 +809,35 @@ HTML_PAGE = """<!DOCTYPE html>
     .accion-izq { grid-area: dispensar; justify-self: end; }
     .accion-der { grid-area: medibot; justify-self: start; }
     .btn-dispensar, .btn-medibot {
+      position: relative; isolation: isolate; overflow: hidden;
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 15rem; height: 64px; padding: 0 34px; border-radius: 999px;
       font-size: 19px; font-weight: 800; letter-spacing: .08em; cursor: pointer;
-      transition: background-color .2s ease, transform .15s ease;
+      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease;
     }
-    .btn-dispensar { border: 0; background: var(--rojo); color: var(--sobre-acento); }
-    .btn-dispensar:hover { background: var(--rojo-hover); }
-    .btn-dispensar:active, .btn-medibot:active { transform: scale(.98); }
-    .btn-dispensar:disabled { opacity: .7; cursor: progress; }
+    .btn-dispensar {
+      border: 0; background: var(--rojo); color: var(--sobre-acento);
+      box-shadow: 0 10px 22px -10px var(--rojo-sombra), 0 3px 6px -3px var(--rojo-sombra);
+    }
+    .btn-dispensar > span:not(.onda) { position: relative; z-index: 1; }
+    .btn-dispensar:active, .btn-medibot:active { transform: translateY(1px) scale(.98); transition-duration: .08s; }
+    .btn-dispensar:active { box-shadow: 0 3px 8px -4px var(--rojo-sombra); }
+    .btn-dispensar:disabled { cursor: progress; }
+    /*  Mientras dispensa: una barra que recorre el boton de lado a lado. */
+    .btn-dispensar.ocupado::after {
+      content: ''; position: absolute; left: 0; bottom: 0; width: 35%; height: 4px; border-radius: 4px;
+      background: var(--onda); animation: progreso 1.1s ease-in-out infinite;
+    }
+    @keyframes progreso { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
     .btn-medibot {
       background: var(--boton-claro); color: var(--boton-claro-texto);
       border: 2px solid var(--boton-claro-borde); text-decoration: none;
+      box-shadow: 0 8px 18px -12px var(--sombra-tarjeta);
     }
-    .btn-medibot:hover { background: var(--suave); }
+    .btn-medibot::after {
+      content: '→'; display: inline-block; width: 0; margin-left: 0; opacity: 0; overflow: hidden;
+      transition: width .25s ease, margin-left .25s ease, opacity .25s ease;
+    }
 
     /* ================= EL PASTILLERO (tal cual el diseno) ================= */
     /*  Se mide en em: cambiando el font-size de .aparato se escala entero.
@@ -901,10 +959,11 @@ HTML_PAGE = """<!DOCTYPE html>
     .fila-comp {
       width: 100%; display: flex; align-items: center; gap: 12px; padding: 11px 14px 11px 11px;
       border-radius: 18px; border: 1px solid var(--borde); background: var(--tarjeta); color: var(--texto-titulo);
-      text-align: left; cursor: pointer; transition: border-color .2s, background .2s;
+      text-align: left; cursor: pointer; transition: border-color .2s, background .2s, transform .25s ease, box-shadow .25s ease;
     }
     .fila-comp + .fila-comp { margin-top: 8px; }
-    .fila-comp:hover { border-color: var(--borde-activo); background: var(--panel); }
+    .fila-comp:hover { border-color: var(--borde-activo); background: var(--panel); transform: translateY(-1px); box-shadow: 0 10px 20px -14px var(--sombra-tarjeta); }
+    .fila-comp:active { transform: translateY(1px); box-shadow: none; }
     .fila-num { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--pildora); color: var(--pildora-texto); }
     .fila-comp.vacia .fila-num { background: var(--suave); color: var(--texto-tenue); }
     .fila-datos { flex: 1; min-width: 0; line-height: 1.3; }
@@ -940,10 +999,11 @@ HTML_PAGE = """<!DOCTYPE html>
     .form-group input[aria-invalid="true"] { border-color: var(--peligro-texto); }
     .form-error { min-height: 1.2em; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--peligro-texto); }
     .btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: center; }
-    .btn { border: 0; padding: 10px 22px; border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, border-color .2s, color .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
+    .btn { border: 0; padding: 10px 22px; border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, border-color .2s, color .2s, transform .2s ease, box-shadow .2s ease; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
     .btn:disabled { opacity: .6; cursor: default; }
-    .btn-primary { background: var(--acento-fin); color: var(--sobre-acento); }
-    .btn-primary:not(:disabled):hover { background: var(--texto-titulo); color: var(--tarjeta); }
+    .btn-primary { background: var(--acento-fin); color: var(--sobre-acento); box-shadow: 0 6px 14px -8px var(--pildora-activa-sombra); }
+    .btn-primary:not(:disabled):hover { background: var(--texto-titulo); color: var(--tarjeta); transform: translateY(-1px); box-shadow: 0 10px 18px -10px var(--pildora-activa-sombra); }
+    .btn:not(:disabled):active { transform: translateY(1px) scale(.98); }
     .btn-danger { background: transparent; border: 1px solid var(--peligro-borde); color: var(--peligro-texto); }
     .btn-danger:hover, .btn-danger.confirmar { background: var(--peligro-hover); }
     .btn-danger.confirmar { border-color: var(--peligro-texto); }
@@ -1002,6 +1062,19 @@ HTML_PAGE = """<!DOCTYPE html>
     .serial-pill.desync { background: var(--aviso-suave); color: var(--aviso-texto); }
     .serial-pill.neutro { background: var(--suave); color: var(--texto-pastilla); }
 
+    /*  Enlace a la web de MEDIBOT (en Sistema) y creditos al pie. */
+    .enlace-web {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px;
+      padding: 15px 18px; border-radius: 20px; border: 1px solid var(--borde); background: var(--panel);
+      color: var(--texto-titulo); font-size: 14.5px; font-weight: 700; text-decoration: none;
+      transition: border-color .2s, transform .25s ease, box-shadow .25s ease;
+    }
+    .enlace-web span { color: var(--acento); }
+    .enlace-web:hover { border-color: var(--borde-activo); transform: translateY(-1px); box-shadow: 0 10px 20px -14px var(--sombra-tarjeta); }
+    .creditos { max-width: 1240px; margin: 16px auto 0; text-align: center; font-size: 13px; color: var(--texto-tenue); }
+    .creditos a { white-space: nowrap; color: var(--texto-titulo); font-weight: 700; text-decoration: none; border-bottom: 1px solid var(--borde-fuerte); transition: color .2s, border-color .2s; }
+    .creditos a:hover { color: var(--acento); border-color: var(--acento); }
+
     /* ================= AVISOS ================= */
     .avisos { position: fixed; z-index: 1100; right: 18px; top: 18px; width: min(92vw, 25rem); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
     .toast {
@@ -1052,6 +1125,10 @@ HTML_PAGE = """<!DOCTYPE html>
       .aparato { font-size: clamp(8px, 2.4vw, 12px); }
       .columna { max-width: none; justify-self: stretch; gap: 10px; }
       .comp { min-height: 60px; padding: 10px 18px; }
+      /*  En movil no cabe al lado del titulo: va en la segunda linea, que
+          ya se corta con puntos suspensivos. */
+      .comp-estado { top: auto; bottom: 15px; right: 16px; width: 11px; height: 11px; margin-top: 0; }
+      .comp[aria-pressed="true"] .comp-med { max-width: calc(100% - 18px); }
       .comp-titulo { font-size: 11.5px; letter-spacing: .03em; }
       .comp-med { font-size: 12px; }
       .accion { max-width: none; }
@@ -1063,7 +1140,8 @@ HTML_PAGE = """<!DOCTYPE html>
       .form-grid { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .ruleta-marca { animation: none; }
+      .ruleta-marca, .comp-estado, .columna.llamar .comp, .btn-dispensar.ocupado::after { animation: none !important; }
+      .comp, .btn-dispensar, .btn-medibot, .tuerca, .btn, .fila-comp { transition: none; }
     }
   </style>
 </head>
@@ -1135,7 +1213,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
   <div class="acciones">
     <div class="accion accion-izq">
-      <button class="btn-dispensar" id="btnDispensar" type="button">DISPENSAR</button>
+      <button class="btn-dispensar" id="btnDispensar" type="button"><span id="dispensarTxt">DISPENSAR</span></button>
     </div>
     <div class="accion accion-der">
       <!--  MEDIBOT. Es un <a> y no un boton con window.location: asi se
@@ -1146,6 +1224,11 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
   </div>
 </main>
+
+<footer class="creditos">
+  © 2026 elporxdk · MEDIBOT · Licencia MIT ·
+  <a href="https://medi-bot.net" target="_blank" rel="noopener">medi-bot.net</a>
+</footer>
 
 <div class="avisos" id="avisos" aria-live="polite"></div>
 
@@ -1249,10 +1332,8 @@ HTML_PAGE = """<!DOCTYPE html>
         <button class="btn btn-outline" id="themeToggle" type="button" onclick="alternarTema()"
                 title="Cambiar tema claro/oscuro">Modo Oscuro</button>
       </div>
-      <div class="bloque">
-        <h4>Cómo funciona la ruleta</h4>
-        <p class="aviso" style="margin-top:0">Al elegir un compartimiento, la ruleta lo sube arriba, bajo la tolva: es la zona de carga. Al dispensar, parte del inicio (compartimiento 1 arriba), lo baja media vuelta hasta la salida y la pastilla cae al cajón; después completa la vuelta hasta el inicio. La ruleta solo gira hacia delante.</p>
-      </div>
+      <!--  Como funciona: un enlace a la web de MEDIBOT, sin texto largo. -->
+      <a class="enlace-web" id="enlaceWeb" href="https://medi-bot.net" target="_blank" rel="noopener">¿Cómo funciona? <span>medi-bot.net ↗</span></a>
     </section>
   </div>
 </aside>
@@ -1288,6 +1369,22 @@ HTML_PAGE = """<!DOCTYPE html>
 
     function el(id) { return document.getElementById(id); }
     function esperar(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+    //  La onda que suelta un boton al pulsarlo, desde donde se toco.
+    function onda(e) {
+      if (REDUCIR) { return; }
+      const b = e.currentTarget;
+      const r = b.getBoundingClientRect();
+      const d = Math.max(r.width, r.height) * 2;
+      const s = document.createElement('span');
+      s.className = 'onda';
+      s.style.width = d + 'px';
+      s.style.height = d + 'px';
+      s.style.left = (e.clientX - r.left - d / 2) + 'px';
+      s.style.top = (e.clientY - r.top - d / 2) + 'px';
+      b.appendChild(s);
+      setTimeout(() => s.remove(), 650);
+    }
     function mayus(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
 
     function esc(texto) {
@@ -1429,13 +1526,15 @@ HTML_PAGE = """<!DOCTYPE html>
       if (dispensando) { avisar('Espera a que termine el dispensado.', 'aviso'); return; }
       if (seleccionado === n) { volverAInicio(); return; }
       seleccionado = n;
+      el('comp' + n).classList.add('en-camino');
       pintarBotones();
       const peticion = pedir('/goto', 'POST', { compartimiento: n }).catch(e => ({ error: String(e) }));
       encolar(() => Promise.all([irA(n), peticion]).then(res => {
         const r = res[1];
         if (r && r.error) { avisar('Sin respuesta del servidor: ' + r.error, 'error'); return null; }
         return reconciliar(r);
-      })).catch(e => avisar('No se pudo mover la ruleta: ' + e, 'error'));
+      })).catch(e => avisar('No se pudo mover la ruleta: ' + e, 'error'))
+        .finally(() => el('comp' + n).classList.remove('en-camino'));
     }
 
     // ---------- HOME: compartimiento 1 arriba ----------
@@ -1472,12 +1571,22 @@ HTML_PAGE = """<!DOCTYPE html>
     function pintarBotonDispensar() {
       const b = el('btnDispensar');
       b.disabled = dispensando;
-      b.textContent = dispensando ? 'DISPENSANDO…' : 'DISPENSAR';
+      b.classList.toggle('ocupado', dispensando);
+      el('dispensarTxt').textContent = dispensando ? 'DISPENSANDO…' : 'DISPENSAR';
     }
     function dispensar() {
       const n = seleccionado;
       if (dispensando) { return; }
-      if (!n) { avisar('Elige primero el compartimiento que quieres dispensar.', 'aviso'); return; }
+      if (!n) {
+        avisar('Elige primero el compartimiento que quieres dispensar.', 'aviso');
+        ['colIzq', 'colDer'].forEach(id => {
+          const c = el(id);
+          c.classList.remove('llamar');
+          void c.offsetWidth;
+          c.classList.add('llamar');
+        });
+        return;
+      }
       const data = datosDe(n);
       if (!data) {
         avisar('El compartimiento ' + n + ' no tiene medicamento configurado.', 'aviso',
@@ -1519,7 +1628,9 @@ HTML_PAGE = """<!DOCTYPE html>
         b.id = 'comp' + i;
         b.setAttribute('aria-pressed', 'false');
         b.innerHTML = '<span class="comp-titulo">COMPARTIMIENTO ' + i + '</span>' +
-          '<span class="comp-med" id="compMed' + i + '">Vacío</span>';
+          '<span class="comp-med" id="compMed' + i + '">Vacío</span>' +
+          '<span class="comp-estado" aria-hidden="true"></span>';
+        b.addEventListener('pointerdown', onda);
         b.addEventListener('click', () => seleccionar(i));
         el(i <= MITAD ? 'colIzq' : 'colDer').appendChild(b);
       }
@@ -1531,6 +1642,7 @@ HTML_PAGE = """<!DOCTYPE html>
         const b = el('comp' + i);
         if (d) { completos++; }
         b.setAttribute('aria-pressed', seleccionado === i ? 'true' : 'false');
+        if (seleccionado !== i) { b.classList.remove('en-camino'); }
         el('compMed' + i).textContent = d ? d.medicamento : 'Vacío';
         b.title = 'Compartimiento ' + i + ': ' + (d ? d.medicamento + ', ' + d.dosis : 'sin medicamento') +
           (seleccionado === i ? ' (pulsa otra vez para devolver la ruleta al inicio)' : '');
@@ -1889,7 +2001,9 @@ HTML_PAGE = """<!DOCTYPE html>
       el('btnAjustes').addEventListener('click', () => abrirAjustes('comp'));
       el('btnCerrarAjustes').addEventListener('click', cerrarAjustes);
       el('velo').addEventListener('click', cerrarAjustes);
+      el('btnDispensar').addEventListener('pointerdown', onda);
       el('btnDispensar').addEventListener('click', dispensar);
+      el('linkMedibot').addEventListener('pointerdown', onda);
       el('btnSisInicio').addEventListener('click', volverAInicio);
       el('btnVolverLista').addEventListener('click', () => { cerrarEditor(); el('tabComp').focus(); });
       el('listaFilas').addEventListener('click', e => {

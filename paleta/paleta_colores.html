@@ -485,6 +485,10 @@
     'p:--pildora-texto': ['#032029', '#0A3D5C', 'propio · ink'],
     'p:--pildora-activa': ['#DBEAF3', '#0B4F6C', 'ink · deep'],
     'p:--pildora-activa-texto': ['#06161F', '#FFFFFF', 'surface · white'],
+    'p:--pildora-sombra': ['rgba(63, 202, 208, 0.3)', 'rgba(23, 152, 168, 0.45)', 'propio'],
+    'p:--pildora-activa-sombra': ['rgba(219, 234, 243, 0.2)', 'rgba(11, 79, 108, 0.45)', 'ink/20 · deep/45'],
+    'p:--onda': ['rgba(255, 255, 255, 0.45)', 'rgba(255, 255, 255, 0.45)', 'white/45'],
+    'p:--rojo-sombra': ['rgba(251, 44, 54, 0.35)', 'rgba(251, 44, 54, 0.4)', 'red-500/35 · red-500/40'],
     'p:--boton-claro': ['#0E2733', '#FFFFFF', 'card · white'],
     'p:--boton-claro-borde': ['rgba(219, 234, 243, 0.5)', '#0A3D5C', 'ink/50 · ink'],
     'p:--tuerca-metal': ['#6E818F', '#C5CCD5', 'propio'],
@@ -593,10 +597,10 @@
     { titulo: 'Superficies', filas: [
       { v: '--cielo', t: 'p:--cielo', u: 'Fondo de la página: celeste pastel en claro' },
       { v: '--tarjeta', t: '--c-card', u: 'La tarjeta central, la tuerca, el panel de configuración, filas, campos y avisos' },
-      { v: '--panel', t: '--c-surface', u: 'Bloques del panel: datos médicos, horarios, historial y estado' },
+      { v: '--panel', t: '--c-surface', u: 'Bloques del panel (datos médicos, horarios, historial, estado) y el enlace a la web' },
       { v: '--fondo', t: '--c-surface', u: 'Pantalla de carga' },
       { v: '--suave', t: '--c-ink-5', u: 'Pestañas, botón cerrar, horario en pausa, «sin verificar» y MEDIBOT al pasar el ratón' },
-      { v: '--suave-hover', t: '--c-ink-10', u: 'Botón cerrar al pasar el ratón' },
+      { v: '--suave-hover', t: '--c-ink-10', u: 'Botón cerrar al pasar el ratón y onda de MEDIBOT' },
       { v: '--velo', t: 'p:--velo', u: 'Velo sobre la página con la configuración abierta' }
     ]},
     { titulo: 'Bordes', filas: [
@@ -608,12 +612,12 @@
     { titulo: 'Texto', filas: [
       { v: '--texto-titulo', t: '--c-ink', u: 'Título PILLBOX, títulos y datos' },
       { v: '--texto', t: '--c-ink-70', u: 'Etiquetas del formulario, pestañas y botones de contorno' },
-      { v: '--texto-tenue', t: '--c-ink-60', u: 'Subtítulos, rótulos en mayúsculas, fechas y avisos' },
+      { v: '--texto-tenue', t: '--c-ink-60', u: 'Subtítulos, rótulos en mayúsculas, fechas, avisos y créditos' },
       { v: '--texto-pastilla', t: '--c-ink-50', u: 'Pastillas neutras: «Pausado» y «sin verificar»' },
       { v: '--texto-debil', t: '--c-ink-40', u: '«Sin datos», historial vacío y texto de ejemplo de los campos' }
     ]},
     { titulo: 'Marca', filas: [
-      { v: '--acento', t: '--c-brand', u: 'Foco del teclado, días del horario, «Pendiente», acciones MANUAL y avisos' },
+      { v: '--acento', t: '--c-brand', u: 'Foco del teclado, días del horario, «Pendiente», acciones MANUAL, avisos y enlaces' },
       { v: '--acento-fin', t: '--c-deep', u: 'Guardar, Agregar horario y Configurar (color sólido)' },
       { v: '--sobre-acento', t: '--c-blanco', u: 'Letra de esos botones y de DISPENSAR' },
       { v: '--acento-suave', t: '--c-brand-10', u: 'Fondo de «Pendiente»' },
@@ -625,8 +629,12 @@
       { v: '--pildora-texto', t: 'p:--pildora-texto', u: 'Letra de los botones COMPARTIMIENTO' },
       { v: '--pildora-activa', t: 'p:--pildora-activa', u: 'COMPARTIMIENTO elegido: el que la ruleta tiene en la zona de carga' },
       { v: '--pildora-activa-texto', t: 'p:--pildora-activa-texto', u: 'Su letra' },
+      { v: '--pildora-sombra', t: 'p:--pildora-sombra', u: 'Sombra de los botones COMPARTIMIENTO' },
+      { v: '--pildora-activa-sombra', t: 'p:--pildora-activa-sombra', u: 'Sombra del COMPARTIMIENTO elegido y de Guardar' },
+      { v: '--onda', t: 'p:--onda', u: 'Onda al pulsar un botón, latido del elegido y barra de DISPENSANDO' },
       { v: '--rojo', t: '--c-rojo', u: 'DISPENSAR' },
       { v: '--rojo-hover', t: '--c-rojo-fuerte', u: 'DISPENSAR al pasar el ratón' },
+      { v: '--rojo-sombra', t: 'p:--rojo-sombra', u: 'Sombra de DISPENSAR' },
       { v: '--boton-claro', t: 'p:--boton-claro', u: 'MEDIBOT: fondo' },
       { v: '--boton-claro-texto', t: '--c-ink', u: 'MEDIBOT: letra' },
       { v: '--boton-claro-borde', t: 'p:--boton-claro-borde', u: 'MEDIBOT: borde' },
@@ -650,7 +658,7 @@
       { v: '--aviso-texto', t: '--c-ambar-texto', u: 'Letra de «Desincronizado» y borde de los avisos de atención' }
     ]},
     { titulo: 'Sombras', filas: [
-      { v: '--sombra-tarjeta', t: 'p:--sombra-tarjeta', u: 'Tarjeta central, tuerca, panel y avisos' }
+      { v: '--sombra-tarjeta', t: 'p:--sombra-tarjeta', u: 'Tarjeta central, tuerca, panel, avisos, MEDIBOT y el enlace a la web' }
     ]},
     { titulo: 'El aparato, tal cual el diseño', filas: [
       { v: '--metal-1', t: 'p:--metal-1', u: 'Cuerpo: la zona clara, arriba a la derecha' },

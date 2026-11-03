@@ -105,10 +105,10 @@ el color ink al 60 %.
 | **Superficies** | | | | |
 | `--cielo` | Fondo de la página: celeste pastel en claro | surface · propio | `#D5F1F4` | `#06161F` |
 | `--tarjeta` | La tarjeta central, la tuerca, el panel de configuración, filas, campos y avisos | card | `#FFFFFF` | `#0E2733` |
-| `--panel` | Bloques del panel: datos médicos, horarios, historial y estado | surface | `#F4FAFB` | `#06161F` |
+| `--panel` | Bloques del panel (datos médicos, horarios, historial, estado) y el enlace a la web | surface | `#F4FAFB` | `#06161F` |
 | `--fondo` | Pantalla de carga | surface | `#F4FAFB` | `#06161F` |
 | `--suave` | Pestañas, botón cerrar, horario en pausa, «sin verificar» y MEDIBOT al pasar el ratón | ink/5 | `rgba(10, 61, 92, 0.05)` | `rgba(219, 234, 243, 0.05)` |
-| `--suave-hover` | Botón cerrar al pasar el ratón | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
+| `--suave-hover` | Botón cerrar al pasar el ratón y onda de MEDIBOT | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
 | `--velo` | Velo sobre la página con la configuración abierta | propio · ink/20 | `rgba(10, 61, 92, 0.2)` | `rgba(2, 10, 15, 0.55)` |
 | **Bordes** | | | | |
 | `--borde` | Panel, bloques, filas, líneas entre filas y avisos | ink/10 | `rgba(10, 61, 92, 0.1)` | `rgba(219, 234, 243, 0.1)` |
@@ -118,11 +118,11 @@ el color ink al 60 %.
 | **Texto** | | | | |
 | `--texto-titulo` | Título PILLBOX, títulos y datos | ink | `#0A3D5C` | `#DBEAF3` |
 | `--texto` | Etiquetas del formulario, pestañas y botones de contorno | ink/70 | `rgba(10, 61, 92, 0.7)` | `rgba(219, 234, 243, 0.7)` |
-| `--texto-tenue` | Subtítulos, rótulos en mayúsculas, fechas y avisos | ink/60 | `rgba(10, 61, 92, 0.6)` | `rgba(219, 234, 243, 0.6)` |
+| `--texto-tenue` | Subtítulos, rótulos en mayúsculas, fechas, avisos y créditos | ink/60 | `rgba(10, 61, 92, 0.6)` | `rgba(219, 234, 243, 0.6)` |
 | `--texto-pastilla` | Pastillas neutras: «Pausado» y «sin verificar» | ink/50 | `rgba(10, 61, 92, 0.5)` | `rgba(219, 234, 243, 0.5)` |
 | `--texto-debil` | «Sin datos», historial vacío y texto de ejemplo de los campos | ink/40 | `rgba(10, 61, 92, 0.4)` | `rgba(219, 234, 243, 0.4)` |
 | **Marca** | | | | |
-| `--acento` | Foco del teclado, días del horario, «Pendiente», acciones MANUAL y avisos | brand | `#01BAEF` | `#22C9F5` |
+| `--acento` | Foco del teclado, días del horario, «Pendiente», acciones MANUAL, avisos y enlaces | brand | `#01BAEF` | `#22C9F5` |
 | `--acento-fin` | Guardar, Agregar horario y Configurar (color sólido) | deep | `#0B4F6C` | `#0B4F6C` |
 | `--sobre-acento` | Letra de esos botones y de DISPENSAR | white | `#FFFFFF` | `#FFFFFF` |
 | `--acento-suave` | Fondo de «Pendiente» | brand/10 | `rgba(1, 186, 239, 0.1)` | `rgba(34, 201, 245, 0.1)` |
@@ -133,8 +133,12 @@ el color ink al 60 %.
 | `--pildora-texto` | Letra de los botones COMPARTIMIENTO | propio · ink | `#0A3D5C` | `#032029` |
 | `--pildora-activa` | COMPARTIMIENTO elegido: el que la ruleta tiene en la zona de carga | ink · deep | `#0B4F6C` | `#DBEAF3` |
 | `--pildora-activa-texto` | Su letra | surface · white | `#FFFFFF` | `#06161F` |
+| `--pildora-sombra` | Sombra de los botones COMPARTIMIENTO | propio | `rgba(23, 152, 168, 0.45)` | `rgba(63, 202, 208, 0.3)` |
+| `--pildora-activa-sombra` | Sombra del COMPARTIMIENTO elegido y de Guardar | ink/20 · deep/45 | `rgba(11, 79, 108, 0.45)` | `rgba(219, 234, 243, 0.2)` |
+| `--onda` | Onda al pulsar un botón, latido del elegido y barra de DISPENSANDO | white/45 | `rgba(255, 255, 255, 0.45)` | `rgba(255, 255, 255, 0.45)` |
 | `--rojo` | DISPENSAR | red-500 | `#FB2C36` | `#FB2C36` |
 | `--rojo-hover` | DISPENSAR al pasar el ratón | red-600 | `#E7000B` | `#E7000B` |
+| `--rojo-sombra` | Sombra de DISPENSAR | red-500/35 · red-500/40 | `rgba(251, 44, 54, 0.4)` | `rgba(251, 44, 54, 0.35)` |
 | `--boton-claro` | MEDIBOT: fondo | card · white | `#FFFFFF` | `#0E2733` |
 | `--boton-claro-texto` | MEDIBOT: letra | ink | `#0A3D5C` | `#DBEAF3` |
 | `--boton-claro-borde` | MEDIBOT: borde | ink/50 · ink | `#0A3D5C` | `rgba(219, 234, 243, 0.5)` |
@@ -154,7 +158,7 @@ el color ink al 60 %.
 | `--aviso-suave` | Fondo de «Desincronizado» | amber-500/15 | `rgba(254, 154, 0, 0.15)` | `rgba(254, 154, 0, 0.15)` |
 | `--aviso-texto` | Letra de «Desincronizado» y borde de los avisos de atención | amber-300 · amber-700 | `#BB4D00` | `#FFD230` |
 | **Sombras** | | | | |
-| `--sombra-tarjeta` | Tarjeta central, tuerca, panel y avisos | negro/40 · shade/12 | `rgba(10, 61, 92, 0.12)` | `rgba(0, 0, 0, 0.4)` |
+| `--sombra-tarjeta` | Tarjeta central, tuerca, panel, avisos, MEDIBOT y el enlace a la web | negro/40 · shade/12 | `rgba(10, 61, 92, 0.12)` | `rgba(0, 0, 0, 0.4)` |
 | **El aparato, tal cual el diseño** | | | | |
 | `--metal-1` | Cuerpo: la zona clara, arriba a la derecha | aparato | `#A6A6A6` | `#A6A6A6` |
 | `--metal-2` | Cuerpo: tono medio | aparato | `#5E5E5E` | `#5E5E5E` |
