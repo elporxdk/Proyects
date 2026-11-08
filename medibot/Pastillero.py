@@ -491,9 +491,10 @@ HTML_PAGE = """<!DOCTYPE html>
     })();
   </script>
   <style>
-    /*  PANEL DEL PASTILLERO, ESTILO MINIMALISTA
-        ========================================
-        Fondo celeste pastel, una tarjeta blanca y, en el centro, el
+    /*  PANEL DEL PASTILLERO, CON LOS COLORES DE LA INTERFAZ DE VISION
+        ==============================================================
+        Fondo surface, un contenedor blanco con borde y halo de la marca y,
+        en el centro, el
         pastillero MEDIBOT tal cual es el diseno (proporciones del modelo 3D,
         90 x 205 mm): tolva, ruleta, placa MEDIBOT y cajon. Botones planos de
         color solido. Lo unico que se mueve del aparato es la ruleta (y la
@@ -541,20 +542,17 @@ HTML_PAGE = """<!DOCTYPE html>
       --peligro-pastilla: #c10007;             /* red-700 */
       --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
       --aviso-texto: #bb4d00;                  /* amber-700 */
-      /*  La pagina y sus botones: colores planos. */
-      --cielo: #d5f1f4;                        /* celeste pastel */
-      --velo: rgba(10, 61, 92, 0.2);           /* ink/20 */
-      --pildora: #6fd6da;                      /* turquesa */
-      --pildora-hover: #5dcbd0;
-      --pildora-texto: #0a3d5c;                /* ink */
-      --pildora-activa: #0b4f6c;               /* deep */
-      --pildora-activa-texto: #ffffff;         /* white */
+      /*  Como la interfaz de Vision: contenedor con halo de la marca,
+          controles blancos con borde ink/15 y el elegido con el degradado
+          brand -> deep. */
+      --sombra-acento: rgba(1, 186, 239, 0.05);/* brand/5: halo del contenedor */
+      --sombra-marca: rgba(1, 186, 239, 0.35); /* brand/35 */
+      --velo: rgba(4, 18, 26, 0.45);           /* footer oscuro al 45 % */
+      --onda: rgba(255, 255, 255, 0.45);       /* white/45 */
       --rojo: #fb2c36;                         /* red-500 */
       --rojo-hover: #e7000b;                   /* red-600 */
-      --boton-claro: #ffffff;                  /* white */
-      --boton-claro-texto: #0a3d5c;            /* ink */
-      --boton-claro-borde: #0a3d5c;            /* ink */
-      --tuerca-metal: #c5ccd5;
+      --rojo-sombra: rgba(251, 44, 54, 0.4);   /* red-500/40 */
+      --tuerca-metal: #c3d1db;
       --tuerca-radios: #ffffff;
       /*  EL APARATO, con los colores del diseno. Es un objeto fisico: tiene
           los mismos colores en los dos temas (se repiten en el oscuro porque
@@ -625,19 +623,14 @@ HTML_PAGE = """<!DOCTYPE html>
       --peligro-pastilla: #ffa2a2;             /* red-300 */
       --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
       --aviso-texto: #ffd230;                  /* amber-300 */
-      --cielo: #06161f;                        /* surface */
-      --velo: rgba(2, 10, 15, 0.55);
-      --pildora: #3fcad0;
-      --pildora-hover: #35b8be;
-      --pildora-texto: #032029;
-      --pildora-activa: #dbeaf3;               /* ink */
-      --pildora-activa-texto: #06161f;         /* surface */
+      --sombra-acento: rgba(34, 201, 245, 0.05); /* brand/5 */
+      --sombra-marca: rgba(34, 201, 245, 0.25);  /* brand/25 */
+      --velo: rgba(4, 18, 26, 0.6);            /* footer oscuro al 60 % */
+      --onda: rgba(255, 255, 255, 0.45);       /* white/45 */
       --rojo: #fb2c36;                         /* red-500 */
       --rojo-hover: #e7000b;                   /* red-600 */
-      --boton-claro: #0e2733;                  /* card */
-      --boton-claro-texto: #dbeaf3;            /* ink */
-      --boton-claro-borde: rgba(219, 234, 243, 0.5); /* ink/50 */
-      --tuerca-metal: #6e818f;
+      --rojo-sombra: rgba(251, 44, 54, 0.35);  /* red-500/35 */
+      --tuerca-metal: #3e5a69;
       --tuerca-radios: #e2fafb;
       --metal-1: #a6a6a6;
       --metal-2: #5e5e5e;
@@ -698,7 +691,7 @@ HTML_PAGE = """<!DOCTYPE html>
     html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: 'Segoe UI', Roboto, system-ui, -apple-system, sans-serif;
-      color: var(--texto-titulo); background: var(--cielo);
+      color: var(--texto-titulo); background: var(--fondo);
       min-height: 100vh; padding: clamp(14px, 2vw, 24px) clamp(16px, 3vw, 40px) 32px;
     }
     button, input { font: inherit; color: inherit; }
@@ -714,10 +707,12 @@ HTML_PAGE = """<!DOCTYPE html>
     .tuerca {
       justify-self: start; width: 76px; height: 76px; border-radius: 50%; border: 0;
       display: grid; place-items: center; cursor: pointer;
-      background: var(--tarjeta); box-shadow: 0 8px 22px -8px var(--sombra-tarjeta);
-      transition: box-shadow .25s ease;
+      background: var(--tarjeta); border: 1px solid var(--borde);
+      box-shadow: 0 0 20px var(--sombra-acento), 0 8px 20px -12px var(--sombra-tarjeta);
+      transition: box-shadow .25s ease, border-color .25s ease, transform .25s cubic-bezier(.3, 1.4, .5, 1);
     }
-    .tuerca:hover { box-shadow: 0 12px 28px -8px var(--sombra-tarjeta); }
+    .tuerca:hover { border-color: var(--borde-activo); box-shadow: 0 0 20px var(--sombra-acento), 0 14px 28px -12px var(--sombra-tarjeta); transform: translateY(-2px); }
+    .tuerca:active { transform: translateY(1px) scale(.96); box-shadow: 0 4px 10px -6px var(--sombra-tarjeta); }
     .tuerca svg { width: 60px; height: 60px; transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
     .tuerca:hover svg { transform: rotate(45deg); }
     .tuerca[aria-expanded="true"] svg { transform: rotate(90deg); }
@@ -726,10 +721,12 @@ HTML_PAGE = """<!DOCTYPE html>
     .tuerca-disco { fill: var(--marca-suave); }
     .tuerca-radios { stroke: var(--tuerca-radios); stroke-width: 2.6; stroke-linecap: round; }
     .tuerca-centro { fill: var(--tuerca-radios); }
-    .titulo {
-      font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; line-height: 1;
-      letter-spacing: .04em; color: var(--texto-titulo); text-align: center;
-    }
+    /*  El titulo como la marca de Vision: "PILL" en brandsoft (como "MEDI")
+        y "BOX" en ink (como "BOT"), con un rotulo pequeno debajo. */
+    .marca { text-align: center; }
+    .titulo { font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; line-height: 1; letter-spacing: .04em; color: var(--texto-titulo); }
+    .titulo .t-pill { color: var(--marca-suave); }
+    .titulo-tag { margin-top: 6px; font-size: 11px; font-weight: 600; letter-spacing: .45em; color: var(--texto-tenue); }
 
     /* ================= LA TARJETA ================= */
     .tablero {
@@ -740,25 +737,82 @@ HTML_PAGE = """<!DOCTYPE html>
       grid-template-areas: "izq aparato der" "dispensar aparato medibot";
       column-gap: clamp(1.5rem, 5vw, 5rem); row-gap: 28px;
       padding: clamp(22px, 2.6vw, 34px) clamp(20px, 3.6vw, 56px);
-      border-radius: 40px; background: var(--tarjeta);
-      box-shadow: 0 24px 60px -28px var(--sombra-tarjeta);
+      border-radius: 40px; background: var(--tarjeta); border: 1px solid var(--borde);
+      box-shadow: 0 0 20px var(--sombra-acento);
     }
     .columna { display: flex; flex-direction: column; justify-content: space-around; gap: 16px; width: 100%; max-width: 20rem; }
     .columna-izq { grid-area: izq; justify-self: end; }
     .columna-der { grid-area: der; justify-self: start; }
 
-    /*  COMPARTIMIENTO: una pildora de color solido. Elegido: color profundo. */
+    /*  COMPARTIMIENTO: una pildora con los colores de los botones de
+        Vision: blanca, borde ink/15 y letra ink/70; al pasar el raton el
+        borde se pone azul y se eleva; al pulsarla se hunde y suelta una onda.
+        El elegido lleva el degradado brand -> deep y un indicador a la
+        derecha: gira mientras la ruleta lo sube y late cuando ya esta en la
+        zona de carga. */
     .comp {
+      position: relative; isolation: isolate; overflow: hidden;
       display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px;
-      width: 100%; min-height: 76px; padding: 12px 30px; border: 0; border-radius: 999px;
-      background: var(--pildora); color: var(--pildora-texto); text-align: left; cursor: pointer;
-      transition: background-color .2s ease, color .2s ease, transform .15s ease;
+      width: 100%; min-height: 76px; padding: 12px 54px 12px 30px; border-radius: 999px;
+      background: var(--tarjeta); color: var(--texto); border: 1px solid var(--borde-fuerte);
+      text-align: left; cursor: pointer;
+      box-shadow: 0 6px 14px -10px var(--sombra-tarjeta);
+      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, border-color .2s ease, color .2s ease;
     }
-    .comp:hover { background: var(--pildora-hover); }
-    .comp:active { transform: scale(.98); }
-    .comp[aria-pressed="true"] { background: var(--pildora-activa); color: var(--pildora-activa-texto); }
+    /*  Entrada escalonada al cargar la pagina (despues de la pantalla de
+        carga) y destello que cruza el boton al pasar el raton o llegar con
+        el teclado. --i es el orden de cada boton. */
+    .comp, .btn-dispensar, .btn-medibot { --i: 0; animation: aparecer .6s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(.45s + var(--i) * 70ms); }
+    .btn-dispensar { --i: 9; }
+    .btn-medibot { --i: 10; }
+    @keyframes aparecer { from { opacity: 0; translate: 0 16px; } }
+    .comp::before, .btn-dispensar::before, .btn-medibot::before {
+      content: ''; position: absolute; z-index: -1; top: 0; bottom: 0; left: 0; width: 45%;
+      background: linear-gradient(100deg, transparent, var(--onda), transparent);
+      transform: translateX(-170%) skewX(-18deg); pointer-events: none;
+    }
+    .comp::before, .btn-medibot::before { background: linear-gradient(100deg, transparent, var(--borde-activo), transparent); }
+    .comp[aria-pressed="true"]::before { background: linear-gradient(100deg, transparent, var(--onda), transparent); }
+    .comp:focus-visible::before, .btn-dispensar:focus-visible::before, .btn-medibot:focus-visible::before { animation: destello .9s ease; }
+    @keyframes destello { to { transform: translateX(340%) skewX(-18deg); } }
+    .comp:focus-visible:not(:active) { transform: translateY(-3px); }
+    .comp:active { transform: translateY(1px) scale(.985); box-shadow: 0 2px 6px -4px var(--sombra-tarjeta); transition-duration: .08s; }
+    .comp[aria-pressed="true"] {
+      background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); border-color: transparent;
+      box-shadow: 0 14px 28px -12px var(--sombra-marca), 0 3px 6px -3px var(--sombra-marca);
+    }
+    .comp-titulo, .comp-med { position: relative; z-index: 1; }
     .comp-titulo { font-size: 15px; font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
-    .comp-med { max-width: 100%; font-size: 13px; font-weight: 600; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .comp-med { max-width: 100%; font-size: 13px; font-weight: 600; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .2s ease; }
+    .comp-estado {
+      position: absolute; z-index: 1; right: 24px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+      border-radius: 50%; opacity: 0; transform: scale(.4); transition: opacity .25s ease, transform .3s cubic-bezier(.3, 1.4, .5, 1);
+    }
+    .comp[aria-pressed="true"] .comp-estado { opacity: 1; transform: none; background: var(--sobre-acento); animation: latido 1.8s ease-out infinite; }
+    .comp.en-camino .comp-estado { background: transparent; border: 2.5px solid var(--sobre-acento); border-right-color: transparent; animation: girar-estado .7s linear infinite; }
+    @keyframes latido { 0% { box-shadow: 0 0 0 0 var(--onda); } 100% { box-shadow: 0 0 0 12px transparent; } }
+    @keyframes girar-estado { to { transform: rotate(360deg); } }
+    .columna.llamar .comp { animation: llamar .5s ease; }
+    @keyframes llamar { 25% { translate: -6px 0; } 50% { translate: 6px 0; } 75% { translate: -3px 0; } }
+    /*  La onda que suelta un boton al pulsarlo (la pone onda() en JS). */
+    .onda { position: absolute; z-index: 0; border-radius: 50%; background: var(--onda); transform: scale(0); pointer-events: none; animation: onda .6s ease-out forwards; }
+    @keyframes onda { to { transform: scale(1); opacity: 0; } }
+    .comp .onda, .btn-medibot .onda { background: var(--borde-activo); }
+    .comp[aria-pressed="true"] .onda { background: var(--onda); }
+    /*  La elevacion al pasar el raton solo donde hay raton: en un movil el
+        "hover" se queda pegado despues de tocar. */
+    @media (hover: hover) {
+      .comp:hover:not(:active) { transform: translateY(-4px) scale(1.02); box-shadow: 0 18px 30px -14px var(--sombra-tarjeta), 0 5px 10px -6px var(--sombra-tarjeta); }
+      .comp:hover::before, .btn-dispensar:not(:disabled):hover::before, .btn-medibot:hover::before { animation: destello .9s ease; }
+      .comp:hover .comp-med { opacity: 1; }
+      .comp:not([aria-pressed="true"]):hover { color: var(--texto-titulo); border-color: var(--borde-activo); }
+      .comp[aria-pressed="true"]:hover:not(:active) { box-shadow: 0 18px 32px -12px var(--sombra-marca), 0 4px 8px -4px var(--sombra-marca); }
+      .btn-dispensar:not(:disabled):hover { background: var(--rojo-hover); }
+      .btn-dispensar:not(:disabled):hover:not(:active) { transform: translateY(-4px) scale(1.03); box-shadow: 0 18px 30px -12px var(--rojo-sombra), 0 4px 8px -4px var(--rojo-sombra); }
+      .btn-medibot:hover { color: var(--texto-titulo); border-color: var(--borde-activo); }
+      .btn-medibot:hover:not(:active) { transform: translateY(-4px) scale(1.03); box-shadow: 0 16px 28px -14px var(--sombra-tarjeta); }
+      .btn-medibot:hover::after { width: 1em; margin-left: .45em; opacity: 1; }
+    }
 
     /*  DISPENSAR (rojo) y MEDIBOT (blanco con borde), planos. */
     .acciones { display: contents; }
@@ -766,20 +820,35 @@ HTML_PAGE = """<!DOCTYPE html>
     .accion-izq { grid-area: dispensar; justify-self: end; }
     .accion-der { grid-area: medibot; justify-self: start; }
     .btn-dispensar, .btn-medibot {
+      position: relative; isolation: isolate; overflow: hidden;
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 15rem; height: 64px; padding: 0 34px; border-radius: 999px;
       font-size: 19px; font-weight: 800; letter-spacing: .08em; cursor: pointer;
-      transition: background-color .2s ease, transform .15s ease;
+      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease, border-color .2s ease, color .2s ease;
     }
-    .btn-dispensar { border: 0; background: var(--rojo); color: var(--sobre-acento); }
-    .btn-dispensar:hover { background: var(--rojo-hover); }
-    .btn-dispensar:active, .btn-medibot:active { transform: scale(.98); }
-    .btn-dispensar:disabled { opacity: .7; cursor: progress; }
+    .btn-dispensar {
+      border: 0; background: var(--rojo); color: var(--sobre-acento);
+      box-shadow: 0 10px 22px -10px var(--rojo-sombra), 0 3px 6px -3px var(--rojo-sombra);
+    }
+    .btn-dispensar > span:not(.onda) { position: relative; z-index: 1; }
+    .btn-dispensar:active, .btn-medibot:active { transform: translateY(1px) scale(.98); transition-duration: .08s; }
+    .btn-dispensar:active { box-shadow: 0 3px 8px -4px var(--rojo-sombra); }
+    .btn-dispensar:disabled { cursor: progress; }
+    /*  Mientras dispensa: una barra que recorre el boton de lado a lado. */
+    .btn-dispensar.ocupado::after {
+      content: ''; position: absolute; left: 0; bottom: 0; width: 35%; height: 4px; border-radius: 4px;
+      background: var(--onda); animation: progreso 1.1s ease-in-out infinite;
+    }
+    @keyframes progreso { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
     .btn-medibot {
-      background: var(--boton-claro); color: var(--boton-claro-texto);
-      border: 2px solid var(--boton-claro-borde); text-decoration: none;
+      background: var(--tarjeta); color: var(--texto);
+      border: 1px solid var(--borde-fuerte); text-decoration: none;
+      box-shadow: 0 6px 14px -10px var(--sombra-tarjeta);
     }
-    .btn-medibot:hover { background: var(--suave); }
+    .btn-medibot::after {
+      content: '→'; display: inline-block; width: 0; margin-left: 0; opacity: 0; overflow: hidden;
+      transition: width .25s ease, margin-left .25s ease, opacity .25s ease;
+    }
 
     /* ================= EL PASTILLERO (tal cual el diseno) ================= */
     /*  Se mide en em: cambiando el font-size de .aparato se escala entero.
@@ -819,7 +888,7 @@ HTML_PAGE = """<!DOCTYPE html>
       position: absolute; inset: 2.55em; border-radius: 50%;
       box-shadow: 0 0 0 .1em var(--cromo-4);
       transition-property: transform; transition-duration: 0s;
-      transition-timing-function: cubic-bezier(.45, .05, .3, 1);
+      transition-timing-function: cubic-bezier(.37, 0, .63, 1);
       will-change: transform;
     }
     .ruleta-disco svg { display: block; width: 100%; height: 100%; }
@@ -829,13 +898,17 @@ HTML_PAGE = """<!DOCTYPE html>
     .radios { stroke: var(--radio); stroke-width: 2.2; stroke-linecap: round; }
     .cubo { fill: var(--disco-2); stroke: var(--radio); stroke-width: 1.6; }
     .cubo-roseta circle { fill: none; stroke: var(--radio); stroke-width: 1; }
+    /*  El numero de cada compartimiento, pequeno, pintado en el disco: gira
+        con el. El del compartimiento elegido se enciende. */
+    .numeros text { fill: var(--radio); opacity: .8; font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: central; transition: fill .4s ease, opacity .4s ease; }
+    .numeros text.activo { fill: var(--marca-suave); opacity: 1; }
     /*  La pastilla: solo se ve al dispensar, cayendo por detras de la placa. */
     .pastilla-cae {
       position: absolute; left: 50%; top: 14.2em; width: 1.5em; height: .72em; margin-left: -.75em;
       border-radius: .36em; opacity: 0; pointer-events: none;
       background: linear-gradient(90deg, var(--pastilla-a) 50%, var(--pastilla-b) 50%);
     }
-    .pastilla-cae.cayendo { animation: caer 1.2s cubic-bezier(.5, 0, .9, .6) forwards; }
+    .pastilla-cae.cayendo { animation: caer 1.6s cubic-bezier(.5, 0, .9, .6) forwards; }
     @keyframes caer {
       0% { opacity: 0; transform: translateY(0) rotate(90deg) scale(.5); }
       15% { opacity: 1; transform: translateY(0) rotate(90deg) scale(1); }
@@ -894,18 +967,19 @@ HTML_PAGE = """<!DOCTYPE html>
       font-size: 13.5px; font-weight: 700; color: var(--texto); cursor: pointer; transition: background .2s, color .2s;
     }
     .pestana:hover { color: var(--texto-titulo); }
-    .pestana[aria-selected="true"] { background: var(--tarjeta); color: var(--texto-titulo); box-shadow: 0 1px 3px var(--sombra-tarjeta); }
+    .pestana[aria-selected="true"] { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); box-shadow: 0 6px 14px -8px var(--sombra-marca); }
     .ajustes-cuerpo { flex: 1; overflow-y: auto; padding: 14px 18px 26px; overscroll-behavior: contain; }
     .intro { font-size: 13px; color: var(--texto-tenue); margin: 2px 2px 12px; line-height: 1.45; }
 
     .fila-comp {
       width: 100%; display: flex; align-items: center; gap: 12px; padding: 11px 14px 11px 11px;
       border-radius: 18px; border: 1px solid var(--borde); background: var(--tarjeta); color: var(--texto-titulo);
-      text-align: left; cursor: pointer; transition: border-color .2s, background .2s;
+      text-align: left; cursor: pointer; transition: border-color .2s, background .2s, transform .25s ease, box-shadow .25s ease;
     }
     .fila-comp + .fila-comp { margin-top: 8px; }
-    .fila-comp:hover { border-color: var(--borde-activo); background: var(--panel); }
-    .fila-num { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--pildora); color: var(--pildora-texto); }
+    .fila-comp:hover { border-color: var(--borde-activo); background: var(--panel); transform: translateY(-1px); box-shadow: 0 10px 20px -14px var(--sombra-tarjeta); }
+    .fila-comp:active { transform: translateY(1px); box-shadow: none; }
+    .fila-num { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); }
     .fila-comp.vacia .fila-num { background: var(--suave); color: var(--texto-tenue); }
     .fila-datos { flex: 1; min-width: 0; line-height: 1.3; }
     .fila-titulo, .fila-sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -925,7 +999,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .editor-cabeza .badge { margin-left: auto; }
 
     .bloque { background: var(--panel); border: 1px solid var(--borde); border-radius: 20px; padding: 16px 16px 18px; margin-top: 14px; }
-    .bloque h4 { font-size: 12.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--texto-tenue); margin-bottom: 12px; }
+    .bloque h4 { font-size: 12.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--acento); margin-bottom: 12px; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .form-group { display: flex; flex-direction: column; gap: 5px; }
     .form-group.ancho { grid-column: 1 / -1; }
@@ -940,14 +1014,15 @@ HTML_PAGE = """<!DOCTYPE html>
     .form-group input[aria-invalid="true"] { border-color: var(--peligro-texto); }
     .form-error { min-height: 1.2em; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--peligro-texto); }
     .btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: center; }
-    .btn { border: 0; padding: 10px 22px; border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, border-color .2s, color .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
+    .btn { border: 0; padding: 10px 22px; border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, border-color .2s, color .2s, transform .2s ease, box-shadow .2s ease; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
     .btn:disabled { opacity: .6; cursor: default; }
-    .btn-primary { background: var(--acento-fin); color: var(--sobre-acento); }
-    .btn-primary:not(:disabled):hover { background: var(--texto-titulo); color: var(--tarjeta); }
+    .btn-primary { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); box-shadow: 0 6px 14px -8px var(--sombra-marca); }
+    .btn-primary:not(:disabled):hover { opacity: .92; transform: translateY(-1px); box-shadow: 0 10px 18px -10px var(--sombra-marca); }
+    .btn:not(:disabled):active { transform: translateY(1px) scale(.98); }
     .btn-danger { background: transparent; border: 1px solid var(--peligro-borde); color: var(--peligro-texto); }
     .btn-danger:hover, .btn-danger.confirmar { background: var(--peligro-hover); }
     .btn-danger.confirmar { border-color: var(--peligro-texto); }
-    .btn-outline { background: transparent; border: 1px solid var(--borde-fuerte); color: var(--texto); }
+    .btn-outline { background: var(--tarjeta); border: 1px solid var(--borde-fuerte); color: var(--texto); }
     .btn-outline:hover { border-color: var(--borde-hover); color: var(--texto-titulo); }
     .btn-mini { padding: 6px 13px; font-size: 12.5px; }
     .aviso { font-size: 12.5px; color: var(--texto-tenue); margin-top: 10px; line-height: 1.45; }
@@ -971,7 +1046,7 @@ HTML_PAGE = """<!DOCTYPE html>
       transition: background .2s, color .2s, border-color .2s;
     }
     .day-check:hover span { border-color: var(--borde-activo); color: var(--texto-titulo); }
-    .day-check input:checked + span { background: var(--pildora); color: var(--pildora-texto); border-color: transparent; }
+    .day-check input:checked + span { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); border-color: transparent; }
     .day-check input:focus-visible + span { outline: 3px solid var(--acento); outline-offset: 2px; }
 
     .hist-row { display: flex; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--borde); }
@@ -1002,6 +1077,19 @@ HTML_PAGE = """<!DOCTYPE html>
     .serial-pill.desync { background: var(--aviso-suave); color: var(--aviso-texto); }
     .serial-pill.neutro { background: var(--suave); color: var(--texto-pastilla); }
 
+    /*  Enlace a la web de MEDIBOT (en Sistema) y creditos al pie. */
+    .enlace-web {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px;
+      padding: 15px 18px; border-radius: 20px; border: 1px solid var(--borde); background: var(--panel);
+      color: var(--texto-titulo); font-size: 14.5px; font-weight: 700; text-decoration: none;
+      transition: border-color .2s, transform .25s ease, box-shadow .25s ease;
+    }
+    .enlace-web span { color: var(--acento); }
+    .enlace-web:hover { border-color: var(--borde-activo); transform: translateY(-1px); box-shadow: 0 10px 20px -14px var(--sombra-tarjeta); }
+    .creditos { max-width: 1240px; margin: 16px auto 0; text-align: center; font-size: 13px; color: var(--texto-tenue); }
+    .creditos a { white-space: nowrap; color: var(--texto-titulo); font-weight: 700; text-decoration: none; border-bottom: 1px solid var(--borde-fuerte); transition: color .2s, border-color .2s; }
+    .creditos a:hover { color: var(--acento); border-color: var(--acento); }
+
     /* ================= AVISOS ================= */
     .avisos { position: fixed; z-index: 1100; right: 18px; top: 18px; width: min(92vw, 25rem); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
     .toast {
@@ -1016,7 +1104,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .toast.aviso-t { border-left-color: var(--aviso-texto); }
     .toast.fuera { opacity: 0; transition: opacity .3s; }
     .toast-texto { flex: 1; line-height: 1.35; }
-    .toast-accion { flex: none; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 800; cursor: pointer; color: var(--sobre-acento); background: var(--acento-fin); }
+    .toast-accion { flex: none; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 800; cursor: pointer; color: var(--sobre-acento); background: linear-gradient(to right, var(--acento), var(--acento-fin)); }
     .toast-cerrar { flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--texto-tenue); cursor: pointer; display: grid; place-items: center; }
     .toast-cerrar:hover { background: var(--suave); }
     .toast-cerrar svg { width: 14px; height: 14px; }
@@ -1040,7 +1128,9 @@ HTML_PAGE = """<!DOCTYPE html>
     /* ================= PANTALLAS PEQUENAS ================= */
     @media (max-width: 900px) {
       .cabecera { grid-template-columns: auto 1fr; }
-      .titulo { text-align: left; font-size: clamp(2.2rem, 10vw, 3.2rem); }
+      .marca { text-align: left; }
+      .titulo { font-size: clamp(2.2rem, 10vw, 3.2rem); }
+      .titulo-tag { letter-spacing: .3em; }
       .tuerca { width: 60px; height: 60px; }
       .tuerca svg { width: 48px; height: 48px; }
       .tablero {
@@ -1052,6 +1142,10 @@ HTML_PAGE = """<!DOCTYPE html>
       .aparato { font-size: clamp(8px, 2.4vw, 12px); }
       .columna { max-width: none; justify-self: stretch; gap: 10px; }
       .comp { min-height: 60px; padding: 10px 18px; }
+      /*  En movil no cabe al lado del titulo: va en la segunda linea, que
+          ya se corta con puntos suspensivos. */
+      .comp-estado { top: auto; bottom: 15px; right: 16px; width: 11px; height: 11px; margin-top: 0; }
+      .comp[aria-pressed="true"] .comp-med { max-width: calc(100% - 18px); }
       .comp-titulo { font-size: 11.5px; letter-spacing: .03em; }
       .comp-med { font-size: 12px; }
       .accion { max-width: none; }
@@ -1063,7 +1157,9 @@ HTML_PAGE = """<!DOCTYPE html>
       .form-grid { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .ruleta-marca { animation: none; }
+      .ruleta-marca, .comp-estado, .columna.llamar .comp, .btn-dispensar.ocupado::after,
+      .comp, .btn-dispensar, .btn-medibot, .comp::before, .btn-dispensar::before, .btn-medibot::before { animation: none !important; }
+      .comp, .btn-dispensar, .btn-medibot, .tuerca, .btn, .fila-comp { transition: none; }
     }
   </style>
 </head>
@@ -1089,7 +1185,10 @@ HTML_PAGE = """<!DOCTYPE html>
       <circle class="tuerca-centro" r="3.6"/>
     </svg>
   </button>
-  <h1 class="titulo">PILLBOX</h1>
+  <div class="marca">
+    <h1 class="titulo"><span class="t-pill">PILL</span>BOX</h1>
+    <p class="titulo-tag">PASTILLERO</p>
+  </div>
 </header>
 
 <main class="tablero" id="app">
@@ -1113,6 +1212,7 @@ HTML_PAGE = """<!DOCTYPE html>
             <circle r="100" fill="url(#gDisco)"/>
             <circle class="llanta" r="90"/>
             <path class="radios" d="M4.97 -12.01L34.44 -83.15M12.01 -4.97L83.15 -34.44M12.01 4.97L83.15 34.44M4.97 12.01L34.44 83.15M-4.97 12.01L-34.44 83.15M-12.01 4.97L-83.15 34.44M-12.01 -4.97L-83.15 -34.44M-4.97 -12.01L-34.44 -83.15"/>
+            <g class="numeros"><text id="numRueda1" transform="rotate(0) translate(0 -76)">1</text><text id="numRueda2" transform="rotate(45) translate(0 -76)">2</text><text id="numRueda3" transform="rotate(90) translate(0 -76)">3</text><text id="numRueda4" transform="rotate(135) translate(0 -76)">4</text><text id="numRueda5" transform="rotate(180) translate(0 -76)">5</text><text id="numRueda6" transform="rotate(225) translate(0 -76)">6</text><text id="numRueda7" transform="rotate(270) translate(0 -76)">7</text><text id="numRueda8" transform="rotate(315) translate(0 -76)">8</text></g>
             <circle class="cubo" r="13"/>
             <g class="cubo-roseta"><circle cx="0.00" cy="-7.00" r="2"/><circle cx="4.95" cy="-4.95" r="2"/><circle cx="7.00" cy="0.00" r="2"/><circle cx="4.95" cy="4.95" r="2"/><circle cx="0.00" cy="7.00" r="2"/><circle cx="-4.95" cy="4.95" r="2"/><circle cx="-7.00" cy="0.00" r="2"/><circle cx="-4.95" cy="-4.95" r="2"/><circle r="2.2"/></g>
           </svg>
@@ -1135,7 +1235,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
   <div class="acciones">
     <div class="accion accion-izq">
-      <button class="btn-dispensar" id="btnDispensar" type="button">DISPENSAR</button>
+      <button class="btn-dispensar" id="btnDispensar" type="button"><span id="dispensarTxt">DISPENSAR</span></button>
     </div>
     <div class="accion accion-der">
       <!--  MEDIBOT. Es un <a> y no un boton con window.location: asi se
@@ -1146,6 +1246,11 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
   </div>
 </main>
+
+<footer class="creditos">
+  © 2026 elporxdk · MEDIBOT · Licencia MIT ·
+  <a href="https://medi-bot.net" target="_blank" rel="noopener">medi-bot.net</a>
+</footer>
 
 <div class="avisos" id="avisos" aria-live="polite"></div>
 
@@ -1249,10 +1354,8 @@ HTML_PAGE = """<!DOCTYPE html>
         <button class="btn btn-outline" id="themeToggle" type="button" onclick="alternarTema()"
                 title="Cambiar tema claro/oscuro">Modo Oscuro</button>
       </div>
-      <div class="bloque">
-        <h4>Cómo funciona la ruleta</h4>
-        <p class="aviso" style="margin-top:0">Al elegir un compartimiento, la ruleta lo sube arriba, bajo la tolva: es la zona de carga. Al dispensar, parte del inicio (compartimiento 1 arriba), lo baja media vuelta hasta la salida y la pastilla cae al cajón; después completa la vuelta hasta el inicio. La ruleta solo gira hacia delante.</p>
-      </div>
+      <!--  Como funciona: un enlace a la web de MEDIBOT, sin texto largo. -->
+      <a class="enlace-web" id="enlaceWeb" href="https://medi-bot.net" target="_blank" rel="noopener">¿Cómo funciona? <span>medi-bot.net ↗</span></a>
     </section>
   </div>
 </aside>
@@ -1266,10 +1369,13 @@ HTML_PAGE = """<!DOCTYPE html>
     const DIAS_LARGOS = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
     const CAMPOS = ['medicamento','dosis','nombre','notas'];
     const REDUCIR = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    //  Segundos de animacion por compartimiento. El motor de verdad
-    //  (28BYJ-48, 256 pasos por compartimiento) tarda algo mas; aqui se
-    //  acorta para que la animacion no aburra, sin perder el sentido del giro.
-    const SEG_POR_COMP = REDUCIR ? 0.08 : 0.5;
+    //  Segundos de animacion por compartimiento: un giro LENTO, para que se
+    //  vea bien como la ruleta lleva cada compartimiento a su sitio (una
+    //  vuelta entera son unos 13 s). El motor de verdad (28BYJ-48 a 10 rpm)
+    //  va algo mas rapido; la ruleta dibujada se pone al dia con el Arduino
+    //  al terminar cada giro.
+    const SEG_POR_COMP = REDUCIR ? 0.08 : 1.6;
+    const SEG_MINIMO = REDUCIR ? 0.05 : 1.2;
 
     let dataStore = {};   // compartimientos (desde el servidor)
     let horarios = [];    // horarios (desde el servidor)
@@ -1288,6 +1394,22 @@ HTML_PAGE = """<!DOCTYPE html>
 
     function el(id) { return document.getElementById(id); }
     function esperar(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+    //  La onda que suelta un boton al pulsarlo, desde donde se toco.
+    function onda(e) {
+      if (REDUCIR) { return; }
+      const b = e.currentTarget;
+      const r = b.getBoundingClientRect();
+      const d = Math.max(r.width, r.height) * 2;
+      const s = document.createElement('span');
+      s.className = 'onda';
+      s.style.width = d + 'px';
+      s.style.height = d + 'px';
+      s.style.left = (e.clientX - r.left - d / 2) + 'px';
+      s.style.top = (e.clientY - r.top - d / 2) + 'px';
+      b.appendChild(s);
+      setTimeout(() => s.remove(), 650);
+    }
     function mayus(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
 
     function esc(texto) {
@@ -1398,7 +1520,7 @@ HTML_PAGE = """<!DOCTYPE html>
       if (!k) { return Promise.resolve(); }
       pasos += k;
       arriba = ((arriba - 1 + k) % TOTAL_COMPARTMENTS) + 1;
-      const seg = Math.max(REDUCIR ? 0.05 : 0.4, k * SEG_POR_COMP);
+      const seg = Math.max(SEG_MINIMO, k * SEG_POR_COMP);
       aplicarGiro(seg);
       return esperar(seg * 1000 + 80);
     }
@@ -1429,13 +1551,15 @@ HTML_PAGE = """<!DOCTYPE html>
       if (dispensando) { avisar('Espera a que termine el dispensado.', 'aviso'); return; }
       if (seleccionado === n) { volverAInicio(); return; }
       seleccionado = n;
+      el('comp' + n).classList.add('en-camino');
       pintarBotones();
       const peticion = pedir('/goto', 'POST', { compartimiento: n }).catch(e => ({ error: String(e) }));
       encolar(() => Promise.all([irA(n), peticion]).then(res => {
         const r = res[1];
         if (r && r.error) { avisar('Sin respuesta del servidor: ' + r.error, 'error'); return null; }
         return reconciliar(r);
-      })).catch(e => avisar('No se pudo mover la ruleta: ' + e, 'error'));
+      })).catch(e => avisar('No se pudo mover la ruleta: ' + e, 'error'))
+        .finally(() => el('comp' + n).classList.remove('en-camino'));
     }
 
     // ---------- HOME: compartimiento 1 arriba ----------
@@ -1460,7 +1584,7 @@ HTML_PAGE = """<!DOCTYPE html>
       p.classList.remove('cayendo');
       void p.offsetWidth;
       p.classList.add('cayendo');
-      return esperar(REDUCIR ? 300 : 1200);
+      return esperar(REDUCIR ? 300 : 1600);
     }
     function secuenciaDispensar(n) {
       const rot = (n - 1 + MITAD) % TOTAL_COMPARTMENTS;
@@ -1472,12 +1596,22 @@ HTML_PAGE = """<!DOCTYPE html>
     function pintarBotonDispensar() {
       const b = el('btnDispensar');
       b.disabled = dispensando;
-      b.textContent = dispensando ? 'DISPENSANDO…' : 'DISPENSAR';
+      b.classList.toggle('ocupado', dispensando);
+      el('dispensarTxt').textContent = dispensando ? 'DISPENSANDO…' : 'DISPENSAR';
     }
     function dispensar() {
       const n = seleccionado;
       if (dispensando) { return; }
-      if (!n) { avisar('Elige primero el compartimiento que quieres dispensar.', 'aviso'); return; }
+      if (!n) {
+        avisar('Elige primero el compartimiento que quieres dispensar.', 'aviso');
+        ['colIzq', 'colDer'].forEach(id => {
+          const c = el(id);
+          c.classList.remove('llamar');
+          void c.offsetWidth;
+          c.classList.add('llamar');
+        });
+        return;
+      }
       const data = datosDe(n);
       if (!data) {
         avisar('El compartimiento ' + n + ' no tiene medicamento configurado.', 'aviso',
@@ -1518,8 +1652,11 @@ HTML_PAGE = """<!DOCTYPE html>
         b.className = 'comp';
         b.id = 'comp' + i;
         b.setAttribute('aria-pressed', 'false');
+        b.style.setProperty('--i', String(i));
         b.innerHTML = '<span class="comp-titulo">COMPARTIMIENTO ' + i + '</span>' +
-          '<span class="comp-med" id="compMed' + i + '">Vacío</span>';
+          '<span class="comp-med" id="compMed' + i + '">Vacío</span>' +
+          '<span class="comp-estado" aria-hidden="true"></span>';
+        b.addEventListener('pointerdown', onda);
         b.addEventListener('click', () => seleccionar(i));
         el(i <= MITAD ? 'colIzq' : 'colDer').appendChild(b);
       }
@@ -1531,6 +1668,8 @@ HTML_PAGE = """<!DOCTYPE html>
         const b = el('comp' + i);
         if (d) { completos++; }
         b.setAttribute('aria-pressed', seleccionado === i ? 'true' : 'false');
+        if (seleccionado !== i) { b.classList.remove('en-camino'); }
+        el('numRueda' + i).classList.toggle('activo', seleccionado === i);
         el('compMed' + i).textContent = d ? d.medicamento : 'Vacío';
         b.title = 'Compartimiento ' + i + ': ' + (d ? d.medicamento + ', ' + d.dosis : 'sin medicamento') +
           (seleccionado === i ? ' (pulsa otra vez para devolver la ruleta al inicio)' : '');
@@ -1889,7 +2028,9 @@ HTML_PAGE = """<!DOCTYPE html>
       el('btnAjustes').addEventListener('click', () => abrirAjustes('comp'));
       el('btnCerrarAjustes').addEventListener('click', cerrarAjustes);
       el('velo').addEventListener('click', cerrarAjustes);
+      el('btnDispensar').addEventListener('pointerdown', onda);
       el('btnDispensar').addEventListener('click', dispensar);
+      el('linkMedibot').addEventListener('pointerdown', onda);
       el('btnSisInicio').addEventListener('click', volverAInicio);
       el('btnVolverLista').addEventListener('click', () => { cerrarEditor(); el('tabComp').focus(); });
       el('listaFilas').addEventListener('click', e => {
