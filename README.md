@@ -35,3 +35,31 @@ para probarlos sin placa (ver el `LEEME.md` de cada uno). Si intentas
 compilarlos en el IDE, te avisan y no te dejan.
 
 `medibot/` es Python y corre en la Raspberry Pi, no en las placas.
+
+## Instalar MEDIBOT en la Raspberry Pi
+
+En la Pi (Raspberry Pi OS con escritorio y conexión a internet), abre una
+terminal y pega:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/elporxdk/Proyects/main/instalar.sh | bash
+```
+
+Descarga el código en `~/Proyects`, instala todo lo necesario con `apt`
+(Flask, pyserial, OpenCV con reconocimiento facial, Tkinter, Pillow, audio,
+openssl), da permisos para el Arduino, las cámaras y el audio, y crea el icono
+**MEDIBOT** en el escritorio y en el menú, y la orden `medibot` para la
+terminal. Al final comprueba que todo está en su sitio. Si pide reiniciar,
+reinicia (`sudo reboot`).
+
+* **Actualizar:** vuelve a ejecutar el mismo comando (o `bash ~/Proyects/instalar.sh`).
+* **Que se abra solo al encender la Pi:** `bash ~/Proyects/instalar.sh --autoarranque`
+  (`--sin-autoarranque` lo quita).
+
+Se usa `apt` y no `pip` porque en Raspberry Pi OS `pip install` fuera de un
+entorno virtual da error, y porque el `opencv-python` de pip no trae `cv2.face`
+(el reconocimiento facial).
+
+**Ojo al clonar a mano:** la rama por defecto de GitHub es `web` (la página
+web), que no trae `medibot/`. El código de la Pi está en `main`:
+`git clone -b main https://github.com/elporxdk/Proyects.git`.

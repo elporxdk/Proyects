@@ -99,9 +99,16 @@ Pillbox ------------+
 ### Uso normal (Raspberry Pi) — UN SOLO COMANDO
 
 ```bash
-pip install flask pyserial
-python3 medibot/main.py
+bash instalar.sh          # la primera vez (y para actualizar): instala todo con apt
+python3 medibot/main.py   # o doble clic en el icono MEDIBOT, o la orden: medibot
 ```
+
+`instalar.sh` (en la raiz del repositorio) instala con `apt` todo lo que usa
+`medibot/`, da permisos para el Arduino, las camaras y el audio, crea el icono
+y la orden `medibot`, y comprueba que todo se puede importar. Con
+`--autoarranque` MEDIBOT se abre solo al entrar al escritorio. En la Pi no se
+usa `pip`: fuera de un entorno virtual da error ("externally-managed-
+environment"), y el `opencv-python` de pip no trae `cv2.face`.
 
 `main.py` arranca todo en orden y coexistiendo: apaga cualquier hub viejo en
 memoria y levanta uno con el codigo actual, lanza Pillbox

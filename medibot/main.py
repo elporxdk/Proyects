@@ -96,12 +96,14 @@ def comprobar_nucleo():
         print("\nLos nombres deben ser EXACTOS (ojo con espacios: 'medibot_serial .py'")
         print("con espacio NO sirve; debe llamarse 'medibot_serial.py').")
         print("Lo mas seguro es clonar el repositorio completo:")
-        print("   git clone https://github.com/elporxdk/Proyects.git")
+        print("   git clone -b main https://github.com/elporxdk/Proyects.git")
+        print("(sin '-b main' se baja la rama 'web', que no trae medibot/)")
         return False
     faltan_libs = _faltan_modulos(DEPS_BASE)
     if faltan_libs:
         print("ERROR: faltan librerias de Python:", ", ".join(faltan_libs))
-        print("Instala con:   pip install " + " ".join(sorted(set(faltan_libs.values()))))
+        print("En la Raspberry Pi:   bash instalar.sh   (lo instala todo con apt)")
+        print("En otro equipo:       pip install " + " ".join(sorted(set(faltan_libs.values()))))
         return False
     return True
 
@@ -114,7 +116,9 @@ def diagnostico_vision():
         return f"falta el archivo {ARCHIVO_VISION}"
     faltan = _faltan_modulos(DEPS_VISION)
     if faltan:
-        return "faltan librerias:  pip install " + " ".join(sorted(set(faltan.values())))
+        return ("faltan librerias. En la Raspberry Pi:  bash instalar.sh  "
+                "(lo instala todo con apt). En otro equipo:  pip install "
+                + " ".join(sorted(set(faltan.values()))))
     if importlib.util.find_spec("tkinter") is None:
         return "falta tkinter:  sudo apt install python3-tk"
     # En Linux, sin servidor grafico (SSH puro, arranque sin escritorio),
