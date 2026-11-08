@@ -491,9 +491,10 @@ HTML_PAGE = """<!DOCTYPE html>
     })();
   </script>
   <style>
-    /*  PANEL DEL PASTILLERO, ESTILO MINIMALISTA
-        ========================================
-        Fondo celeste pastel, una tarjeta blanca y, en el centro, el
+    /*  PANEL DEL PASTILLERO, CON LOS COLORES DE LA INTERFAZ DE VISION
+        ==============================================================
+        Fondo surface, un contenedor blanco con borde y halo de la marca y,
+        en el centro, el
         pastillero MEDIBOT tal cual es el diseno (proporciones del modelo 3D,
         90 x 205 mm): tolva, ruleta, placa MEDIBOT y cajon. Botones planos de
         color solido. Lo unico que se mueve del aparato es la ruleta (y la
@@ -541,24 +542,17 @@ HTML_PAGE = """<!DOCTYPE html>
       --peligro-pastilla: #c10007;             /* red-700 */
       --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
       --aviso-texto: #bb4d00;                  /* amber-700 */
-      /*  La pagina y sus botones: colores planos. */
-      --cielo: #d5f1f4;                        /* celeste pastel */
-      --velo: rgba(10, 61, 92, 0.2);           /* ink/20 */
-      --pildora: #6fd6da;                      /* turquesa */
-      --pildora-hover: #5dcbd0;
-      --pildora-texto: #0a3d5c;                /* ink */
-      --pildora-activa: #0b4f6c;               /* deep */
-      --pildora-activa-texto: #ffffff;         /* white */
-      --pildora-sombra: rgba(23, 152, 168, 0.45);
-      --pildora-activa-sombra: rgba(11, 79, 108, 0.45); /* deep/45 */
-      --rojo-sombra: rgba(251, 44, 54, 0.4);   /* red-500/40 */
+      /*  Como la interfaz de Vision: contenedor con halo de la marca,
+          controles blancos con borde ink/15 y el elegido con el degradado
+          brand -> deep. */
+      --sombra-acento: rgba(1, 186, 239, 0.05);/* brand/5: halo del contenedor */
+      --sombra-marca: rgba(1, 186, 239, 0.35); /* brand/35 */
+      --velo: rgba(4, 18, 26, 0.45);           /* footer oscuro al 45 % */
       --onda: rgba(255, 255, 255, 0.45);       /* white/45 */
       --rojo: #fb2c36;                         /* red-500 */
       --rojo-hover: #e7000b;                   /* red-600 */
-      --boton-claro: #ffffff;                  /* white */
-      --boton-claro-texto: #0a3d5c;            /* ink */
-      --boton-claro-borde: #0a3d5c;            /* ink */
-      --tuerca-metal: #c5ccd5;
+      --rojo-sombra: rgba(251, 44, 54, 0.4);   /* red-500/40 */
+      --tuerca-metal: #c3d1db;
       --tuerca-radios: #ffffff;
       /*  EL APARATO, con los colores del diseno. Es un objeto fisico: tiene
           los mismos colores en los dos temas (se repiten en el oscuro porque
@@ -629,23 +623,14 @@ HTML_PAGE = """<!DOCTYPE html>
       --peligro-pastilla: #ffa2a2;             /* red-300 */
       --aviso-suave: rgba(254, 154, 0, 0.15);  /* amber-500/15 */
       --aviso-texto: #ffd230;                  /* amber-300 */
-      --cielo: #06161f;                        /* surface */
-      --velo: rgba(2, 10, 15, 0.55);
-      --pildora: #3fcad0;
-      --pildora-hover: #35b8be;
-      --pildora-texto: #032029;
-      --pildora-activa: #dbeaf3;               /* ink */
-      --pildora-activa-texto: #06161f;         /* surface */
-      --pildora-sombra: rgba(63, 202, 208, 0.3);
-      --pildora-activa-sombra: rgba(219, 234, 243, 0.2); /* ink/20 */
-      --rojo-sombra: rgba(251, 44, 54, 0.35);  /* red-500/35 */
+      --sombra-acento: rgba(34, 201, 245, 0.05); /* brand/5 */
+      --sombra-marca: rgba(34, 201, 245, 0.25);  /* brand/25 */
+      --velo: rgba(4, 18, 26, 0.6);            /* footer oscuro al 60 % */
       --onda: rgba(255, 255, 255, 0.45);       /* white/45 */
       --rojo: #fb2c36;                         /* red-500 */
       --rojo-hover: #e7000b;                   /* red-600 */
-      --boton-claro: #0e2733;                  /* card */
-      --boton-claro-texto: #dbeaf3;            /* ink */
-      --boton-claro-borde: rgba(219, 234, 243, 0.5); /* ink/50 */
-      --tuerca-metal: #6e818f;
+      --rojo-sombra: rgba(251, 44, 54, 0.35);  /* red-500/35 */
+      --tuerca-metal: #3e5a69;
       --tuerca-radios: #e2fafb;
       --metal-1: #a6a6a6;
       --metal-2: #5e5e5e;
@@ -706,7 +691,7 @@ HTML_PAGE = """<!DOCTYPE html>
     html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: 'Segoe UI', Roboto, system-ui, -apple-system, sans-serif;
-      color: var(--texto-titulo); background: var(--cielo);
+      color: var(--texto-titulo); background: var(--fondo);
       min-height: 100vh; padding: clamp(14px, 2vw, 24px) clamp(16px, 3vw, 40px) 32px;
     }
     button, input { font: inherit; color: inherit; }
@@ -722,10 +707,11 @@ HTML_PAGE = """<!DOCTYPE html>
     .tuerca {
       justify-self: start; width: 76px; height: 76px; border-radius: 50%; border: 0;
       display: grid; place-items: center; cursor: pointer;
-      background: var(--tarjeta); box-shadow: 0 8px 22px -8px var(--sombra-tarjeta);
-      transition: box-shadow .25s ease, transform .25s cubic-bezier(.3, 1.4, .5, 1);
+      background: var(--tarjeta); border: 1px solid var(--borde);
+      box-shadow: 0 0 20px var(--sombra-acento), 0 8px 20px -12px var(--sombra-tarjeta);
+      transition: box-shadow .25s ease, border-color .25s ease, transform .25s cubic-bezier(.3, 1.4, .5, 1);
     }
-    .tuerca:hover { box-shadow: 0 14px 30px -8px var(--sombra-tarjeta); transform: translateY(-2px); }
+    .tuerca:hover { border-color: var(--borde-activo); box-shadow: 0 0 20px var(--sombra-acento), 0 14px 28px -12px var(--sombra-tarjeta); transform: translateY(-2px); }
     .tuerca:active { transform: translateY(1px) scale(.96); box-shadow: 0 4px 10px -6px var(--sombra-tarjeta); }
     .tuerca svg { width: 60px; height: 60px; transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
     .tuerca:hover svg { transform: rotate(45deg); }
@@ -735,10 +721,12 @@ HTML_PAGE = """<!DOCTYPE html>
     .tuerca-disco { fill: var(--marca-suave); }
     .tuerca-radios { stroke: var(--tuerca-radios); stroke-width: 2.6; stroke-linecap: round; }
     .tuerca-centro { fill: var(--tuerca-radios); }
-    .titulo {
-      font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; line-height: 1;
-      letter-spacing: .04em; color: var(--texto-titulo); text-align: center;
-    }
+    /*  El titulo como la marca de Vision: "PILL" en brandsoft (como "MEDI")
+        y "BOX" en ink (como "BOT"), con un rotulo pequeno debajo. */
+    .marca { text-align: center; }
+    .titulo { font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; line-height: 1; letter-spacing: .04em; color: var(--texto-titulo); }
+    .titulo .t-pill { color: var(--marca-suave); }
+    .titulo-tag { margin-top: 6px; font-size: 11px; font-weight: 600; letter-spacing: .45em; color: var(--texto-tenue); }
 
     /* ================= LA TARJETA ================= */
     .tablero {
@@ -749,24 +737,27 @@ HTML_PAGE = """<!DOCTYPE html>
       grid-template-areas: "izq aparato der" "dispensar aparato medibot";
       column-gap: clamp(1.5rem, 5vw, 5rem); row-gap: 28px;
       padding: clamp(22px, 2.6vw, 34px) clamp(20px, 3.6vw, 56px);
-      border-radius: 40px; background: var(--tarjeta);
-      box-shadow: 0 24px 60px -28px var(--sombra-tarjeta);
+      border-radius: 40px; background: var(--tarjeta); border: 1px solid var(--borde);
+      box-shadow: 0 0 20px var(--sombra-acento);
     }
     .columna { display: flex; flex-direction: column; justify-content: space-around; gap: 16px; width: 100%; max-width: 20rem; }
     .columna-izq { grid-area: izq; justify-self: end; }
     .columna-der { grid-area: der; justify-self: start; }
 
-    /*  COMPARTIMIENTO: una pildora de color solido con sombra. Al pasar el
-        raton se eleva, al pulsarla se hunde y suelta una onda. El elegido
-        se pone de color profundo y lleva un indicador a la derecha: gira
-        mientras la ruleta lo sube y late cuando ya esta en la zona de carga. */
+    /*  COMPARTIMIENTO: una pildora con los colores de los botones de
+        Vision: blanca, borde ink/15 y letra ink/70; al pasar el raton el
+        borde se pone azul y se eleva; al pulsarla se hunde y suelta una onda.
+        El elegido lleva el degradado brand -> deep y un indicador a la
+        derecha: gira mientras la ruleta lo sube y late cuando ya esta en la
+        zona de carga. */
     .comp {
       position: relative; isolation: isolate; overflow: hidden;
       display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px;
-      width: 100%; min-height: 76px; padding: 12px 54px 12px 30px; border: 0; border-radius: 999px;
-      background: var(--pildora); color: var(--pildora-texto); text-align: left; cursor: pointer;
-      box-shadow: 0 8px 18px -8px var(--pildora-sombra), 0 2px 4px -2px var(--pildora-sombra);
-      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease, color .2s ease;
+      width: 100%; min-height: 76px; padding: 12px 54px 12px 30px; border-radius: 999px;
+      background: var(--tarjeta); color: var(--texto); border: 1px solid var(--borde-fuerte);
+      text-align: left; cursor: pointer;
+      box-shadow: 0 6px 14px -10px var(--sombra-tarjeta);
+      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, border-color .2s ease, color .2s ease;
     }
     /*  Entrada escalonada al cargar la pagina (despues de la pantalla de
         carga) y destello que cruza el boton al pasar el raton o llegar con
@@ -780,14 +771,15 @@ HTML_PAGE = """<!DOCTYPE html>
       background: linear-gradient(100deg, transparent, var(--onda), transparent);
       transform: translateX(-170%) skewX(-18deg); pointer-events: none;
     }
-    .btn-medibot::before { background: linear-gradient(100deg, transparent, var(--suave-hover), transparent); }
+    .comp::before, .btn-medibot::before { background: linear-gradient(100deg, transparent, var(--borde-activo), transparent); }
+    .comp[aria-pressed="true"]::before { background: linear-gradient(100deg, transparent, var(--onda), transparent); }
     .comp:focus-visible::before, .btn-dispensar:focus-visible::before, .btn-medibot:focus-visible::before { animation: destello .9s ease; }
     @keyframes destello { to { transform: translateX(340%) skewX(-18deg); } }
     .comp:focus-visible:not(:active) { transform: translateY(-3px); }
-    .comp:active { transform: translateY(1px) scale(.985); box-shadow: 0 2px 6px -3px var(--pildora-sombra); transition-duration: .08s; }
+    .comp:active { transform: translateY(1px) scale(.985); box-shadow: 0 2px 6px -4px var(--sombra-tarjeta); transition-duration: .08s; }
     .comp[aria-pressed="true"] {
-      background: var(--pildora-activa); color: var(--pildora-activa-texto);
-      box-shadow: 0 14px 28px -12px var(--pildora-activa-sombra), 0 3px 6px -3px var(--pildora-activa-sombra);
+      background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); border-color: transparent;
+      box-shadow: 0 14px 28px -12px var(--sombra-marca), 0 3px 6px -3px var(--sombra-marca);
     }
     .comp-titulo, .comp-med { position: relative; z-index: 1; }
     .comp-titulo { font-size: 15px; font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
@@ -796,8 +788,8 @@ HTML_PAGE = """<!DOCTYPE html>
       position: absolute; z-index: 1; right: 24px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
       border-radius: 50%; opacity: 0; transform: scale(.4); transition: opacity .25s ease, transform .3s cubic-bezier(.3, 1.4, .5, 1);
     }
-    .comp[aria-pressed="true"] .comp-estado { opacity: 1; transform: none; background: var(--pildora); animation: latido 1.8s ease-out infinite; }
-    .comp.en-camino .comp-estado { background: transparent; border: 2.5px solid var(--pildora); border-right-color: transparent; animation: girar-estado .7s linear infinite; }
+    .comp[aria-pressed="true"] .comp-estado { opacity: 1; transform: none; background: var(--sobre-acento); animation: latido 1.8s ease-out infinite; }
+    .comp.en-camino .comp-estado { background: transparent; border: 2.5px solid var(--sobre-acento); border-right-color: transparent; animation: girar-estado .7s linear infinite; }
     @keyframes latido { 0% { box-shadow: 0 0 0 0 var(--onda); } 100% { box-shadow: 0 0 0 12px transparent; } }
     @keyframes girar-estado { to { transform: rotate(360deg); } }
     .columna.llamar .comp { animation: llamar .5s ease; }
@@ -805,18 +797,19 @@ HTML_PAGE = """<!DOCTYPE html>
     /*  La onda que suelta un boton al pulsarlo (la pone onda() en JS). */
     .onda { position: absolute; z-index: 0; border-radius: 50%; background: var(--onda); transform: scale(0); pointer-events: none; animation: onda .6s ease-out forwards; }
     @keyframes onda { to { transform: scale(1); opacity: 0; } }
-    .btn-medibot .onda { background: var(--suave-hover); }
+    .comp .onda, .btn-medibot .onda { background: var(--borde-activo); }
+    .comp[aria-pressed="true"] .onda { background: var(--onda); }
     /*  La elevacion al pasar el raton solo donde hay raton: en un movil el
         "hover" se queda pegado despues de tocar. */
     @media (hover: hover) {
-      .comp:hover:not(:active) { transform: translateY(-4px) scale(1.02); box-shadow: 0 18px 30px -12px var(--pildora-sombra), 0 5px 10px -5px var(--pildora-sombra); }
+      .comp:hover:not(:active) { transform: translateY(-4px) scale(1.02); box-shadow: 0 18px 30px -14px var(--sombra-tarjeta), 0 5px 10px -6px var(--sombra-tarjeta); }
       .comp:hover::before, .btn-dispensar:not(:disabled):hover::before, .btn-medibot:hover::before { animation: destello .9s ease; }
       .comp:hover .comp-med { opacity: 1; }
-      .comp:not([aria-pressed="true"]):hover { background: var(--pildora-hover); }
-      .comp[aria-pressed="true"]:hover:not(:active) { box-shadow: 0 18px 32px -12px var(--pildora-activa-sombra), 0 4px 8px -4px var(--pildora-activa-sombra); }
+      .comp:not([aria-pressed="true"]):hover { color: var(--texto-titulo); border-color: var(--borde-activo); }
+      .comp[aria-pressed="true"]:hover:not(:active) { box-shadow: 0 18px 32px -12px var(--sombra-marca), 0 4px 8px -4px var(--sombra-marca); }
       .btn-dispensar:not(:disabled):hover { background: var(--rojo-hover); }
       .btn-dispensar:not(:disabled):hover:not(:active) { transform: translateY(-4px) scale(1.03); box-shadow: 0 18px 30px -12px var(--rojo-sombra), 0 4px 8px -4px var(--rojo-sombra); }
-      .btn-medibot:hover { background: var(--suave); }
+      .btn-medibot:hover { color: var(--texto-titulo); border-color: var(--borde-activo); }
       .btn-medibot:hover:not(:active) { transform: translateY(-4px) scale(1.03); box-shadow: 0 16px 28px -14px var(--sombra-tarjeta); }
       .btn-medibot:hover::after { width: 1em; margin-left: .45em; opacity: 1; }
     }
@@ -831,7 +824,7 @@ HTML_PAGE = """<!DOCTYPE html>
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 15rem; height: 64px; padding: 0 34px; border-radius: 999px;
       font-size: 19px; font-weight: 800; letter-spacing: .08em; cursor: pointer;
-      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease;
+      transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease, border-color .2s ease, color .2s ease;
     }
     .btn-dispensar {
       border: 0; background: var(--rojo); color: var(--sobre-acento);
@@ -848,9 +841,9 @@ HTML_PAGE = """<!DOCTYPE html>
     }
     @keyframes progreso { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
     .btn-medibot {
-      background: var(--boton-claro); color: var(--boton-claro-texto);
-      border: 2px solid var(--boton-claro-borde); text-decoration: none;
-      box-shadow: 0 8px 18px -12px var(--sombra-tarjeta);
+      background: var(--tarjeta); color: var(--texto);
+      border: 1px solid var(--borde-fuerte); text-decoration: none;
+      box-shadow: 0 6px 14px -10px var(--sombra-tarjeta);
     }
     .btn-medibot::after {
       content: '→'; display: inline-block; width: 0; margin-left: 0; opacity: 0; overflow: hidden;
@@ -974,7 +967,7 @@ HTML_PAGE = """<!DOCTYPE html>
       font-size: 13.5px; font-weight: 700; color: var(--texto); cursor: pointer; transition: background .2s, color .2s;
     }
     .pestana:hover { color: var(--texto-titulo); }
-    .pestana[aria-selected="true"] { background: var(--tarjeta); color: var(--texto-titulo); box-shadow: 0 1px 3px var(--sombra-tarjeta); }
+    .pestana[aria-selected="true"] { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); box-shadow: 0 6px 14px -8px var(--sombra-marca); }
     .ajustes-cuerpo { flex: 1; overflow-y: auto; padding: 14px 18px 26px; overscroll-behavior: contain; }
     .intro { font-size: 13px; color: var(--texto-tenue); margin: 2px 2px 12px; line-height: 1.45; }
 
@@ -986,7 +979,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .fila-comp + .fila-comp { margin-top: 8px; }
     .fila-comp:hover { border-color: var(--borde-activo); background: var(--panel); transform: translateY(-1px); box-shadow: 0 10px 20px -14px var(--sombra-tarjeta); }
     .fila-comp:active { transform: translateY(1px); box-shadow: none; }
-    .fila-num { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--pildora); color: var(--pildora-texto); }
+    .fila-num { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); }
     .fila-comp.vacia .fila-num { background: var(--suave); color: var(--texto-tenue); }
     .fila-datos { flex: 1; min-width: 0; line-height: 1.3; }
     .fila-titulo, .fila-sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1006,7 +999,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .editor-cabeza .badge { margin-left: auto; }
 
     .bloque { background: var(--panel); border: 1px solid var(--borde); border-radius: 20px; padding: 16px 16px 18px; margin-top: 14px; }
-    .bloque h4 { font-size: 12.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--texto-tenue); margin-bottom: 12px; }
+    .bloque h4 { font-size: 12.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--acento); margin-bottom: 12px; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .form-group { display: flex; flex-direction: column; gap: 5px; }
     .form-group.ancho { grid-column: 1 / -1; }
@@ -1023,13 +1016,13 @@ HTML_PAGE = """<!DOCTYPE html>
     .btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: center; }
     .btn { border: 0; padding: 10px 22px; border-radius: 999px; font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, border-color .2s, color .2s, transform .2s ease, box-shadow .2s ease; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto-titulo); }
     .btn:disabled { opacity: .6; cursor: default; }
-    .btn-primary { background: var(--acento-fin); color: var(--sobre-acento); box-shadow: 0 6px 14px -8px var(--pildora-activa-sombra); }
-    .btn-primary:not(:disabled):hover { background: var(--texto-titulo); color: var(--tarjeta); transform: translateY(-1px); box-shadow: 0 10px 18px -10px var(--pildora-activa-sombra); }
+    .btn-primary { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); box-shadow: 0 6px 14px -8px var(--sombra-marca); }
+    .btn-primary:not(:disabled):hover { opacity: .92; transform: translateY(-1px); box-shadow: 0 10px 18px -10px var(--sombra-marca); }
     .btn:not(:disabled):active { transform: translateY(1px) scale(.98); }
     .btn-danger { background: transparent; border: 1px solid var(--peligro-borde); color: var(--peligro-texto); }
     .btn-danger:hover, .btn-danger.confirmar { background: var(--peligro-hover); }
     .btn-danger.confirmar { border-color: var(--peligro-texto); }
-    .btn-outline { background: transparent; border: 1px solid var(--borde-fuerte); color: var(--texto); }
+    .btn-outline { background: var(--tarjeta); border: 1px solid var(--borde-fuerte); color: var(--texto); }
     .btn-outline:hover { border-color: var(--borde-hover); color: var(--texto-titulo); }
     .btn-mini { padding: 6px 13px; font-size: 12.5px; }
     .aviso { font-size: 12.5px; color: var(--texto-tenue); margin-top: 10px; line-height: 1.45; }
@@ -1053,7 +1046,7 @@ HTML_PAGE = """<!DOCTYPE html>
       transition: background .2s, color .2s, border-color .2s;
     }
     .day-check:hover span { border-color: var(--borde-activo); color: var(--texto-titulo); }
-    .day-check input:checked + span { background: var(--pildora); color: var(--pildora-texto); border-color: transparent; }
+    .day-check input:checked + span { background: linear-gradient(to right, var(--acento), var(--acento-fin)); color: var(--sobre-acento); border-color: transparent; }
     .day-check input:focus-visible + span { outline: 3px solid var(--acento); outline-offset: 2px; }
 
     .hist-row { display: flex; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--borde); }
@@ -1111,7 +1104,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .toast.aviso-t { border-left-color: var(--aviso-texto); }
     .toast.fuera { opacity: 0; transition: opacity .3s; }
     .toast-texto { flex: 1; line-height: 1.35; }
-    .toast-accion { flex: none; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 800; cursor: pointer; color: var(--sobre-acento); background: var(--acento-fin); }
+    .toast-accion { flex: none; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 800; cursor: pointer; color: var(--sobre-acento); background: linear-gradient(to right, var(--acento), var(--acento-fin)); }
     .toast-cerrar { flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--texto-tenue); cursor: pointer; display: grid; place-items: center; }
     .toast-cerrar:hover { background: var(--suave); }
     .toast-cerrar svg { width: 14px; height: 14px; }
@@ -1135,7 +1128,9 @@ HTML_PAGE = """<!DOCTYPE html>
     /* ================= PANTALLAS PEQUENAS ================= */
     @media (max-width: 900px) {
       .cabecera { grid-template-columns: auto 1fr; }
-      .titulo { text-align: left; font-size: clamp(2.2rem, 10vw, 3.2rem); }
+      .marca { text-align: left; }
+      .titulo { font-size: clamp(2.2rem, 10vw, 3.2rem); }
+      .titulo-tag { letter-spacing: .3em; }
       .tuerca { width: 60px; height: 60px; }
       .tuerca svg { width: 48px; height: 48px; }
       .tablero {
@@ -1190,7 +1185,10 @@ HTML_PAGE = """<!DOCTYPE html>
       <circle class="tuerca-centro" r="3.6"/>
     </svg>
   </button>
-  <h1 class="titulo">PILLBOX</h1>
+  <div class="marca">
+    <h1 class="titulo"><span class="t-pill">PILL</span>BOX</h1>
+    <p class="titulo-tag">PASTILLERO</p>
+  </div>
 </header>
 
 <main class="tablero" id="app">

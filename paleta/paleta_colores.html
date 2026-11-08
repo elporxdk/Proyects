@@ -393,7 +393,7 @@
       </div>
       <div class="meta">
         <h2 id="h-pastillero">Pastillero · Pillbox</h2>
-        <p>Panel minimalista: el pastillero MEDIBOT en el centro tal cual es el diseño, botones planos de color sólido y, tras la tuerca, la configuración (compartimientos, horarios, historial y estado). Sus variables se llaman por lo que significan (<code>--texto-tenue</code>, <code>--peligro-texto</code>…); las de la web llevan sus colores y las del aparato son las mismas en los dos temas.</p>
+        <p>Con los colores de la interfaz de Vision: fondo surface, contenedor blanco con borde y halo de la marca, botones blancos con borde ink/15 y el elegido con el degradado brand → deep. En el centro, el pastillero MEDIBOT tal cual es el diseño; tras la tuerca, la configuración (compartimientos, horarios, historial y estado). Las variables del aparato son las mismas en los dos temas.</p>
         <dl class="facts">
           <div><dt>Archivo</dt><dd><code>medibot/Pastillero.py</code></dd></div>
           <div><dt>Puerto</dt><dd>5001</dd></div>
@@ -478,20 +478,11 @@
     '--icono-raya':  ['#06161F', '#FFFFFF', 'surface · white'],
 
     /* Propias del pastillero (no salen de un token de la web). */
-    'p:--cielo': ['#06161F', '#D5F1F4', 'surface · propio'],
-    'p:--velo': ['rgba(2, 10, 15, 0.55)', 'rgba(10, 61, 92, 0.2)', 'propio · ink/20'],
-    'p:--pildora': ['#3FCAD0', '#6FD6DA', 'propio'],
-    'p:--pildora-hover': ['#35B8BE', '#5DCBD0', 'propio'],
-    'p:--pildora-texto': ['#032029', '#0A3D5C', 'propio · ink'],
-    'p:--pildora-activa': ['#DBEAF3', '#0B4F6C', 'ink · deep'],
-    'p:--pildora-activa-texto': ['#06161F', '#FFFFFF', 'surface · white'],
-    'p:--pildora-sombra': ['rgba(63, 202, 208, 0.3)', 'rgba(23, 152, 168, 0.45)', 'propio'],
-    'p:--pildora-activa-sombra': ['rgba(219, 234, 243, 0.2)', 'rgba(11, 79, 108, 0.45)', 'ink/20 · deep/45'],
-    'p:--onda': ['rgba(255, 255, 255, 0.45)', 'rgba(255, 255, 255, 0.45)', 'white/45'],
+    'p:--velo': ['rgba(4, 18, 26, 0.6)', 'rgba(4, 18, 26, 0.45)', 'footer oscuro al 60 % · al 45 %'],
+    'p:--sombra-marca': ['rgba(34, 201, 245, 0.25)', 'rgba(1, 186, 239, 0.35)', 'brand/25 · brand/35'],
     'p:--rojo-sombra': ['rgba(251, 44, 54, 0.35)', 'rgba(251, 44, 54, 0.4)', 'red-500/35 · red-500/40'],
-    'p:--boton-claro': ['#0E2733', '#FFFFFF', 'card · white'],
-    'p:--boton-claro-borde': ['rgba(219, 234, 243, 0.5)', '#0A3D5C', 'ink/50 · ink'],
-    'p:--tuerca-metal': ['#6E818F', '#C5CCD5', 'propio'],
+    'p:--onda': ['rgba(255, 255, 255, 0.45)', 'rgba(255, 255, 255, 0.45)', 'white/45'],
+    'p:--tuerca-metal': ['#3E5A69', '#C3D1DB', 'propio'],
     'p:--tuerca-radios': ['#E2FAFB', '#FFFFFF', 'propio'],
     'p:--sombra-tarjeta': ['rgba(0, 0, 0, 0.4)', 'rgba(10, 61, 92, 0.12)', 'negro/40 · shade/12'],
     'p:--metal-1': ['#A6A6A6', '#A6A6A6', 'aparato'],
@@ -595,49 +586,41 @@
   /* v = variable del pastillero, t = color de la web del que sale. */
   var PASTILLERO = [
     { titulo: 'Superficies', filas: [
-      { v: '--cielo', t: 'p:--cielo', u: 'Fondo de la página: celeste pastel en claro' },
-      { v: '--tarjeta', t: '--c-card', u: 'La tarjeta central, la tuerca, el panel de configuración, filas, campos y avisos' },
+      { v: '--fondo', t: '--c-surface', u: 'Detrás de todo, como en Vision, y la pantalla de carga' },
+      { v: '--tarjeta', t: '--c-card', u: 'El contenedor, la tuerca, los botones COMPARTIMIENTO y MEDIBOT, el panel, campos y avisos' },
       { v: '--panel', t: '--c-surface', u: 'Bloques del panel (datos médicos, horarios, historial, estado) y el enlace a la web' },
-      { v: '--fondo', t: '--c-surface', u: 'Pantalla de carga' },
-      { v: '--suave', t: '--c-ink-5', u: 'Pestañas, botón cerrar, horario en pausa, «sin verificar» y MEDIBOT al pasar el ratón' },
-      { v: '--suave-hover', t: '--c-ink-10', u: 'Botón cerrar al pasar el ratón y onda de MEDIBOT' },
+      { v: '--suave', t: '--c-ink-5', u: 'Pestañas, botón cerrar, horario en pausa y «sin verificar»' },
+      { v: '--suave-hover', t: '--c-ink-10', u: 'Botón cerrar al pasar el ratón' },
       { v: '--velo', t: 'p:--velo', u: 'Velo sobre la página con la configuración abierta' }
     ]},
     { titulo: 'Bordes', filas: [
-      { v: '--borde', t: '--c-ink-10', u: 'Panel, bloques, filas, líneas entre filas y avisos' },
-      { v: '--borde-fuerte', t: '--c-ink-15', u: 'Campos, hora, casillas de días y botones de contorno' },
-      { v: '--borde-activo', t: '--c-brand-30', u: 'Filas y casillas de días al pasar el ratón' },
+      { v: '--borde', t: '--c-ink-10', u: 'Contenedor, tuerca, panel, bloques, filas y avisos (como en Vision)' },
+      { v: '--borde-fuerte', t: '--c-ink-15', u: 'Botones COMPARTIMIENTO y MEDIBOT, campos, hora, días y botones de contorno' },
+      { v: '--borde-activo', t: '--c-brand-30', u: 'Borde de los botones al pasar el ratón; onda y destello de los botones blancos' },
       { v: '--borde-hover', t: '--c-brand-40', u: 'Botones de contorno al pasar el ratón' }
     ]},
     { titulo: 'Texto', filas: [
-      { v: '--texto-titulo', t: '--c-ink', u: 'Título PILLBOX, títulos y datos' },
-      { v: '--texto', t: '--c-ink-70', u: 'Etiquetas del formulario, pestañas y botones de contorno' },
-      { v: '--texto-tenue', t: '--c-ink-60', u: 'Subtítulos, rótulos en mayúsculas, fechas, avisos y créditos' },
+      { v: '--texto-titulo', t: '--c-ink', u: '«BOX» del título, títulos, datos y letra de los botones al pasar el ratón' },
+      { v: '--texto', t: '--c-ink-70', u: 'Letra de los botones (COMPARTIMIENTO, MEDIBOT, contorno), etiquetas y pestañas' },
+      { v: '--texto-tenue', t: '--c-ink-60', u: 'Rótulo PASTILLERO, subtítulos, fechas, avisos y créditos' },
       { v: '--texto-pastilla', t: '--c-ink-50', u: 'Pastillas neutras: «Pausado» y «sin verificar»' },
       { v: '--texto-debil', t: '--c-ink-40', u: '«Sin datos», historial vacío y texto de ejemplo de los campos' }
     ]},
     { titulo: 'Marca', filas: [
-      { v: '--acento', t: '--c-brand', u: 'Foco del teclado, días del horario, «Pendiente», acciones MANUAL, avisos y enlaces' },
-      { v: '--acento-fin', t: '--c-deep', u: 'Guardar, Agregar horario y Configurar (color sólido)' },
-      { v: '--sobre-acento', t: '--c-blanco', u: 'Letra de esos botones y de DISPENSAR' },
+      { v: '--acento', t: '--c-brand', u: 'Inicio del degradado; títulos de los bloques del panel, foco del teclado, días del horario y enlaces' },
+      { v: '--acento-fin', t: '--c-deep', u: 'Final del degradado brand → deep' },
+      { v: 'Degradado', t: 'marca', u: 'COMPARTIMIENTO elegido, pestaña activa, Guardar, Agregar horario, días elegidos y números de las filas' },
+      { v: '--sobre-acento', t: '--c-blanco', u: 'Letra sobre el degradado y de DISPENSAR; indicador del elegido' },
       { v: '--acento-suave', t: '--c-brand-10', u: 'Fondo de «Pendiente»' },
-      { v: '--marca-suave', t: '--c-brandsoft', u: 'Disco de la tuerca y rueda de la pantalla de carga' }
+      { v: '--marca-suave', t: '--c-brandsoft', u: '«PILL» del título (como «MEDI»), disco de la tuerca, número encendido en la ruleta y rueda de carga' },
+      { v: '--sombra-acento', t: '--c-brand-5', u: 'Halo del contenedor y de la tuerca, como en Vision' },
+      { v: '--sombra-marca', t: 'p:--sombra-marca', u: 'Sombra de lo que lleva el degradado' }
     ]},
-    { titulo: 'Botones (planos, de color sólido)', filas: [
-      { v: '--pildora', t: 'p:--pildora', u: 'Botones COMPARTIMIENTO, número de cada fila y días elegidos' },
-      { v: '--pildora-hover', t: 'p:--pildora-hover', u: 'COMPARTIMIENTO al pasar el ratón' },
-      { v: '--pildora-texto', t: 'p:--pildora-texto', u: 'Letra de los botones COMPARTIMIENTO' },
-      { v: '--pildora-activa', t: 'p:--pildora-activa', u: 'COMPARTIMIENTO elegido: el que la ruleta tiene en la zona de carga' },
-      { v: '--pildora-activa-texto', t: 'p:--pildora-activa-texto', u: 'Su letra' },
-      { v: '--pildora-sombra', t: 'p:--pildora-sombra', u: 'Sombra de los botones COMPARTIMIENTO' },
-      { v: '--pildora-activa-sombra', t: 'p:--pildora-activa-sombra', u: 'Sombra del COMPARTIMIENTO elegido y de Guardar' },
-      { v: '--onda', t: 'p:--onda', u: 'Onda al pulsar un botón, latido del elegido y barra de DISPENSANDO' },
+    { titulo: 'Botones', filas: [
       { v: '--rojo', t: '--c-rojo', u: 'DISPENSAR' },
       { v: '--rojo-hover', t: '--c-rojo-fuerte', u: 'DISPENSAR al pasar el ratón' },
       { v: '--rojo-sombra', t: 'p:--rojo-sombra', u: 'Sombra de DISPENSAR' },
-      { v: '--boton-claro', t: 'p:--boton-claro', u: 'MEDIBOT: fondo' },
-      { v: '--boton-claro-texto', t: '--c-ink', u: 'MEDIBOT: letra' },
-      { v: '--boton-claro-borde', t: 'p:--boton-claro-borde', u: 'MEDIBOT: borde' },
+      { v: '--onda', t: 'p:--onda', u: 'Onda, destello y latido sobre el degradado y sobre DISPENSAR; barra de DISPENSANDO' },
       { v: '--tuerca-metal', t: 'p:--tuerca-metal', u: 'Dientes de la tuerca' },
       { v: '--tuerca-radios', t: 'p:--tuerca-radios', u: 'Aro, radios y centro de la tuerca' }
     ]},
@@ -658,7 +641,7 @@
       { v: '--aviso-texto', t: '--c-ambar-texto', u: 'Letra de «Desincronizado» y borde de los avisos de atención' }
     ]},
     { titulo: 'Sombras', filas: [
-      { v: '--sombra-tarjeta', t: 'p:--sombra-tarjeta', u: 'Tarjeta central, tuerca, panel, avisos, MEDIBOT y el enlace a la web' }
+      { v: '--sombra-tarjeta', t: 'p:--sombra-tarjeta', u: 'Sombras de los botones, la tuerca, el panel, los avisos y el enlace a la web' }
     ]},
     { titulo: 'El aparato, tal cual el diseño', filas: [
       { v: '--metal-1', t: 'p:--metal-1', u: 'Cuerpo: la zona clara, arriba a la derecha' },
