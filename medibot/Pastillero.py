@@ -768,6 +768,22 @@ HTML_PAGE = """<!DOCTYPE html>
       box-shadow: 0 8px 18px -8px var(--pildora-sombra), 0 2px 4px -2px var(--pildora-sombra);
       transition: transform .3s cubic-bezier(.3, 1.4, .5, 1), box-shadow .3s ease, background-color .2s ease, color .2s ease;
     }
+    /*  Entrada escalonada al cargar la pagina (despues de la pantalla de
+        carga) y destello que cruza el boton al pasar el raton o llegar con
+        el teclado. --i es el orden de cada boton. */
+    .comp, .btn-dispensar, .btn-medibot { --i: 0; animation: aparecer .6s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(.45s + var(--i) * 70ms); }
+    .btn-dispensar { --i: 9; }
+    .btn-medibot { --i: 10; }
+    @keyframes aparecer { from { opacity: 0; translate: 0 16px; } }
+    .comp::before, .btn-dispensar::before, .btn-medibot::before {
+      content: ''; position: absolute; z-index: -1; top: 0; bottom: 0; left: 0; width: 45%;
+      background: linear-gradient(100deg, transparent, var(--onda), transparent);
+      transform: translateX(-170%) skewX(-18deg); pointer-events: none;
+    }
+    .btn-medibot::before { background: linear-gradient(100deg, transparent, var(--suave-hover), transparent); }
+    .comp:focus-visible::before, .btn-dispensar:focus-visible::before, .btn-medibot:focus-visible::before { animation: destello .9s ease; }
+    @keyframes destello { to { transform: translateX(340%) skewX(-18deg); } }
+    .comp:focus-visible:not(:active) { transform: translateY(-3px); }
     .comp:active { transform: translateY(1px) scale(.985); box-shadow: 0 2px 6px -3px var(--pildora-sombra); transition-duration: .08s; }
     .comp[aria-pressed="true"] {
       background: var(--pildora-activa); color: var(--pildora-activa-texto);
@@ -775,7 +791,7 @@ HTML_PAGE = """<!DOCTYPE html>
     }
     .comp-titulo, .comp-med { position: relative; z-index: 1; }
     .comp-titulo { font-size: 15px; font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
-    .comp-med { max-width: 100%; font-size: 13px; font-weight: 600; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .comp-med { max-width: 100%; font-size: 13px; font-weight: 600; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .2s ease; }
     .comp-estado {
       position: absolute; z-index: 1; right: 24px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
       border-radius: 50%; opacity: 0; transform: scale(.4); transition: opacity .25s ease, transform .3s cubic-bezier(.3, 1.4, .5, 1);
@@ -793,13 +809,15 @@ HTML_PAGE = """<!DOCTYPE html>
     /*  La elevacion al pasar el raton solo donde hay raton: en un movil el
         "hover" se queda pegado despues de tocar. */
     @media (hover: hover) {
-      .comp:hover:not(:active) { transform: translateY(-3px); box-shadow: 0 16px 28px -12px var(--pildora-sombra), 0 4px 8px -4px var(--pildora-sombra); }
+      .comp:hover:not(:active) { transform: translateY(-4px) scale(1.02); box-shadow: 0 18px 30px -12px var(--pildora-sombra), 0 5px 10px -5px var(--pildora-sombra); }
+      .comp:hover::before, .btn-dispensar:not(:disabled):hover::before, .btn-medibot:hover::before { animation: destello .9s ease; }
+      .comp:hover .comp-med { opacity: 1; }
       .comp:not([aria-pressed="true"]):hover { background: var(--pildora-hover); }
       .comp[aria-pressed="true"]:hover:not(:active) { box-shadow: 0 18px 32px -12px var(--pildora-activa-sombra), 0 4px 8px -4px var(--pildora-activa-sombra); }
       .btn-dispensar:not(:disabled):hover { background: var(--rojo-hover); }
-      .btn-dispensar:not(:disabled):hover:not(:active) { transform: translateY(-3px); box-shadow: 0 18px 30px -12px var(--rojo-sombra), 0 4px 8px -4px var(--rojo-sombra); }
+      .btn-dispensar:not(:disabled):hover:not(:active) { transform: translateY(-4px) scale(1.03); box-shadow: 0 18px 30px -12px var(--rojo-sombra), 0 4px 8px -4px var(--rojo-sombra); }
       .btn-medibot:hover { background: var(--suave); }
-      .btn-medibot:hover:not(:active) { transform: translateY(-3px); box-shadow: 0 16px 28px -14px var(--sombra-tarjeta); }
+      .btn-medibot:hover:not(:active) { transform: translateY(-4px) scale(1.03); box-shadow: 0 16px 28px -14px var(--sombra-tarjeta); }
       .btn-medibot:hover::after { width: 1em; margin-left: .45em; opacity: 1; }
     }
 
@@ -877,7 +895,7 @@ HTML_PAGE = """<!DOCTYPE html>
       position: absolute; inset: 2.55em; border-radius: 50%;
       box-shadow: 0 0 0 .1em var(--cromo-4);
       transition-property: transform; transition-duration: 0s;
-      transition-timing-function: cubic-bezier(.45, .05, .3, 1);
+      transition-timing-function: cubic-bezier(.37, 0, .63, 1);
       will-change: transform;
     }
     .ruleta-disco svg { display: block; width: 100%; height: 100%; }
@@ -887,13 +905,17 @@ HTML_PAGE = """<!DOCTYPE html>
     .radios { stroke: var(--radio); stroke-width: 2.2; stroke-linecap: round; }
     .cubo { fill: var(--disco-2); stroke: var(--radio); stroke-width: 1.6; }
     .cubo-roseta circle { fill: none; stroke: var(--radio); stroke-width: 1; }
+    /*  El numero de cada compartimiento, pequeno, pintado en el disco: gira
+        con el. El del compartimiento elegido se enciende. */
+    .numeros text { fill: var(--radio); opacity: .8; font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: central; transition: fill .4s ease, opacity .4s ease; }
+    .numeros text.activo { fill: var(--marca-suave); opacity: 1; }
     /*  La pastilla: solo se ve al dispensar, cayendo por detras de la placa. */
     .pastilla-cae {
       position: absolute; left: 50%; top: 14.2em; width: 1.5em; height: .72em; margin-left: -.75em;
       border-radius: .36em; opacity: 0; pointer-events: none;
       background: linear-gradient(90deg, var(--pastilla-a) 50%, var(--pastilla-b) 50%);
     }
-    .pastilla-cae.cayendo { animation: caer 1.2s cubic-bezier(.5, 0, .9, .6) forwards; }
+    .pastilla-cae.cayendo { animation: caer 1.6s cubic-bezier(.5, 0, .9, .6) forwards; }
     @keyframes caer {
       0% { opacity: 0; transform: translateY(0) rotate(90deg) scale(.5); }
       15% { opacity: 1; transform: translateY(0) rotate(90deg) scale(1); }
@@ -1140,7 +1162,8 @@ HTML_PAGE = """<!DOCTYPE html>
       .form-grid { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .ruleta-marca, .comp-estado, .columna.llamar .comp, .btn-dispensar.ocupado::after { animation: none !important; }
+      .ruleta-marca, .comp-estado, .columna.llamar .comp, .btn-dispensar.ocupado::after,
+      .comp, .btn-dispensar, .btn-medibot, .comp::before, .btn-dispensar::before, .btn-medibot::before { animation: none !important; }
       .comp, .btn-dispensar, .btn-medibot, .tuerca, .btn, .fila-comp { transition: none; }
     }
   </style>
@@ -1191,6 +1214,7 @@ HTML_PAGE = """<!DOCTYPE html>
             <circle r="100" fill="url(#gDisco)"/>
             <circle class="llanta" r="90"/>
             <path class="radios" d="M4.97 -12.01L34.44 -83.15M12.01 -4.97L83.15 -34.44M12.01 4.97L83.15 34.44M4.97 12.01L34.44 83.15M-4.97 12.01L-34.44 83.15M-12.01 4.97L-83.15 34.44M-12.01 -4.97L-83.15 -34.44M-4.97 -12.01L-34.44 -83.15"/>
+            <g class="numeros"><text id="numRueda1" transform="rotate(0) translate(0 -76)">1</text><text id="numRueda2" transform="rotate(45) translate(0 -76)">2</text><text id="numRueda3" transform="rotate(90) translate(0 -76)">3</text><text id="numRueda4" transform="rotate(135) translate(0 -76)">4</text><text id="numRueda5" transform="rotate(180) translate(0 -76)">5</text><text id="numRueda6" transform="rotate(225) translate(0 -76)">6</text><text id="numRueda7" transform="rotate(270) translate(0 -76)">7</text><text id="numRueda8" transform="rotate(315) translate(0 -76)">8</text></g>
             <circle class="cubo" r="13"/>
             <g class="cubo-roseta"><circle cx="0.00" cy="-7.00" r="2"/><circle cx="4.95" cy="-4.95" r="2"/><circle cx="7.00" cy="0.00" r="2"/><circle cx="4.95" cy="4.95" r="2"/><circle cx="0.00" cy="7.00" r="2"/><circle cx="-4.95" cy="4.95" r="2"/><circle cx="-7.00" cy="0.00" r="2"/><circle cx="-4.95" cy="-4.95" r="2"/><circle r="2.2"/></g>
           </svg>
@@ -1347,10 +1371,13 @@ HTML_PAGE = """<!DOCTYPE html>
     const DIAS_LARGOS = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
     const CAMPOS = ['medicamento','dosis','nombre','notas'];
     const REDUCIR = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    //  Segundos de animacion por compartimiento. El motor de verdad
-    //  (28BYJ-48, 256 pasos por compartimiento) tarda algo mas; aqui se
-    //  acorta para que la animacion no aburra, sin perder el sentido del giro.
-    const SEG_POR_COMP = REDUCIR ? 0.08 : 0.5;
+    //  Segundos de animacion por compartimiento: un giro LENTO, para que se
+    //  vea bien como la ruleta lleva cada compartimiento a su sitio (una
+    //  vuelta entera son unos 13 s). El motor de verdad (28BYJ-48 a 10 rpm)
+    //  va algo mas rapido; la ruleta dibujada se pone al dia con el Arduino
+    //  al terminar cada giro.
+    const SEG_POR_COMP = REDUCIR ? 0.08 : 1.6;
+    const SEG_MINIMO = REDUCIR ? 0.05 : 1.2;
 
     let dataStore = {};   // compartimientos (desde el servidor)
     let horarios = [];    // horarios (desde el servidor)
@@ -1495,7 +1522,7 @@ HTML_PAGE = """<!DOCTYPE html>
       if (!k) { return Promise.resolve(); }
       pasos += k;
       arriba = ((arriba - 1 + k) % TOTAL_COMPARTMENTS) + 1;
-      const seg = Math.max(REDUCIR ? 0.05 : 0.4, k * SEG_POR_COMP);
+      const seg = Math.max(SEG_MINIMO, k * SEG_POR_COMP);
       aplicarGiro(seg);
       return esperar(seg * 1000 + 80);
     }
@@ -1559,7 +1586,7 @@ HTML_PAGE = """<!DOCTYPE html>
       p.classList.remove('cayendo');
       void p.offsetWidth;
       p.classList.add('cayendo');
-      return esperar(REDUCIR ? 300 : 1200);
+      return esperar(REDUCIR ? 300 : 1600);
     }
     function secuenciaDispensar(n) {
       const rot = (n - 1 + MITAD) % TOTAL_COMPARTMENTS;
@@ -1627,6 +1654,7 @@ HTML_PAGE = """<!DOCTYPE html>
         b.className = 'comp';
         b.id = 'comp' + i;
         b.setAttribute('aria-pressed', 'false');
+        b.style.setProperty('--i', String(i));
         b.innerHTML = '<span class="comp-titulo">COMPARTIMIENTO ' + i + '</span>' +
           '<span class="comp-med" id="compMed' + i + '">Vacío</span>' +
           '<span class="comp-estado" aria-hidden="true"></span>';
@@ -1643,6 +1671,7 @@ HTML_PAGE = """<!DOCTYPE html>
         if (d) { completos++; }
         b.setAttribute('aria-pressed', seleccionado === i ? 'true' : 'false');
         if (seleccionado !== i) { b.classList.remove('en-camino'); }
+        el('numRueda' + i).classList.toggle('activo', seleccionado === i);
         el('compMed' + i).textContent = d ? d.medicamento : 'Vacío';
         b.title = 'Compartimiento ' + i + ': ' + (d ? d.medicamento + ', ' + d.dosis : 'sin medicamento') +
           (seleccionado === i ? ' (pulsa otra vez para devolver la ruleta al inicio)' : '');
