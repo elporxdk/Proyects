@@ -17,19 +17,25 @@
 #    2. Descarga el codigo en ~/Proyects (o lo actualiza si ya estaba).
 #    3. Da permiso a tu usuario para el puerto del Arduino, las camaras y
 #       el audio (grupos dialout, video y audio).
-#    4. Crea el icono "MEDIBOT" en el menu y en el escritorio, y la orden
-#       'medibot' para arrancarlo desde una terminal.
+#    4. Crea el icono "MEDIBOT" en el menu y en el escritorio, la orden
+#       'medibot' para arrancarlo desde una terminal, y la orden
+#       'medibot-actualizar' (y el icono "Actualizar MEDIBOT" del menu) para
+#       ponerlo al dia.
 #    5. Comprueba que todo se puede importar y dice que falta, si falta algo.
 #
-#  Volver a ejecutarlo = ACTUALIZAR (baja el codigo nuevo y repasa todo).
+#  ACTUALIZAR, ya instalado:  medibot-actualizar   (ver actualizar.sh).
+#  Volver a ejecutar este instalador tambien actualiza (y repasa todo).
 #
 #  Opciones:
-#    --autoarranque       MEDIBOT se abre solo al encender la Pi
-#                         (al entrar al escritorio).
-#    --sin-autoarranque   quita el autoarranque.
+#    --autoarranque         MEDIBOT se abre solo al encender la Pi
+#                           (al entrar al escritorio).
+#    --sin-autoarranque     quita el autoarranque.
+#    --autoactualizar       MEDIBOT se actualiza solo (mira cada hora si hay
+#                           version nueva; ver actualizar.sh).
+#    --sin-autoactualizar   quita la actualizacion automatica.
 #
 #  Con curl, las opciones van despues de 'bash -s --':
-#    curl -fsSL https://raw.githubusercontent.com/elporxdk/Proyects/main/instalar.sh | bash -s -- --autoarranque
+#    curl -fsSL https://raw.githubusercontent.com/elporxdk/Proyects/main/instalar.sh | bash -s -- --autoarranque --autoactualizar
 #
 #  Variables:
 #    MEDIBOT_DIR=/otra/carpeta   donde descargar el codigo (por defecto ~/Proyects)
@@ -76,23 +82,28 @@ fallo() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 ayuda() {
     cat <<'EOF'
 Uso:  bash instalar.sh [--autoarranque | --sin-autoarranque]
+                      [--autoactualizar | --sin-autoactualizar]
 
-  (sin opciones)       instala o actualiza MEDIBOT
-  --autoarranque       ademas, MEDIBOT se abre solo al encender la Pi
-  --sin-autoarranque   quita el autoarranque
+  (sin opciones)         instala o actualiza MEDIBOT
+  --autoarranque         ademas, MEDIBOT se abre solo al encender la Pi
+  --sin-autoarranque     quita el autoarranque
+  --autoactualizar       ademas, MEDIBOT se actualiza solo (mira cada hora)
+  --sin-autoactualizar   quita la actualizacion automatica
 
   MEDIBOT_DIR=/carpeta bash instalar.sh   descarga el codigo en otra carpeta
 EOF
 }
 
 main() {
-    local autoarranque=""
+    local autoarranque="" autoactualizar=""
     for arg in "$@"; do
         case "$arg" in
-            --autoarranque)     autoarranque="si" ;;
-            --sin-autoarranque) autoarranque="no" ;;
-            -h|--help)          ayuda; exit 0 ;;
-            *)                  ayuda; fallo "opcion desconocida: $arg" ;;
+            --autoarranque)       autoarranque="si" ;;
+            --sin-autoarranque)   autoarranque="no" ;;
+            --autoactualizar)     autoactualizar="si" ;;
+            --sin-autoactualizar) autoactualizar="no" ;;
+            -h|--help)            ayuda; exit 0 ;;
+            *)                    ayuda; fallo "opcion desconocida: $arg" ;;
         esac
     done
 
@@ -184,17 +195,41 @@ main() {
     fi
 
     # ---------------------------------------------------------------- 4
-    info "4/5  Creando el icono de MEDIBOT y la orden 'medibot'"
-    #  La orden 'medibot': arranca main.py con el Python del sistema.
+    info "4/5  Creando el icono de MEDIBOT y las ordenes 'medibot' y 'medibot-actualizar'"
+    #  La orden 'medibot': arranca main.py con el Python del sistema. Antes,
+    #  si la actualizacion automatica esta activada y ya descargo una version
+    #  nueva, la instala (no necesita internet: es al momento).
+    #
+    #  Va todo entre llaves para que bash lo lea entero antes de empezar: esa
+    #  actualizacion puede volver a pasar este instalador, que rehace este
+    #  mismo fichero. Por lo mismo se escribe aparte y se cambia con mv (el
+    #  fichero viejo sigue intacto para el bash que lo este leyendo).
     mkdir -p "$HOME/.local/bin"
     local orden="$HOME/.local/bin/medibot"
-    cat > "$orden" <<EOF
+    cat > "$orden.tmp" <<EOF
 #!/usr/bin/env bash
 # Arranca MEDIBOT (lo genera instalar.sh; se rehace al volver a instalar).
+#  MEDIBOT_SIN_ACTUALIZAR=1 medibot   arranca sin instalar lo descargado.
+{
 cd "$destino" || exit 1
+if [ -z "\${MEDIBOT_SIN_ACTUALIZAR:-}" ] && [ -f actualizar.sh ]; then
+    bash actualizar.sh --al-arrancar || true
+fi
 exec "$py" medibot/main.py "\$@"
+}
 EOF
-    chmod +x "$orden"
+    chmod +x "$orden.tmp"
+    mv -f "$orden.tmp" "$orden"
+
+    #  La orden 'medibot-actualizar': pone MEDIBOT al dia (actualizar.sh).
+    local orden_act="$HOME/.local/bin/medibot-actualizar"
+    cat > "$orden_act.tmp" <<EOF
+#!/usr/bin/env bash
+# Actualiza MEDIBOT (lo genera instalar.sh; se rehace al volver a instalar).
+exec bash "$destino/actualizar.sh" "\$@"
+EOF
+    chmod +x "$orden_act.tmp"
+    mv -f "$orden_act.tmp" "$orden_act"
 
     #  El icono abre una terminal con MEDIBOT dentro: ahi salen las
     #  direcciones para entrar al pastillero desde el movil y los avisos.
@@ -231,6 +266,29 @@ EOF
     echo "Icono en el menu: $lanzador"
     echo "Orden de terminal: medibot"
 
+    #  "Actualizar MEDIBOT" en el menu: abre una terminal con el actualizador
+    #  y espera a que se pulse Enter para que de tiempo a leer como fue.
+    local lanzador_act="$apps/medibot-actualizar.desktop" terminal_act="false"
+    local exec_act="env MEDIBOT_PAUSA=1 $orden_act"
+    if command -v x-terminal-emulator >/dev/null 2>&1; then
+        exec_act="env MEDIBOT_PAUSA=1 x-terminal-emulator -e $orden_act"
+    else
+        terminal_act="true"
+    fi
+    cat > "$lanzador_act" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Actualizar MEDIBOT
+Comment=Baja e instala la ultima version de MEDIBOT
+Exec=$exec_act
+Path=$destino
+Icon=system-software-update
+Terminal=$terminal_act
+Categories=Utility;
+EOF
+    chmod +x "$lanzador_act"
+    echo "Para actualizar: icono \"Actualizar MEDIBOT\" del menu, u orden: medibot-actualizar"
+
     #  Autoarranque: un .desktop en ~/.config/autostart, que el escritorio de
     #  Raspberry Pi OS abre al iniciar sesion. Sin opcion, se respeta lo que
     #  hubiera (y se rehace por si la carpeta del codigo ha cambiado).
@@ -242,6 +300,26 @@ EOF
     elif [ "$autoarranque" = "no" ]; then
         rm -f "$autostart"
         echo "Autoarranque desactivado."
+    fi
+
+    #  Actualizacion automatica (un temporizador de systemd; lo monta
+    #  actualizar.sh). Sin opcion, se respeta lo que hubiera, y se rehace por
+    #  si la carpeta del codigo ha cambiado.
+    local auto_act="no"
+    if [ ! -f "$destino/actualizar.sh" ]; then
+        #  Solo pasa si el paso 2 no pudo bajar el codigo nuevo.
+        [ -z "$autoactualizar" ] \
+            || aviso "esta copia del codigo no trae actualizar.sh todavia; vuelve a ejecutar el instalador con internet."
+    elif [ "$autoactualizar" = "si" ] \
+            || { [ -z "$autoactualizar" ] && [ -f /etc/systemd/system/medibot-actualizar.timer ]; }; then
+        if bash "$destino/actualizar.sh" --activar-auto; then
+            auto_act="si"
+        else
+            aviso "no se pudo activar la actualizacion automatica (mira el mensaje de arriba)."
+        fi
+    elif [ "$autoactualizar" = "no" ]; then
+        bash "$destino/actualizar.sh" --desactivar-auto \
+            || aviso "no se pudo quitar la actualizacion automatica."
     fi
 
     # ---------------------------------------------------------------- 5
@@ -317,6 +395,10 @@ PY
         fallo "falta algo imprescindible (mira la lista de arriba). Vuelve a ejecutar el instalador cuando tengas internet."
     fi
 
+    #  Si una actualizacion automatica habia dejado pendiente repasar la
+    #  instalacion, ya esta hecho.
+    rm -f "$HOME/.medibot/instalar-pendiente"
+
     info "MEDIBOT esta instalado en $destino"
     cat <<EOF
 
@@ -336,8 +418,15 @@ EOF
     done
     cat <<EOF
 
-  Para actualizar a la ultima version: vuelve a ejecutar este instalador.
+  Para actualizar a la ultima version:
+    - icono "Actualizar MEDIBOT" del menu, o
+    - en una terminal:  medibot-actualizar
 EOF
+    if [ "$auto_act" = "si" ]; then
+        echo "  (la actualizacion automatica esta ACTIVADA: no hace falta hacer nada)"
+    else
+        echo "  Si quieres que se actualice solo:  medibot-actualizar --activar-auto"
+    fi
     if [ "$hay_que_reiniciar" = "si" ]; then
         printf '\n\033[1;33m  IMPORTANTE: reinicia la Pi (sudo reboot) para que los permisos nuevos\n  (Arduino, camaras, audio) se apliquen.\033[0m\n'
     fi
